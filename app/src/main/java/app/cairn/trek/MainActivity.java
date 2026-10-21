@@ -507,6 +507,11 @@ public final class MainActivity extends Activity {
           }
         });
     content.addView(licences);
+    content.addView(
+        button(
+            "App updates",
+            false,
+            () -> startActivity(new Intent(this, UpdateActivity.class))));
   }
 
   private void routeActions(Store.RouteEntry entry) {

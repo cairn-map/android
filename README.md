@@ -1,10 +1,11 @@
-# Cairn 0.4.0
+# Cairn 0.5.0
 
 A native Android trekking app built around offline maps, a minimal map screen, and user-selected GPS intervals. Cairn is a working name. All required tools, map access, routing data and licences are free of charge.
 
 ## This build
 
 - Always-dark interface inspired by Morphe: charcoal surfaces, blue accents, flat rounded controls, and dark dialogs/settings. Map tiles keep their original cartographic colors; map controls, attribution and scale stay dark.
+- Manual in-app updates under **Routes → App updates**: check, download, verify and open Android's installer. No update polling, scheduled jobs or automatic downloads; transfers stop when you leave the update screen, and updates are blocked while recording a hike.
 - Full-screen map, no header or zoom buttons, two floating Map/Routes destinations. Map mode, location, saved maps and GPS settings sit on the right for one-handed use.
 - Smooth pinch zoom, cached geographic backdrops, center-first loading of visible tiles, and cancellation of obsolete viewport requests. Offline enlargements are replaced with real detail when online mode is enabled.
 - Plan IGN through the public WMTS service. Online mode automatically keeps viewed tiles permanently in local storage; the camera is remembered across restarts. No provider account or key is needed.
@@ -17,7 +18,7 @@ A native Android trekking app built around offline maps, a minimal map screen, a
 
 ## Install and try
 
-Install `Cairn-0.4.0-debug.apk` on Android 8.0 or newer. Its certificate matches the earlier prototypes, allowing an update that retains local data. This is a development-signed evaluation build.
+Install `Cairn-0.5.0.apk` from [Releases](https://github.com/dayblox/cairn/releases) on Android 8.0 or newer. Version 0.5.0 starts a new release signing identity: older development builds must be removed for this first install, which removes their local data. Future signed releases use the same release key and update in place.
 
 1. Tap the crossed-cloud icon on the right to load Plan IGN. Pan and pinch; viewed tiles are saved as they arrive. Tap the cloud again for offline maps. This keeps only visited tiles/zoom levels, not an entire area at every detail level.
 2. Open GPX/XML from an Android file manager and choose Cairn, or share files to it. Routes → Add files is a single fallback picker with multiple selection. Each GPX stays in the library; several can be displayed together. One route is selected for guidance at a time.
@@ -32,7 +33,7 @@ Raster MBTiles accepts PNG/JPEG tiles in TMS or declared XYZ order. Vector MBTil
 
 ## Updates on your phone
 
-[Obtainium](https://github.com/ImranR98/Obtainium) can check GitHub releases and download new APKs without visiting the repository each time. Cairn does not yet publish release APKs or provide an in-app updater. Updates must keep the installed app's signing certificate to retain local data; private repositories also require authenticated access. See [update options and setup](docs/UPDATES.md).
+Open **Routes → App updates → Check for updates**. If a newer release is available, tap **Download update**, then **Install downloaded update** and confirm in Android. Android may first ask you to allow Cairn to install apps; return and tap Install again after granting that permission. No GitHub account or token is needed. Checks only happen when requested and downloads are never automatic. See [update behavior and release publishing](docs/UPDATES.md).
 
 ## Offline routing and storage
 
