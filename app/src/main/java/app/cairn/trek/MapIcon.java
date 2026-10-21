@@ -19,7 +19,7 @@ final class MapIcon extends Drawable {
     Rect b = getBounds();
     canvas.translate(b.left, b.top);
     canvas.scale(b.width() / 24f, b.height() / 24f);
-    paint.setColor(0xff235d4d);
+    paint.setColor(AppPalette.ACCENT);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
@@ -53,10 +53,10 @@ final class MapIcon extends Drawable {
       cloud.lineTo(6, 18);
       canvas.drawPath(cloud, paint);
       if (kind == OFFLINE) {
-        paint.setColor(Color.WHITE);
+        paint.setColor(AppPalette.SURFACE);
         paint.setStrokeWidth(4);
         canvas.drawLine(3, 3, 21, 21, paint);
-        paint.setColor(0xff235d4d);
+        paint.setColor(AppPalette.ACCENT);
         paint.setStrokeWidth(1.8f);
         canvas.drawLine(3, 3, 21, 21, paint);
       } else {

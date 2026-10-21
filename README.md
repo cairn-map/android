@@ -4,6 +4,7 @@ A native Android trekking app built around offline maps, a minimal map screen, a
 
 ## This build
 
+- Always-dark interface inspired by Morphe: charcoal surfaces, blue accents, flat rounded controls, and dark dialogs/settings. Map tiles keep their original cartographic colors; map controls, attribution and scale stay dark.
 - Full-screen map, no header or zoom buttons, two floating Map/Routes destinations. Map mode, location, saved maps and GPS settings sit on the right for one-handed use.
 - Smooth pinch zoom, cached geographic backdrops, center-first loading of visible tiles, and cancellation of obsolete viewport requests. Offline enlargements are replaced with real detail when online mode is enabled.
 - Plan IGN through the public WMTS service. Online mode automatically keeps viewed tiles permanently in local storage; the camera is remembered across restarts. No provider account or key is needed.
@@ -28,6 +29,10 @@ Install `Cairn-0.4.0-debug.apk` on Android 8.0 or newer. Its certificate matches
 Android file managers differ in MIME reporting. Typed GPX/XML content URIs work even with opaque IDs. Generic binary/plain-text files are offered by filename where exposed; use Add files when a provider does not supply a usable type or filename. Source XML configures the supported built-in Plan IGN source without enabling network access. It does not install arbitrary providers or execute comments/headers.
 
 Raster MBTiles accepts PNG/JPEG tiles in TMS or declared XYZ order. Vector MBTiles and Mapsforge `.map` files are not supported. Routing RD5 imports must retain their original region filename, such as `E5_N45.rd5`.
+
+## Updates on your phone
+
+[Obtainium](https://github.com/ImranR98/Obtainium) can check GitHub releases and download new APKs without visiting the repository each time. Cairn does not yet publish release APKs or provide an in-app updater. Updates must keep the installed app's signing certificate to retain local data; private repositories also require authenticated access. See [update options and setup](docs/UPDATES.md).
 
 ## Offline routing and storage
 
