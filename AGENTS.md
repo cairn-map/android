@@ -1,8 +1,9 @@
 # Working in Cairn
 
 - Deliver repository changes through a pull request against `main`. Create a descriptive feature branch, commit and push the changes, open a ready-for-review PR, and include its URL in the final response. Do not leave completed work only in the local workspace or push source changes directly to `main`.
-- Describe the user-visible behavior and relevant validation in the PR. Run `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2`, `python3 -m unittest discover -s scripts -p 'test_*.py'`, `node --test scripts/test-auto-merge.cjs`, and `actionlint` when changing workflows.
+- Describe the user-visible behavior and relevant validation in the PR. Run `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2`, `python3 -m unittest discover -s scripts -p 'test_*.py'`, `node --test scripts/test-*.cjs`, and `actionlint` when changing workflows.
 - The Android checks gate automatic PR merging. Do not bypass failed or pending checks. Monitor the PR and report a failing check or release rather than claiming it is complete.
 - Successful checks automatically merge ready PRs targeting `main`. Merges trigger a signed release build. Release versions and Android version codes advance automatically; never replace an existing published release.
+- PR checks must always run the build, tests and lint before recording validation evidence. Release reuse requires verified evidence for the identical merged tree and toolchain; preserve the full-validation fallback for missing/mismatched evidence and CI/script changes. Never bypass APK signing or release verification.
 - Keep signing keys and passwords out of Git, logs, PRs and release assets. CI uses GitHub Actions secrets and verifies the key against `release-signing.sha256`. Reuse the existing key; replace it only with explicit user authorization because Android cannot update an app signed by a different key.
 - Remove merged feature branches after confirming their tips are included in `main`. Preserve branches with unmerged work. The auto-merge workflow removes a feature branch only if it still points at the merged PR head.

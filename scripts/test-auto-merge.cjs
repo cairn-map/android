@@ -14,7 +14,7 @@ async function scenario({ status = 'completed', conclusion = 'success', attempt 
   const repository = { default_branch: 'main', full_name: 'owner/cairn' };
   const github = { paginate: async () => [{ number: 3 }], rest: {
     actions: {
-      getWorkflowRun: async () => ({ data: { status, conclusion, run_attempt: attempt, head_sha: 'checked' } }),
+      getWorkflowRun: async () => ({ data: { id: 1, status, conclusion, run_attempt: attempt, head_sha: 'checked' } }),
       createWorkflowDispatch: async request => { calls.push(['dispatch', request]); if (dispatchError) throw Error('dispatch failed'); }
     },
     repos: { get: async () => ({ data: repository }), listPullRequestsAssociatedWithCommit: () => {} },
@@ -37,7 +37,7 @@ test('merges only the checked SHA, dispatches its merge commit, then removes the
   const calls = await scenario();
   assert.deepEqual(calls.map(call => call[0]), ['merge', 'dispatch', 'delete']);
   assert.equal(calls[0][1].sha, 'checked');
-  assert.deepEqual(calls[1][1].inputs, { source_commit: 'merged' });
+  assert.deepEqual(calls[1][1].inputs, { source_commit: 'merged', validation_run_id: '1' });
   assert.equal(calls[1][1].ref, 'main');
   assert.equal(calls[2][1].ref, 'heads/feature');
 });
