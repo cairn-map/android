@@ -18,4 +18,7 @@ jobs:
       - name: Install pinned Android packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35-ext15" "build-tools;35.0.0" > /dev/null'
       - name: Build, test and lint
-        run: bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          node --test scripts/test-auto-merge.cjs
+          bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2

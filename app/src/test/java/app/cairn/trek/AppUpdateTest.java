@@ -211,45 +211,96 @@ public class AppUpdateTest {
     assertThrows(FileNotFoundException.class, () -> provider.openFile(UpdateFileProvider.uri(context), "rw"));
     assertThrows(FileNotFoundException.class, () -> provider.openFile(
         android.net.Uri.parse("content://app.cairn.trek.updates/../database.db"), "r"));
-    Intent intent = UpdateActivity.installIntent(context);
+    Intent intent = AppUpdates.installIntent(context);
     assertEquals(Intent.ACTION_VIEW, intent.getAction());
     assertEquals("content", intent.getData().getScheme());
     assertEquals(Intent.FLAG_GRANT_READ_URI_PERMISSION, intent.getFlags());
     assertNotNull(intent.getClipData());
   }
 
+  private Object field(Object object, String name) throws Exception {
+    java.lang.reflect.Field field = object.getClass().getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(object);
+  }
+
+  private android.widget.TextView button(android.view.View view, String title) {
+    if (view instanceof android.widget.TextView
+        && title.contentEquals(((android.widget.TextView) view).getText()))
+      return (android.widget.TextView) view;
+    if (view instanceof android.view.ViewGroup) {
+      android.view.ViewGroup group = (android.view.ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++) {
+        android.widget.TextView found = button(group.getChildAt(i), title);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
   @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
   @Config(sdk = 28, qualifiers = "w393dp-h851dp-xhdpi")
-  public void openingResumingAndLeavingUpdateScreenDoesNotStartAnyUpdateWork() throws Exception {
-    try (ActivityController<UpdateActivity> controller = Robolectric.buildActivity(UpdateActivity.class).setup()) {
-      UpdateActivity activity = controller.get();
-      java.lang.reflect.Field client = UpdateActivity.class.getDeclaredField("client");
-      client.setAccessible(true);
-      java.lang.reflect.Field transfer = UpdateActivity.class.getDeclaredField("transfer");
-      transfer.setAccessible(true);
-      assertNull(client.get(activity));
-      assertNull(transfer.get(activity));
+  public void routesShowsInlineUpdateControlsWithoutStartingWorkAndBlocksChecksWhileRecording()
+      throws Exception {
+    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
       android.view.View root = activity.findViewById(android.R.id.content);
+      button(root, "Routes").performClick();
+      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
+      assertNull(field(updates, "client"));
+      assertNull(field(updates, "transfer"));
+      assertNull(button(root, "App updates"));
+      assertNotNull(button(root, "Check for updates"));
+      assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
       root.measure(android.view.View.MeasureSpec.makeMeasureSpec(786, android.view.View.MeasureSpec.EXACTLY),
           android.view.View.MeasureSpec.makeMeasureSpec(1550, android.view.View.MeasureSpec.EXACTLY));
       root.layout(0, 0, 786, 1550);
       android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(786, 1550, android.graphics.Bitmap.Config.ARGB_8888);
       root.draw(new android.graphics.Canvas(bitmap));
-      File preview = new File("build/test-previews/app-updates.png");
+      File preview = new File("build/test-previews/routes-updates.png");
       preview.getParentFile().mkdirs();
       try (OutputStream output = new FileOutputStream(preview)) {
         bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
       }
       TrackingService.running = true;
-      java.lang.reflect.Field check = UpdateActivity.class.getDeclaredField("checkButton");
-      check.setAccessible(true);
-      ((android.widget.Button) check.get(activity)).performClick();
-      assertNull(client.get(activity));
-      assertNull(transfer.get(activity));
+      button(root, "Check for updates").performClick();
+      assertNull(field(updates, "client"));
+      assertNull(field(updates, "transfer"));
+      assertEquals(android.view.View.VISIBLE, ((android.widget.TextView) field(updates, "status")).getVisibility());
       TrackingService.running = false;
+      button(root, "Map").performClick();
+      button(root, "Routes").performClick();
       controller.pause().stop().start().resume();
-      assertNull(client.get(activity));
-      assertNull(transfer.get(activity));
+      assertSame(updates, field(activity, "appUpdates"));
+      assertNull(field(updates, "client"));
+      assertNull(field(updates, "transfer"));
+    } finally {
+      TrackingService.running = false;
+    }
+  }
+
+  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
+  public void leavingRoutesCancelsUpdateWorkAndReturningDoesNotRestartIt() throws Exception {
+    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      android.view.View root = activity.findViewById(android.R.id.content);
+      button(root, "Routes").performClick();
+      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
+      java.util.concurrent.FutureTask<Void> transfer = new java.util.concurrent.FutureTask<>(() -> null);
+      java.lang.reflect.Field task = AppUpdates.class.getDeclaredField("transfer");
+      task.setAccessible(true);
+      task.set(updates, transfer);
+      java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
+      busy.setAccessible(true);
+      busy.setBoolean(updates, true);
+      button(root, "Map").performClick();
+      assertTrue(transfer.isCancelled());
+      assertFalse(busy.getBoolean(updates));
+      assertEquals(false, field(updates, "active"));
+      button(root, "Routes").performClick();
+      assertTrue(transfer.isCancelled());
+      assertFalse(busy.getBoolean(updates));
+      assertNull(field(updates, "client"));
     }
   }
 }

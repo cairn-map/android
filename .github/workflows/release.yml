@@ -1,8 +1,13 @@
 name: Publish signed Cairn update
 on:
   push:
-    branches: [updates]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Merged main commit to release (empty uses current main)
+        type: string
+        required: false
 permissions:
   contents: write
 concurrency:
@@ -11,37 +16,67 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || 'updates' }}
+          ref: main
+          fetch-depth: 0
+      - name: Select the merged source commit
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit || github.sha }}
+        run: |
+          if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Expected a full source commit SHA.'
+            exit 1
+          fi
+          git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main
+          git checkout --detach "$SOURCE_COMMIT"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install APK verification tools
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" > /dev/null'
-      - name: Validate the prepared release bundle
+          cache: gradle
+      - name: Select the next update version
+        id: version
+        run: python3 scripts/release-version.py --repository "$GITHUB_REPOSITORY" >> "$GITHUB_OUTPUT"
+      - name: Install pinned Android packages
+        if: steps.version.outputs.skip != 'true'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35-ext15" "build-tools;35.0.0" > /dev/null'
+      - name: Build, test and lint the merged source
+        if: steps.version.outputs.skip != 'true'
         run: |
-          python3 - <<'PY'
-          import json, pathlib, re, subprocess
-          data = json.loads(pathlib.Path('update.json').read_text())
-          version, commit = data['versionName'], data['sourceCommit']
-          if not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'[0-9a-f]{40}', commit):
-              raise SystemExit('Invalid version or source commit')
-          subprocess.run(['python3', 'scripts/prepare-release.py', data['apkName'],
-                          '--expected-version', version, '--source-commit', commit], check=True)
-          verified = json.loads(pathlib.Path('dist/update.json').read_text())
-          if data != verified:
-              raise SystemExit('Prepared update metadata does not match the signed APK')
-          PY
-      - name: Publish APK and update manifest together
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          node --test scripts/test-auto-merge.cjs
+          bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2
+      - name: Build and verify the signed release
+        if: steps.version.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          CAIRN_KEYSTORE_BASE64: ${{ secrets.CAIRN_KEYSTORE_BASE64 }}
+          CAIRN_KEYSTORE_PASSWORD: ${{ secrets.CAIRN_KEYSTORE_PASSWORD }}
+          CAIRN_KEY_ALIAS: ${{ secrets.CAIRN_KEY_ALIAS || 'cairn' }}
+          CAIRN_KEY_PASSWORD: ${{ secrets.CAIRN_KEY_PASSWORD || secrets.CAIRN_KEYSTORE_PASSWORD }}
+          CAIRN_KEYSTORE_PATH: ${{ runner.temp }}/cairn-release.p12
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
         run: |
-          VERSION="$(python3 -c 'import json; print(json.load(open("update.json"))["versionName"])')"
-          SOURCE_COMMIT="$(python3 -c 'import json; print(json.load(open("update.json"))["sourceCommit"])')"
+          if [ -z "$CAIRN_KEYSTORE_BASE64" ] || [ -z "$CAIRN_KEYSTORE_PASSWORD" ]; then
+            echo 'Configure CAIRN_KEYSTORE_BASE64 and CAIRN_KEYSTORE_PASSWORD in GitHub Actions secrets using the Cairn release key.'
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$CAIRN_KEYSTORE_BASE64" | base64 --decode > "$CAIRN_KEYSTORE_PATH"
+          trap 'rm -f "$CAIRN_KEYSTORE_PATH"' EXIT
+          bash gradlew assembleRelease -PcairnVersionCode="$VERSION_CODE" -PcairnVersionName="$VERSION_NAME" --console=plain --max-workers=2
+          python3 scripts/prepare-release.py app/build/outputs/apk/release/app-release.apk --expected-version "$VERSION_NAME"
+      - name: Publish APK and update manifest together
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version_name }}
+        run: |
           TAG="v$VERSION"
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
           if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$DRAFT" != true ]; then
               echo 'Refusing to replace an already published release.'
