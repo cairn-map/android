@@ -7,7 +7,7 @@ import java.security.*;
 import java.util.function.*;
 import org.json.*;
 
-/** User-triggered HTTPS transfers. No scheduler, retries, service, or automatic polling. */
+/** User-triggered public release downloads; no REST API quota, credentials or polling. */
 final class ReleaseClient {
   interface Connections {
     HttpURLConnection open(URL url) throws IOException;
@@ -15,17 +15,16 @@ final class ReleaseClient {
 
   static final class Release {
     final UpdateManifest manifest;
-    final long apkId;
     final String notes;
 
-    Release(UpdateManifest manifest, long apkId, String notes) {
+    Release(UpdateManifest manifest, String notes) {
       this.manifest = manifest;
-      this.apkId = apkId;
       this.notes = notes;
     }
   }
 
-  private final String api;
+  private final String releases;
+  private final String releasePath;
   private final Connections connections;
   private volatile HttpURLConnection current;
   private volatile boolean cancelled;
@@ -37,7 +36,8 @@ final class ReleaseClient {
   ReleaseClient(String repository, Connections connections) {
     if (!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
       throw new IllegalArgumentException("Invalid update repository");
-    api = "https://api.github.com/repos/" + repository + "/releases/";
+    releasePath = "/" + repository + "/releases/";
+    releases = "https://github.com" + releasePath;
     this.connections = connections;
   }
 
@@ -52,17 +52,40 @@ final class ReleaseClient {
       throw new InterruptedIOException("Update canceled");
   }
 
-  private HttpURLConnection request(String address, String accept, BooleanSupplier stop)
+  private boolean allowed(URL url, String assetName) {
+    String host = url.getHost(), path = url.getPath();
+    if ("release-assets.githubusercontent.com".equals(host)
+        || "objects.githubusercontent.com".equals(host)) return true;
+    if (!"github.com".equals(host)) return false;
+    if (path.equals(releasePath + "latest/download/" + assetName)) return true;
+    String prefix = releasePath + "download/v", suffix = "/" + assetName;
+    if (!path.startsWith(prefix) || !path.endsWith(suffix)) return false;
+    String version = path.substring(prefix.length(), path.length() - suffix.length());
+    return version.matches("[0-9]+\\.[0-9]+\\.[0-9]+");
+  }
+
+  private static IOException denied(HttpURLConnection http, int code) {
+    String remaining = http.getHeaderField("X-RateLimit-Remaining");
+    String retryAfter = http.getHeaderField("Retry-After");
+    if (code == 429 || "0".equals(remaining) || (code == 403 && retryAfter != null)) {
+      String hint = retryAfter != null && retryAfter.matches("[0-9]{1,8}")
+          ? " Retry after " + retryAfter + " seconds."
+          : " Try again later.";
+      return new IOException("GitHub rate limit reached (HTTP " + code + ")." + hint);
+    }
+    return new IOException(
+        code == 401 ? "GitHub authentication required (HTTP 401)."
+            : "GitHub access denied (HTTP 403). Try another network or later.");
+  }
+
+  private HttpURLConnection request(String address, String assetName, BooleanSupplier stop)
       throws IOException {
     URL url = new URL(address);
     for (int redirects = 0; redirects <= 4; redirects++) {
       check(stop);
-      String host = url.getHost();
-      boolean apiRequest = "api.github.com".equals(host) && url.toString().startsWith(api);
       if (!"https".equals(url.getProtocol()) || url.getUserInfo() != null
           || (url.getPort() != -1 && url.getPort() != 443)
-          || !(apiRequest || "release-assets.githubusercontent.com".equals(host)
-              || "objects.githubusercontent.com".equals(host)))
+          || !allowed(url, assetName))
         throw new IOException("Unexpected update download destination");
       HttpURLConnection http = connections.open(url);
       current = http;
@@ -70,11 +93,8 @@ final class ReleaseClient {
       http.setReadTimeout(15000);
       http.setInstanceFollowRedirects(false);
       http.setRequestProperty("User-Agent", "Cairn/" + BuildConfig.VERSION_NAME);
-      http.setRequestProperty("Accept", accept);
+      http.setRequestProperty("Accept", "application/octet-stream");
       http.setRequestProperty("Accept-Encoding", "identity");
-      if (apiRequest) {
-        http.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
-      }
       boolean handedOff = false;
       try {
         check(stop);
@@ -86,10 +106,9 @@ final class ReleaseClient {
           url = new URL(url, location);
           continue;
         }
-        if (code == 401 || code == 403)
-          throw new IOException("GitHub access denied or rate limit reached. Try again later.");
+        if (code == 401 || code == 403 || code == 429) throw denied(http, code);
         if (code == 404)
-          throw new IOException("No published update is available yet. Try again after a release is published.");
+          throw new IOException("No published update asset is available yet (HTTP 404).");
         if (code != 200) throw new IOException("Update server returned HTTP " + code);
         handedOff = true;
         return http;
@@ -103,9 +122,9 @@ final class ReleaseClient {
     throw new IOException("Too many update redirects");
   }
 
-  private byte[] small(String url, String accept, int limit, BooleanSupplier stop)
+  private byte[] small(String url, String name, int limit, BooleanSupplier stop)
       throws IOException {
-    HttpURLConnection http = request(url, accept, stop);
+    HttpURLConnection http = request(url, name, stop);
     try (InputStream in = http.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       if (http.getContentLengthLong() > limit) throw new IOException("Update response is too large");
       byte[] buffer = new byte[8192];
@@ -124,53 +143,19 @@ final class ReleaseClient {
   }
 
   Release latest(BooleanSupplier stop) throws IOException {
-    try {
-      JSONObject release = new JSONObject(new String(
-          small(api + "latest", "application/vnd.github+json", 1024 * 1024, stop),
-          StandardCharsets.UTF_8));
-      if (release.getBoolean("draft") || release.getBoolean("prerelease"))
-        throw new IOException("No stable update is published");
-      JSONArray assets = release.getJSONArray("assets");
-      JSONObject manifestAsset = asset(assets, "update.json");
-      UpdateManifest manifest = new UpdateManifest(small(
-          assetUrl(manifestAsset.getLong("id")), "application/octet-stream", 16384, stop));
-      if (!release.getString("tag_name").equals("v" + manifest.versionName))
-        throw new IOException("Update version does not match its release");
-      JSONObject apk = asset(assets, manifest.apkName);
-      if (apk.getLong("size") != manifest.size)
-        throw new IOException("Update APK size does not match its release");
-      String digest = apk.optString("digest", "");
-      if (!digest.isEmpty() && !digest.equals("sha256:" + manifest.sha256))
-        throw new IOException("Update checksum does not match its release");
-      String notes = release.optString("body", "");
-      return new Release(manifest, apk.getLong("id"), notes.substring(0, Math.min(4000, notes.length())));
-    } catch (JSONException error) {
-      throw new IOException("Invalid update release response", error);
-    }
-  }
-
-  private static JSONObject asset(JSONArray assets, String name) throws IOException, JSONException {
-    JSONObject found = null;
-    for (int i = 0; i < assets.length(); i++) {
-      JSONObject value = assets.getJSONObject(i);
-      if (name.equals(value.getString("name")) && "uploaded".equals(value.getString("state"))) {
-        if (found != null) throw new IOException("Ambiguous update release");
-        found = value;
-      }
-    }
-    if (found == null) throw new IOException("This release does not contain a complete Cairn update");
-    return found;
-  }
-
-  private String assetUrl(long id) throws IOException {
-    if (id < 1) throw new IOException("Invalid update asset");
-    return api + "assets/" + id;
+    // GitHub's stable-release download URL avoids unauthenticated REST API limits.
+    // APK bytes are still verified against this manifest and Android's installed signer.
+    UpdateManifest manifest = new UpdateManifest(
+        small(releases + "latest/download/update.json", "update.json", 16384, stop));
+    return new Release(manifest, "");
   }
 
   void download(Release release, File target, BooleanSupplier stop, IntConsumer progress)
       throws IOException {
     UpdateManifest manifest = release.manifest;
-    HttpURLConnection http = request(assetUrl(release.apkId), "application/octet-stream", stop);
+    HttpURLConnection http = request(
+        releases + "download/v" + manifest.versionName + "/" + manifest.apkName,
+        manifest.apkName, stop);
     boolean complete = false;
     try {
       long length = http.getContentLengthLong();

@@ -228,6 +228,18 @@ final class AppUpdates {
   }
 
   private void refresh() {
+    // Called when Routes reopens, including after Android installs a new version.
+    // A canceled installation retains a newer staged APK for retry.
+    try {
+      long installed = ApkVerifier.installedVersion(activity);
+      if (UpdateFiles.discardInstalled(activity, installed)) {
+        offered = null;
+        showStatus("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
+      }
+      if (offered != null && offered.manifest.versionCode <= installed) offered = null;
+    } catch (IOException error) {
+      // Preserve staged data when installed package state cannot be read.
+    }
     status.setVisibility(status.length() == 0 ? View.GONE : View.VISIBLE);
     checkButton.setEnabled(!busy);
     downloadButton.setVisibility(offered == null ? View.GONE : View.VISIBLE);

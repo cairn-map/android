@@ -54,12 +54,13 @@ public class AppUpdateTest {
   private static final class Response extends HttpURLConnection {
     final byte[] body;
     String location;
+    final Map<String, String> headers = new HashMap<>();
     int code = 200;
     long length = -1;
     boolean disconnected;
     Response(byte[] body) throws Exception { super(new URL("https://api.github.com/")); this.body = body; }
     @Override public int getResponseCode() { return code; }
-    @Override public String getHeaderField(String name) { return "Location".equals(name) ? location : null; }
+    @Override public String getHeaderField(String name) { return "Location".equals(name) ? location : headers.get(name); }
     @Override public long getContentLengthLong() { return length; }
     @Override public InputStream getInputStream() { return new ByteArrayInputStream(body); }
     @Override public void disconnect() { disconnected = true; }
@@ -76,49 +77,63 @@ public class AppUpdateTest {
     });
   }
 
-  @Test public void checkingReadsOnlyMetadataAndDownloadRequiresASeparateCall() throws Exception {
+  @Test public void checkUsesPublicAssetDownloadsWithoutRestApi() throws Exception {
     List<String> requests = new ArrayList<>();
-    Response info = new Response(json(release())), meta = new Response(json(metadata())), apk = new Response(apkBytes);
-    ReleaseClient client = client(requests, info, meta, apk);
-    assertTrue(requests.isEmpty());
+    Response manifestRedirect = new Response(new byte[0]);
+    manifestRedirect.code = 302;
+    manifestRedirect.location =
+        "https://github.com/dayblox/cairn/releases/download/v0.6.0/update.json";
+    Response apkRedirect = new Response(new byte[0]);
+    apkRedirect.code = 302;
+    apkRedirect.location = "https://release-assets.githubusercontent.com/signed-apk";
+    Response metadataResponse = new Response(json(metadata()));
+    Response apkResponse = new Response(apkBytes);
+    ReleaseClient client = client(requests, manifestRedirect, metadataResponse,
+        apkRedirect, apkResponse);
     ReleaseClient.Release result = client.latest(() -> false);
-    assertEquals(2, requests.size());
     assertEquals(6, result.manifest.versionCode);
-    assertTrue(requests.get(0).endsWith("/releases/latest"));
-    assertTrue(requests.get(1).endsWith("/releases/assets/1"));
+    assertEquals("https://github.com/dayblox/cairn/releases/latest/download/update.json",
+        requests.get(0));
+    assertEquals(2, requests.size());
     File target = new File(temporary.getRoot(), "download.part");
     client.download(result, target, () -> false, n -> {});
     assertArrayEquals(apkBytes, Files.readAllBytes(target.toPath()));
-    assertEquals(3, requests.size());
-    assertTrue(info.disconnected && meta.disconnected && apk.disconnected);
-    assertNull(info.getRequestProperty("Authorization"));
+    assertEquals(4, requests.size());
+    assertEquals("https://github.com/dayblox/cairn/releases/download/v0.6.0/Cairn-0.6.0.apk",
+        requests.get(2));
+    for (String url : requests) assertFalse(url.contains("api.github.com"));
+    assertNull(metadataResponse.getRequestProperty("Authorization"));
+    assertTrue(manifestRedirect.disconnected && apkRedirect.disconnected);
   }
 
-  @Test public void followsGitHubAssetRedirectsWithoutCredentials() throws Exception {
-    List<String> requests = new ArrayList<>();
-    Response redirect = new Response(new byte[0]);
-    redirect.code = 302;
-    redirect.location = "https://release-assets.githubusercontent.com/github-production-release-asset/manifest";
-    Response meta = new Response(json(metadata()));
-    ReleaseClient client = client(requests, new Response(json(release())), redirect, meta);
-    client.latest(() -> false);
-    assertEquals(3, requests.size());
-    assertTrue(redirect.disconnected);
-    assertNull(meta.getRequestProperty("Authorization"));
-    assertFalse(meta.getInstanceFollowRedirects());
-  }
-
-  @Test public void rejectsHttpAndUnrelatedRedirectHostsBeforeOpeningThem() throws Exception {
+  @Test public void rejectsUntrustedDownloadRedirects() throws Exception {
     for (String address : Arrays.asList("http://release-assets.githubusercontent.com/file",
-        "https://evil.example/update", "https://api.github.com/repos/other/app/releases/assets/1",
+        "https://evil.example/update",
+        "https://api.github.com/repos/dayblox/cairn/releases/assets/1",
+        "https://github.com/other/app/releases/download/v0.6.0/update.json",
         "https://release-assets.githubusercontent.com:8443/file")) {
       Response redirect = new Response(new byte[0]);
-      redirect.code = 302; redirect.location = address;
+      redirect.code = 302;
+      redirect.location = address;
       List<String> requests = new ArrayList<>();
-      ReleaseClient client = client(requests, new Response(json(release())), redirect);
+      ReleaseClient client = client(requests, redirect);
       assertThrows(IOException.class, () -> client.latest(() -> false));
-      assertEquals(2, requests.size());
+      assertEquals(1, requests.size());
     }
+  }
+
+  @Test public void reportsRateLimitAndAuthenticationSeparately() throws Exception {
+    Response rate = new Response(new byte[0]);
+    rate.code = 403;
+    rate.headers.put("X-RateLimit-Remaining", "0");
+    IOException first = assertThrows(IOException.class,
+        () -> client(new ArrayList<>(), rate).latest(() -> false));
+    assertTrue(first.getMessage().contains("rate limit"));
+    Response authentication = new Response(new byte[0]);
+    authentication.code = 401;
+    IOException second = assertThrows(IOException.class,
+        () -> client(new ArrayList<>(), authentication).latest(() -> false));
+    assertTrue(second.getMessage().contains("authentication"));
   }
 
   @Test public void rejectsTruncationCorruptionAndOversizedTransfersWithoutKeepingPartialApks() throws Exception {
@@ -126,7 +141,7 @@ public class AppUpdateTest {
         Arrays.copyOf(apkBytes, apkBytes.length + 1))) {
       ReleaseClient client = client(new ArrayList<>(), new Response(data));
       File file = new File(temporary.getRoot(), "partial.apk");
-      ReleaseClient.Release release = new ReleaseClient.Release(manifest(), 2, "");
+      ReleaseClient.Release release = new ReleaseClient.Release(manifest(), "");
       assertThrows(IOException.class, () -> client.download(release, file, () -> false, p -> {}));
       assertFalse(file.exists());
     }
@@ -138,7 +153,7 @@ public class AppUpdateTest {
     List<String> requests = new ArrayList<>();
     ReleaseClient client = client(requests, apk);
     File target = new File(temporary.getRoot(), "partial.apk");
-    ReleaseClient.Release release = new ReleaseClient.Release(manifest(), 2, "");
+    ReleaseClient.Release release = new ReleaseClient.Release(manifest(), "");
     assertThrows(InterruptedIOException.class,
         () -> client.download(release, target, stop::get, percent -> { stop.set(true); client.cancel(); }));
     assertFalse(target.exists());
@@ -147,17 +162,30 @@ public class AppUpdateTest {
     assertEquals(1, requests.size());
   }
 
-  @Test public void rejectsWrongReleaseMetadataAndMissingAssets() throws Exception {
-    for (JSONObject value : Arrays.asList(
-        release().put("prerelease", true), release().put("tag_name", "v1.0.0"),
-        release().put("assets", new JSONArray()))) {
-      ReleaseClient client = client(new ArrayList<>(), new Response(json(value)), new Response(json(metadata())));
-      assertThrows(IOException.class, () -> client.latest(() -> false));
-    }
-    assertThrows(IOException.class,
-        () -> new UpdateManifest(json(metadata().put("applicationId", "another.app"))));
+  @Test public void rejectsMalformedManifest() throws Exception {
+    ReleaseClient client = client(new ArrayList<>(),
+        new Response(json(metadata().put("applicationId", "another.app"))));
+    assertThrows(IOException.class, () -> client.latest(() -> false));
     assertThrows(IOException.class,
         () -> new UpdateManifest(json(metadata().put("size", UpdateManifest.MAX_APK_BYTES + 1))));
+  }
+
+  @Test public void installedOrOlderSavedUpdateIsClearedButNewerStays() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    File dir = UpdateFiles.directory(context);
+    assertTrue(dir.isDirectory() || dir.mkdirs());
+    File staged = new File(dir, "staged.apk");
+    Files.write(staged.toPath(), apkBytes);
+    UpdateFiles.save(context, staged, manifest());
+    assertFalse(UpdateFiles.discardInstalled(context, 5));
+    assertTrue(UpdateFiles.ready(context));
+    assertTrue(UpdateFiles.discardInstalled(context, 6));
+    assertFalse(UpdateFiles.ready(context));
+
+    Files.write(staged.toPath(), apkBytes);
+    UpdateFiles.save(context, staged, manifest());
+    assertTrue(UpdateFiles.discardInstalled(context, 7));
+    assertFalse(UpdateFiles.ready(context));
   }
 
   private PackageInfo info(int code, String signer) {

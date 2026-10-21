@@ -11,6 +11,18 @@ final class UpdateFiles {
   static File manifest(Context context) { return new File(directory(context), "update.json"); }
   static boolean ready(Context context) { return apk(context).isFile() && manifest(context).isFile(); }
 
+  /** A completed install leaves an obsolete cache across app upgrades. Never expose it again. */
+  static boolean discardInstalled(Context context, long installedVersion) {
+    if (!ready(context)) return false;
+    try {
+      if (read(context).versionCode > installedVersion) return false;
+    } catch (IOException invalid) {
+      // Broken saved metadata cannot be offered safely.
+    }
+    clear(context);
+    return true;
+  }
+
   static UpdateManifest read(Context context) throws IOException {
     File meta = manifest(context);
     if (meta.length() > 16384) throw new IOException("Invalid saved update");
