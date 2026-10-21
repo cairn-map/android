@@ -18,7 +18,7 @@ A native Android trekking app built around offline maps, a minimal map screen, a
 
 ## Install and try
 
-Install `Cairn-0.5.0.apk` from [Releases](https://github.com/dayblox/cairn/releases) on Android 8.0 or newer. Version 0.5.0 starts a new release signing identity: older development builds must be removed for this first install, which removes their local data. Future signed releases use the same release key and update in place.
+Install the latest APK from [Releases](https://github.com/dayblox/cairn/releases) on Android 8.0 or newer. The first automatic release after 0.5.0 uses a replacement signing key and needs a one-time uninstall/reinstall, which removes local app data. Later releases reuse that key and update in place. Passing PRs merge automatically; merged source is tested, signed and published by GitHub Actions once the signing secrets are configured. See [release setup](docs/UPDATES.md).
 
 1. Tap the crossed-cloud icon on the right to load Plan IGN. Pan and pinch; viewed tiles are saved as they arrive. Tap the cloud again for offline maps. This keeps only visited tiles/zoom levels, not an entire area at every detail level.
 2. Open GPX/XML from an Android file manager and choose Cairn, or share files to it. Routes → Add files is a single fallback picker with multiple selection. Each GPX stays in the library; several can be displayed together. One route is selected for guidance at a time.
