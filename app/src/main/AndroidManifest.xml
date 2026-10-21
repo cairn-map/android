@@ -1,0 +1,48 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="app.cairn.trek.permission.INTERNAL" android:protectionLevel="signature" />
+    <uses-permission android:name="app.cairn.trek.permission.INTERNAL" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <application android:label="Cairn" android:theme="@style/AppTheme" android:icon="@drawable/ic_cairn"
+        android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" /><data android:scheme="file" />
+                <data android:mimeType="application/gpx+xml" /><data android:mimeType="application/gpx" />
+                <data android:mimeType="application/x-gpx+xml" /><data android:mimeType="application/xml" /><data android:mimeType="text/xml" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" /><data android:scheme="file" />
+                <data android:host="*" /><data android:mimeType="application/octet-stream" /><data android:mimeType="text/plain" />
+                <data android:pathPattern=".*\\.gpx" /><data android:pathPattern=".*\\.xml" />
+                <data android:pathPattern=".*\\..*\\.gpx" /><data android:pathPattern=".*\\..*\\.xml" />
+                <data android:pathPattern=".*\\.GPX" /><data android:pathPattern=".*\\.XML" />
+                <data android:pathPattern=".*\\.rd5" /><data android:pathPattern=".*\\.mbtiles" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/gpx+xml" /><data android:mimeType="application/gpx" />
+                <data android:mimeType="application/x-gpx+xml" /><data android:mimeType="application/xml" /><data android:mimeType="text/xml" />
+            </intent-filter>
+        </activity>
+        <service android:name=".TrackingService" android:exported="false" android:foregroundServiceType="location" />
+        <service android:name=".DownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".RoutingDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

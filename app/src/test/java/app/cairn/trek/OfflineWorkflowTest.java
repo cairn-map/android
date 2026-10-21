@@ -1,0 +1,150 @@
+package app.cairn.trek;
+
+import static org.junit.Assert.*;
+
+import android.app.*;
+import android.content.*;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+import org.junit.*;
+import org.junit.runner.RunWith;
+import org.robolectric.*;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.*;
+
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 28)
+@SQLiteMode(SQLiteMode.Mode.LEGACY)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
+public class OfflineWorkflowTest {
+  private PlanIgnStore store;
+
+  @Before
+  public void open() {
+    Context c = RuntimeEnvironment.getApplication();
+    c.deleteDatabase("plan-ign.mbtiles");
+    store = new PlanIgnStore(c);
+    DownloadService.running = false;
+  }
+
+  @After
+  public void close() {
+    store.close();
+  }
+
+  private TilePlanner.Plan tiny() {
+    return TilePlanner.area(6.869, 45.923, 6.8691, 45.9231, 8);
+  }
+
+  @Test
+  public void downloadIsOnlyCompleteAfterAllTilesAreCommitted() throws Exception {
+    TilePlanner.Plan plan = tiny();
+    String id = store.create("A trek", plan);
+    assertFalse(store.finish(id));
+    assertEquals(0, store.packs().get(0).done);
+    TilePlanner.Tile next;
+    while ((next = store.next(id)) != null)
+      store.completeTile(id, next, new IgnClient.Result(IgnClientTest.png(), "tag", null));
+    assertTrue(store.finish(id));
+    assertEquals("complete", store.packs().get(0).state);
+    assertEquals(plan.tiles.size(), store.packs().get(0).done);
+  }
+
+  @Test
+  public void partialDownloadSurvivesClosingAndReopening() throws Exception {
+    String id = store.create("Partial", TilePlanner.area(6.86, 45.92, 6.88, 45.94, 17));
+    TilePlanner.Tile first = store.next(id);
+    store.completeTile(id, first, new IgnClient.Result(IgnClientTest.png(), null, null));
+    store.state(id, "downloading", null);
+    store.close();
+    store = new PlanIgnStore(RuntimeEnvironment.getApplication());
+    assertEquals(1, store.packs().get(0).done);
+    assertEquals("paused", store.packs().get(0).state);
+    assertNotEquals(first, store.next(id));
+    assertFalse(store.finish(id));
+  }
+
+  @Test
+  public void removingAPackagePreservesTilesSharedWithAnother() throws Exception {
+    TilePlanner.Plan plan = tiny();
+    String a = store.create("A", plan), b = store.create("B", plan);
+    TilePlanner.Tile tile = store.next(a);
+    store.completeTile(a, tile, new IgnClient.Result(IgnClientTest.png(), "tag", null));
+    store.remove(a);
+    assertNotNull(store.cached(tile));
+    store.remove(b);
+    assertNull(store.cached(tile));
+  }
+
+  @Test
+  public void conditionalRefreshKeepsBytesAndRequiresRechecking() throws Exception {
+    String id = store.create("Refresh", tiny());
+    TilePlanner.Tile tile = store.next(id);
+    store.completeTile(id, tile, new IgnClient.Result(IgnClientTest.png(), "tag", null));
+    assertTrue(store.finish(id));
+    store.refresh(id);
+    assertFalse(store.finish(id));
+    store.completeTile(id, tile, new IgnClient.Result(null, "tag", null));
+    assertTrue(store.finish(id));
+    assertNotNull(store.cached(tile).bytes);
+  }
+
+  @Test
+  public void startsOfflineAndRoutesToDownloadControlsWithoutLocationPermission() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      View root = activity.getWindow().getDecorView();
+      assertNull(find(root, "Offline"));
+      TextView routes = find(root, "Routes");
+      assertNotNull(routes);
+      routes.performClick();
+      assertNotNull(find(root, "Add files"));
+      assertNull(find(root, "Import GPX"));
+      assertNull(find(root, "Import OruxMaps sources XML"));
+      find(root, "Routing data").performClick();
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      assertTrue(
+          ((TextView) dialog.findViewById(android.R.id.message))
+              .getText()
+              .toString()
+              .contains("Walking engine is included"));
+      dialog.dismiss();
+    }
+  }
+
+  @Test
+  public void removingAPackDoesNotDiscardUnrelatedViewedTiles() throws Exception {
+    String id = store.create("A route", tiny());
+    TilePlanner.Tile viewed = new TilePlanner.Tile(15, 1, 1);
+    store.save(viewed, new IgnClient.Result(IgnClientTest.png(), null, null));
+    store.remove(id);
+    assertNotNull(store.cached(viewed));
+  }
+
+  @Test
+  public void clearingViewedTilesKeepsDownloadedCorridorsComplete() throws Exception {
+    String id = store.create("A route", tiny());
+    TilePlanner.Tile tile = store.next(id), viewed = new TilePlanner.Tile(15, 1, 1);
+    store.completeTile(id, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
+    store.save(viewed, new IgnClient.Result(IgnClientTest.png(), null, null));
+    store.clearViewed();
+    assertNull(store.cached(viewed));
+    assertNotNull(store.cached(tile));
+    assertTrue(store.finish(id));
+  }
+
+  private TextView find(View view, String text) {
+    if (view instanceof TextView && text.contentEquals(((TextView) view).getText()))
+      return (TextView) view;
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++) {
+        TextView found = find(group.getChildAt(i), text);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+}

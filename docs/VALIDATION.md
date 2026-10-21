@@ -1,0 +1,80 @@
+# Validation — version 0.4.0, 21 October 2026
+
+## Executed
+
+The native Android debug APK was compiled with JDK 17, Gradle 8.11.1, Android Gradle Plugin 8.9.2, SDK 35 extension 15, and Build Tools 35.0.0.
+
+Command:
+
+```text
+gradle assembleDebug testDebugUnitTest lintDebug
+```
+
+All **59 tests passed**, with zero failures, errors, or skipped tests:
+
+- Geographic projection round trips.
+- No imaginary distance or off-route connection across disconnected GPX segments.
+- Nearest-point distance against segment interiors and endpoints.
+- Degenerate segment handling.
+- Rejection of invalid coordinates.
+- GPX export/import preserving timestamps, elevation availability, and segment breaks.
+- Route-only GPX import.
+- Preference for track geometry when a file also contains a route.
+- Rejection of document declarations/external-entity input.
+- Rejection of empty and invalid GPX files.
+- Area coverage at every saved detail level, with tile deduplication.
+- Continuous corridor coverage between sparse diagonal GPX points, including its width.
+- No download bridge across disconnected GPX segments.
+- Date-line area wrapping without downloading the rest of the world.
+- Size limits and invalid download selections.
+- Complete PNG acceptance and rejection of truncated, corrupt, and non-map responses.
+- SQLite package completion only after every planned tile is committed.
+- Partial download recovery after closing and reopening the database.
+- Shared-tile retention when another saved area is removed.
+- Conditional refresh retaining cached bytes and requiring package rechecking.
+- Simulated launch/navigation without location permission, two destinations, one Add files action and access to integrated routing-data controls.
+- Public Plan IGN recognition in OruxMaps XML, rejection of spoofed hosts/restricted layers and document declarations, and differentiation of GPX versus other XML.
+- Manual network positioning without a satellite fix, approximate permission, recent cache use, old-fix rejection, cancellation, and timeout cleanup.
+- Native Android Canvas rendering of cached tiles during zoom-in, zoom-out, and multi-level jumps; fractional zoom keeping the geographic focus fixed.
+- Rendered compact map layout with narrow GPS/hike controls and no visible zoom buttons. The generated preview was visually inspected.
+- GPX opening from an opaque content URI while retaining the loaded recording, and XML sharing into an already-open activity without enabling preview.
+- Manifest resolution for typed GPX/XML files and filename-limited generic binary associations.
+- GPX library persistence, selection, visibility, rename/removal, and migration from the prior single-route database without losing recordings.
+- Multi-GPX sharing retains both files and displays their geometries together.
+- Actual embedded walking-route calculation across two real RD5 fixtures, missing-region errors, format/name validation, and explicit offline calculation during recording without extra location requests.
+- Recording uses only GPS; Locate adds no GPS/network subscriptions even with an old recording position, guidance updates preserve the existing subscription, and stopping removes it.
+- Visible-tile ordering, exact screen-edge coverage without an extra row/column, and date-line wrapping.
+- Native Canvas tests for obsolete-queue cancellation, current-view center-first loading, replacing blurred offline tiles online while retaining a backdrop, and fractional camera restoration.
+- Removing a pack retains unrelated viewed tiles; explicitly clearing viewed tiles retains completed corridor packs.
+- Loopback HTTP transfer tests for truncated-body/206 resume, changed-revision/200 restart, process-death/416 completion recovery, and cancellation without publishing a partial graph.
+
+Thirty tests use Robolectric on Android API 28, including five native-graphics tests with Android Canvas rendering. They simulate framework/location/SQLite behavior and are not physical-device measurements. The other 29 tests run directly on the JVM.
+
+Android lint passed with **zero errors and zero warnings**. Compatibility and broadcast registration issues found during development were corrected before packaging.
+
+The APK's signing and compatibility metadata were checked with the Android Build Tools. It is a development-signed build, not a production release.
+
+## Live Plan IGN checks
+
+The public WMTS capabilities were retrieved and the Plan IGN layer, PNG format, and current supported zoom range were inspected. The application HTTP client was then executed on the desktop JVM against the real `PM_0_19` endpoint: it fetched a 74,122-byte map tile and successfully validated its PNG structure and checksums. A second request using available conditional headers also returned a valid map tile. The sample image was visually inspected and showed the expected Plan IGN map.
+
+The supplied XML was parsed with DTD/external-entity processing disabled. Its Plan IGN entry matched the verified public layer. No embedded credentials or full provider configuration were copied into the project.
+
+## Routing validation
+
+BRouter 1.7.9's actual Java engine and upstream hiking profile calculate a route in the application worker using two small genuine OSM-derived graphs. The original upstream PBF and derived graphs are included only as test resources. No external BRouter service or online routing API participates.
+
+A bounded live HTTP range probe on the public graph endpoint read only 200 bytes: HTTP 206, compatible lookup version 11, Content-Range total size 252,717,722 bytes and an ETag. Local HTTP tests validate transfer interruption/resume separately. No full regional download was needed for these checks.
+
+## Not yet executed
+
+- Developer-run installation, launch, and interaction on an emulator or physical phone. The user's earlier prototype feedback motivated these fixes; the revised behavior has been checked in simulation only.
+- Screen-off recording under manufacturer-specific battery policies.
+- Measured comparison with OruxMaps or any battery endurance measurement.
+- Live GNSS accuracy, alert timeliness, or acquisition/reacquisition trials.
+- Embedded BRouter route calculation, memory behavior and full-size regional download/resume on a physical device. Framework-simulated actual routing and local HTTP transport tests have passed.
+- Imported raster MBTiles rendering and very large map handling on a device.
+- Large-font, TalkBack, landscape, and outdoor readability checks.
+- Long-running downloads, pause/resume, offline tile rendering, and download cancellation on an actual Android device. Desktop HTTP checks and simulated Android store tests cover parts of this flow, not the whole device workflow.
+
+Compilation, lint, simulated workflows, and the live client probe establish a useful starting point, not field reliability. The next validation step is to download a small Plan IGN area on a phone, verify it in airplane mode, record a short walk, and then run the battery trial described in BATTERY-VALIDATION.md.
