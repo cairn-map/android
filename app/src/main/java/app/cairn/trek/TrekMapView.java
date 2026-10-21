@@ -126,8 +126,9 @@ public final class TrekMapView extends View {
   }
 
   public void source(TileSource value, boolean recenter) {
-    if (source != null) source.cancelRequests();
     generation++;
+    executor.getQueue().clear();
+    if (source != null) source.cancelRequests();
     source = value;
     cache.evictAll();
     cacheChanged = true;
@@ -219,9 +220,10 @@ public final class TrekMapView extends View {
   }
 
   public void refreshTiles(boolean discardBitmaps) {
-    if (source != null) source.cancelRequests();
-    executor.getQueue().clear();
+    // Canceling can unblock the worker immediately. Invalidate old work first.
     generation++;
+    executor.getQueue().clear();
+    if (source != null) source.cancelRequests();
     pending.clear();
     missing.clear();
     if (discardBitmaps) {

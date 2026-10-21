@@ -61,10 +61,14 @@ public class MapRenderingTest {
     }
   }
 
-  private void drain(TrekMapView view) throws Exception {
+  private ThreadPoolExecutor executor(TrekMapView view) throws Exception {
     Field field = TrekMapView.class.getDeclaredField("executor");
     field.setAccessible(true);
-    ((ExecutorService) field.get(view)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    return (ThreadPoolExecutor) field.get(view);
+  }
+
+  private void drain(TrekMapView view) throws Exception {
+    executor(view).submit(() -> {}).get(5, TimeUnit.SECONDS);
     Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
   }
 
@@ -98,8 +102,18 @@ public class MapRenderingTest {
 
   @Test
   public void cameraChangesDropOldQueuedTilesAndLoadTheNewVisibleCenterFirst() throws Exception {
+    assertQueuedTilesCanceled(false);
+  }
+
+  @Test
+  public void sourceChangesDropOldQueuedTilesBeforeCancelingTheActiveRequest() throws Exception {
+    assertQueuedTilesCanceled(true);
+  }
+
+  private void assertQueuedTilesCanceled(boolean replaceSource) throws Exception {
     TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
     CountDownLatch firstStarted = new CountDownLatch(1), release = new CountDownLatch(1);
+    ThreadPoolExecutor worker = executor(view);
     List<TilePlanner.Tile> requests = Collections.synchronizedList(new ArrayList<>());
     view.source(
         new EmptySource() {
@@ -108,7 +122,7 @@ public class MapRenderingTest {
             if (firstStarted.getCount() > 0) {
               firstStarted.countDown();
               try {
-                release.await(3, TimeUnit.SECONDS);
+                assertTrue("The first request was not canceled", release.await(5, TimeUnit.SECONDS));
               } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
               }
@@ -118,12 +132,35 @@ public class MapRenderingTest {
 
           public void cancelRequests() {
             release.countDown();
+            // Let the worker drain before cancellation returns. If the viewport has not
+            // invalidated its generation and queue yet, obsolete tiles will be requested.
+            try {
+              worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            } catch (Exception error) {
+              throw new AssertionError("Tile worker did not drain during cancellation", error);
+            }
           }
         });
     try {
       draw(view);
       assertTrue(firstStarted.await(3, TimeUnit.SECONDS));
-      view.center(new Point(46.1, 7.2));
+      if (replaceSource)
+        view.source(
+            new EmptySource() {
+              public Bitmap tile(int z, int x, int y) {
+                requests.add(new TilePlanner.Tile(z, x, y));
+                return null;
+              }
+
+              public double centerLat() {
+                return 46.1;
+              }
+
+              public double centerLon() {
+                return 7.2;
+              }
+            });
+      else view.center(new Point(46.1, 7.2));
       draw(view);
       drain(view);
       int z = view.zoomLevel();
