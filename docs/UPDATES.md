@@ -1,22 +1,42 @@
-# Updating Cairn on a phone
+# Manual in-app updates
 
-The free option for sideloaded builds is [Obtainium](https://github.com/ImranR98/Obtainium). It monitors a release source, notifies you when a version changes, and downloads the APK. Automatic installation depends on the Android version, permissions and installer ownership; an Android install confirmation may still be needed.
+Open **Routes → App updates → Check for updates**. Cairn fetches the latest stable public GitHub release and its small `update.json` manifest. If the release is newer, choose **Download update**, then **Install downloaded update**. Android confirms installation. If prompted, allow Cairn under Android's Install unknown apps settings, return, and tap Install again.
 
-## Current state
+There are no startup/resume checks, timers, jobs, alarms, update services, automatic downloads, automatic retries or wake locks. Opening/resuming the update screen only reads local state. All network work starts from a button press and is canceled when that screen stops. A canceled download is deleted and never resumed automatically. A verified completed download can be installed later without another network request. Check, download and install are blocked during a hike recording; installation can restart the app and interrupt a recording.
 
-This repository has no published releases or APK publishing workflow. Cairn has no update checker, installer permission or background update task. The UI change does not enable automatic updates. This repository is private, so a release client also needs GitHub authentication with access to it.
+## Release integrity and installation
 
-## Set up release-based updates
+- Only stable releases from `dayblox/cairn` are considered. GitHub API responses/redirects have timeouts, redirect limits, HTTPS host restrictions and bounded response sizes. No user credentials are stored or sent.
+- Release tags and asset metadata must match `update.json`. APK downloads are capped at 150 MiB, checked for exact byte length and SHA-256, and kept in private cache storage.
+- Android's package parser must report the expected app ID, version and minimum Android level. The APK must have a strictly newer version code and the same actual signing certificate(s) as the installed app. There is no automatic signing-key rotation or downgrade path.
+- Downloaded APKs are reverified locally every time Install is tapped. Android's installer receives a temporary read-only content URI for one fixed APK path. Other files cannot be shared through the provider. Android performs its own install/signature checks and asks for confirmation.
+- A permission grant or return from Android settings never triggers a network request. An expired/removed cached download can be downloaded again explicitly.
 
-1. Preserve the signing keystore used for the APK already installed on the phone. The original builds use a development certificate; a newly generated debug key on a build server will not match it. Keep signing material outside the source tree, and use encrypted CI secrets if publishing through CI.
-2. Publish versioned GitHub releases containing one signed Cairn APK. Keep `applicationId` as `app.cairn.trek`, increase `versionCode` for each update, and sign with the same certificate each time. A workflow can run tests/lint, assemble and sign the APK, then attach it to a release. GitHub Actions artifacts alone are not GitHub release assets.
-3. Install Obtainium once. Add `https://github.com/dayblox/cairn` as a GitHub source and configure authentication in Obtainium for this private repository. Keep that credential on the phone; do not embed it in Cairn or commit it here. Select the Cairn APK if a release contains multiple files.
-4. Allow Obtainium to install apps when Android asks and enable its update checks/notifications. It can then handle finding and downloading subsequent versions. Follow the Android confirmation prompt where required.
+Version 0.5.0 uses a new release key as requested. An older prototype must be removed before that first installation; uninstalling erases its local data. After this one-time switch, keep the same release key for every update. The public certificate's SHA-256 fingerprint is pinned in `release-signing.sha256`; the private key/password must never enter Git, the APK, logs or public release assets.
 
-If the original signing key is unavailable, do not uninstall the existing app as an update workaround: its local routes, recordings and map downloads would be lost. Export GPX data before planning a deliberate migration; exports do not preserve map packs or every setting.
+## Publishing future updates
 
-## Other options
+The release key stays on the build computer. GitHub Actions receives only an already-signed APK, verifies its certificate and metadata again, and publishes the public GitHub release. No signing secrets or personal GitHub token are needed in Actions.
 
-- **Google Play internal testing:** once configured with a developer account and a compatible signing setup, testers can receive updates through Play with auto-update enabled. This requires Play Console setup and its developer registration fee.
-- **ADB during development:** `adb install -r path/to/app-debug.apk` replaces a compatible signed build without removing its data. USB debugging or paired wireless debugging must be set up on a computer that can reach the phone. It avoids opening APK downloads on the phone, but is not an over-the-air release channel.
-- **An in-app updater:** can download a signed release and invoke Android's installer, but needs hosting, private-repository authentication if applicable, and update/installer handling. It cannot universally promise unattended installation. Obtainium avoids adding this work and background traffic to the hiking app.
+1. Increase both `versionCode` and `versionName` in `app/build.gradle`, then commit the source changes.
+2. On the build computer, with JDK 17, the pinned Android SDK packages, Git write access and the private release key available, run:
+
+   ```text
+   python3 scripts/publish-update.py --version 0.6.0 --keystore /secure/path/cairn-release.p12 --password-file /secure/path/password.txt
+   ```
+
+   Substitute the next version and the private file paths. The key alias is `cairn`; the PKCS12 key and store share the password in that file. Use `--prepare-only` to build and verify without uploading.
+3. The script requires a clean source checkout, runs all unit tests and Android lint, builds/signs the release APK, and checks its actual identity/version/certificate. It pushes the source commit, then commits the verified APK, metadata and publishing workflow to the separate `updates` branch. Versions must increase; published versions are never overwritten.
+4. The **Publish signed Cairn update** workflow verifies the uploaded bundle and creates a draft release tagged at the source commit. It uploads the APK, manifest and checksum list before publishing the release as latest. If upload fails, the draft stays invisible to the updater. A failed run can be retried while the release remains a draft; a published release cannot be replaced by this workflow.
+
+`updates` is a distribution branch; develop and review source changes on `main` and feature branches. Each new bundle removes the prior APK from that branch's current tree; historical releases remain available in GitHub Releases. Git still retains previous commits. GitHub Actions must remain enabled with permission for this workflow to write repository contents.
+
+Keep an offline backup of the release key and its password. Losing that key prevents compatible in-place updates; the repository's certificate fingerprint alone cannot recreate it.
+
+## Platform references
+
+- [GitHub release assets](https://docs.github.com/en/rest/releases/assets#get-a-release-asset): public binary downloads, redirects and API behavior.
+- [Android installation permissions](https://developer.android.com/reference/android/content/pm/PackageManager#canRequestPackageInstalls()): per-source permission for installing APKs.
+- [Android app signing](https://developer.android.com/studio/publish/app-signing): update signing identity.
+
+The automated checks cover transfer boundaries, cancellation, release validation, signing/identity/version rejection, scoped file sharing and activity lifecycle behavior. A real phone must confirm the platform installer and OEM-specific permission flow; the simulated tests cannot perform a physical-device install.

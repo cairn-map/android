@@ -1,0 +1,54 @@
+name: Publish signed Cairn update
+on:
+  push:
+    branches: [updates]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: cairn-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || 'updates' }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install APK verification tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" > /dev/null'
+      - name: Validate the prepared release bundle
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re, subprocess
+          data = json.loads(pathlib.Path('update.json').read_text())
+          version, commit = data['versionName'], data['sourceCommit']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+              raise SystemExit('Invalid version or source commit')
+          subprocess.run(['python3', 'scripts/prepare-release.py', data['apkName'],
+                          '--expected-version', version, '--source-commit', commit], check=True)
+          verified = json.loads(pathlib.Path('dist/update.json').read_text())
+          if data != verified:
+              raise SystemExit('Prepared update metadata does not match the signed APK')
+          PY
+      - name: Publish APK and update manifest together
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(python3 -c 'import json; print(json.load(open("update.json"))["versionName"])')"
+          SOURCE_COMMIT="$(python3 -c 'import json; print(json.load(open("update.json"))["sourceCommit"])')"
+          TAG="v$VERSION"
+          if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$DRAFT" != true ]; then
+              echo 'Refusing to replace an already published release.'
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --draft --target "$SOURCE_COMMIT" --title "Cairn $VERSION" --notes-file dist/release-notes.md
+          fi
+          gh release upload "$TAG" "dist/Cairn-$VERSION.apk" dist/update.json dist/SHA256SUMS --clobber
+          gh release edit "$TAG" --draft=false --latest

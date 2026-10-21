@@ -2,4 +2,9 @@
 **/build/
 local.properties
 *.jks
+*.keystore
+*.p12
+*.pfx
+.release-secrets*
+__pycache__/
 .idea/
