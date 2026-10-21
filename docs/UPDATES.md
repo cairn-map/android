@@ -12,26 +12,33 @@ There are no startup/resume checks, timers, jobs, alarms, update services, autom
 - Downloaded APKs are reverified locally every time Install is tapped. Android's installer receives a temporary read-only content URI for one fixed APK path. Other files cannot be shared through the provider. Android performs its own install/signature checks and asks for confirmation.
 - A permission grant or return from Android settings never triggers a network request. An expired/removed cached download can be downloaded again explicitly.
 
-Version 0.5.0 uses a new release key as requested. An older prototype must be removed before that first installation; uninstalling erases its local data. After this one-time switch, keep the same release key for every update. The public certificate's SHA-256 fingerprint is pinned in `release-signing.sha256`; the private key/password must never enter Git, the APK, logs or public release assets.
+The first automatically built release after 0.5.0 uses a replacement signing key because the earlier cloud workspace's private backup was unavailable. It requires a one-time uninstall/reinstall; uninstalling removes local app data. Later releases reuse the configured key. The public certificate is pinned in `release-signing.sha256`; never commit or publish the private key or its password.
 
-## Publishing future updates
+## Pull requests, merging and releases
 
-The release key stays on the build computer. GitHub Actions receives only an already-signed APK, verifies its certificate and metadata again, and publishes the public GitHub release. No signing secrets or personal GitHub token are needed in Actions.
+Agents must push their changes and file a PR against `main`, as required by `AGENTS.md`. **Android checks** builds the debug APK, runs the Android and release-automation tests, and runs lint. **Merge passing pull requests** runs trusted code from the default branch after those checks succeed. It rechecks the current PR head, skips drafts and changed heads, merges the checked SHA, and removes the merged feature branch when its tip has not advanced. Conflicting PRs and failed checks are not merged.
 
-1. Increase both `versionCode` and `versionName` in `app/build.gradle`, then commit the source changes.
-2. On the build computer, with JDK 17, the pinned Android SDK packages, Git write access and the private release key available, run:
+Every push to `main` starts **Publish signed Cairn update**. Automatic merges made with `GITHUB_TOKEN` do not generate push workflow runs, so the merge workflow explicitly dispatches the release workflow with the merge commit. Both routes build only commits contained in `main` and repeat tests/lint before signing and publishing.
 
-   ```text
-   python3 scripts/publish-update.py --version 0.6.0 --keystore /secure/path/cairn-release.p12 --password-file /secure/path/password.txt
-   ```
+The release workflow reads the latest public `update.json`, advances the Android version code and patch version, and passes those values to Gradle. An explicitly newer source version is preserved. Rerunning an already published source commit is a no-op. The workflow verifies the actual APK identity, version and pinned signing certificate, creates a draft release at the source commit, uploads APK/manifest/checksums together, then publishes it as latest. Published versions are never overwritten; a failed draft can be retried.
 
-   Substitute the next version and the private file paths. The key alias is `cairn`; the PKCS12 key and store share the password in that file. Use `--prepare-only` to build and verify without uploading.
-3. The script requires a clean source checkout, runs all unit tests and Android lint, builds/signs the release APK, and checks its actual identity/version/certificate. It pushes the source commit, then commits the verified APK, metadata and publishing workflow to the separate `updates` branch. Versions must increase; published versions are never overwritten.
-4. The **Publish signed Cairn update** workflow verifies the uploaded bundle and creates a draft release tagged at the source commit. It uploads the APK, manifest and checksum list before publishing the release as latest. If upload fails, the draft stays invisible to the updater. A failed run can be retried while the release remains a draft; a published release cannot be replaced by this workflow.
+### One-time signing configuration
 
-`updates` is a distribution branch; develop and review source changes on `main` and feature branches. Each new bundle removes the prior APK from that branch's current tree; historical releases remain available in GitHub Releases. Git still retains previous commits. GitHub Actions must remain enabled with permission for this workflow to write repository contents.
+GitHub-hosted runners need the persistent release key in encrypted repository Actions secrets:
 
-Keep an offline backup of the release key and its password. Losing that key prevents compatible in-place updates; the repository's certificate fingerprint alone cannot recreate it.
+- `CAIRN_KEYSTORE_BASE64`: base64 of the PKCS12 key matching `release-signing.sha256`.
+- `CAIRN_KEYSTORE_PASSWORD`: its store password.
+- Optional `CAIRN_KEY_ALIAS` (defaults to `cairn`) and `CAIRN_KEY_PASSWORD` (defaults to the store password).
+
+From a computer with JDK 17, GitHub CLI authenticated with repository secret-management access, the private key and password file, run:
+
+```text
+python3 scripts/configure-signing.py --keystore /secure/path/cairn-release.p12 --password-file /secure/path/password.txt
+```
+
+The helper checks the public certificate before uploading secrets and passes secret values through stdin. The workflow creates the temporary key with private file permissions, deletes it after use, and never uploads it as an artifact. Keep an offline backup of the key and password. Missing or mismatched secrets fail the release explicitly; no replacement key is generated by CI.
+
+The old `updates` distribution branch is no longer used. `scripts/publish-update.py --prepare-only` remains available for local signing/verification; publishing through that branch is retired. Releases now come from merged source commits on `main`.
 
 ## Platform references
 
