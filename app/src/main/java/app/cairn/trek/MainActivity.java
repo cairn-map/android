@@ -836,7 +836,7 @@ public final class MainActivity extends Activity {
                                   for (File file : files)
                                     if (file.getName()
                                         .matches(
-                                            "[EW][0-9]+_[NS][0-9]+\\\\.rd5\\\\.(part|resume|resume\\\\.tmp|import)"))
+                                            "[EW][0-9]+_[NS][0-9]+\\.rd5\\.(part|resume|resume\\.tmp|import)"))
                                       file.delete();
                               } else
                                 new File(RoutingData.directory(this), item.region).delete();
