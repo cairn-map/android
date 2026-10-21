@@ -736,14 +736,15 @@ public final class MainActivity extends Activity {
   }
 
   private void routingDataMenu(boolean aroundMap) {
+    boolean hasPlanningPoints = planning && !waypoints.isEmpty();
+    boolean usingMapCenter =
+        RoutingRegionMenu.usesMapCenter(aroundMap, hasPlanningPoints, !route.isEmpty());
     List<Point> points =
-        aroundMap
+        usingMapCenter
             ? Collections.singletonList(map.center())
-            : planning && !waypoints.isEmpty()
+            : hasPlanningPoints
                 ? new ArrayList<>(waypoints)
-                : !route.isEmpty()
-                    ? new ArrayList<>(route)
-                    : Collections.singletonList(map.center());
+                : new ArrayList<>(route);
     List<String> needed;
     try {
       needed = RoutingData.missing(this, points);
@@ -758,11 +759,9 @@ public final class MainActivity extends Activity {
             + " Prepare over Wi-Fi before hiking.\n\n";
     text +=
         "For "
-            + (aroundMap
+            + (usingMapCenter
                 ? "the map center"
-                : planning
-                    ? "your planning points"
-                    : route.isEmpty() ? "the map center" : "the selected GPX")
+                : hasPlanningPoints ? "your planning points" : "the selected GPX")
             + ":\n"
             + (needed.isEmpty() ? "Ready offline" : String.join("\n", needed));
     text +=
@@ -799,16 +798,17 @@ public final class MainActivity extends Activity {
     builder.setNeutralButton(
         "Regions",
         (d, w) -> {
-          List<String> options = new ArrayList<>();
-          options.add("Prepare map center");
-          options.add("Discard paused downloads");
-          if (downloaded != null) for (String name : downloaded) options.add("Remove " + name);
+          List<RoutingRegionMenu.Item> items =
+              RoutingRegionMenu.items(usingMapCenter, downloaded);
+          String[] labels = new String[items.size()];
+          for (int i = 0; i < items.size(); i++) labels[i] = items.get(i).label;
           new AlertDialog.Builder(this)
               .setTitle("Routing regions")
               .setItems(
-                  options.toArray(new String[0]),
+                  labels,
                   (a, which) -> {
-                    if (which == 0) {
+                    RoutingRegionMenu.Item item = items.get(which);
+                    if (item.action == RoutingRegionMenu.Action.USE_MAP_CENTER) {
                       routingDataMenu(true);
                       return;
                     }
@@ -819,19 +819,18 @@ public final class MainActivity extends Activity {
                           "Finish the current recording, calculation, or routing download first.");
                       return;
                     }
+                    boolean discard = item.action == RoutingRegionMenu.Action.DISCARD_PAUSED;
                     String prompt =
-                        which == 1
+                        discard
                             ? "Discard paused routing downloads? Finished regions stay available."
-                            : "Remove "
-                                + downloaded[which - 2]
-                                + "? Download it again later to update it.";
+                            : "Remove " + item.region + "? Download it again later to update it.";
                     new AlertDialog.Builder(this)
                         .setMessage(prompt)
                         .setNegativeButton("Keep", null)
                         .setPositiveButton(
                             "Remove",
                             (b, c) -> {
-                              if (which == 1) {
+                              if (discard) {
                                 File[] files = RoutingData.directory(this).listFiles();
                                 if (files != null)
                                   for (File file : files)
@@ -840,8 +839,7 @@ public final class MainActivity extends Activity {
                                             "[EW][0-9]+_[NS][0-9]+\\.rd5\\.(part|resume|resume\\.tmp|import)"))
                                       file.delete();
                               } else
-                                new File(RoutingData.directory(this), downloaded[which - 2])
-                                    .delete();
+                                new File(RoutingData.directory(this), item.region).delete();
                               routingDataMenu(aroundMap);
                             })
                         .show();

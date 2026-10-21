@@ -10,7 +10,7 @@ The upstream MIT licence is included in `routing-engine/LICENSE`, bundled as an 
 
 ## Data preparation
 
-Routes → Routing data identifies missing 5 × 5 degree RD5 regions along the selected GPX or planning points, including a small border margin. Regions → Prepare map center supports another area. Download/resume is handled inside Cairn; Add files also accepts correctly named RD5 files. Installed regions and paused downloads can be removed through Regions. Updates are explicit removal/redownload.
+Routes → Routing data identifies missing 5 × 5 degree RD5 regions along the selected GPX or planning points, including a small border margin. Regions → Switch to map center appears only when planning points or a selected GPX determine the current regions. Without a route or planning points, the routing-data dialog already uses the map center; the redundant switch is hidden. Download/resume is handled inside Cairn; Add files also accepts correctly named RD5 files. Installed regions and paused downloads can be removed through Regions. Updates are explicit removal/redownload.
 
 The source is `https://brouter.de/brouter/segments4/`. Preparation is a cancellable dataSync foreground service with a Pause notification. HTTP ranges use ETag/Last-Modified validators, with atomic resume metadata. A changed server file restarts rather than appending to an old revision. Fully received partials surviving process death can be finalized after matching an HTTP 416 validator response.
 
@@ -24,7 +24,7 @@ Calculations use the upstream `hiking-mountain.brf` profile, stored as `hiking.b
 
 Only explicit calculations run. Time is bounded to 60 seconds and working-memory configuration is capped according to the device memory class. Cancellation, activity pause, hike start, and activity destruction terminate work; parsed profile caches are released afterward. A failed calculation retains the previous route and never produces a fake straight-line trail. Successful geometry is saved as a new GPX-library entry.
 
-BRouter may discover an additional region while searching a detour. Its error identifies missing data; use Regions → Prepare map center to obtain a neighboring region. The selected GPX and other library files remain intact.
+BRouter may discover an additional region while searching a detour. Its error identifies missing data; move the map to the neighboring area and use Regions → Switch to map center if route or planning points are selected; otherwise Routing data already uses the map center. The selected GPX and other library files remain intact.
 
 ## Verification
 
