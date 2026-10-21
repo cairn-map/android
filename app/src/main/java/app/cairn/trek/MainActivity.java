@@ -1,5 +1,7 @@
 package app.cairn.trek;
 
+import static app.cairn.trek.AppPalette.*;
+
 import android.Manifest;
 import android.app.*;
 import android.content.*;
@@ -19,10 +21,6 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
-  private static final int GREEN = 0xff235D4D,
-      INK = 0xff1D332B,
-      MUTED = 0xff65746B,
-      PAPER = 0xffF8F7F2;
   private static final int IMPORT_GPX = 10, EXPORT_GPX = 12;
   private Store store;
   private TrekMapView map;
@@ -91,7 +89,7 @@ public final class MainActivity extends Activity {
     ignMap = new IgnMap(this);
     router = new EmbeddedRouter(this);
     root = new FrameLayout(this);
-    root.setBackgroundColor(PAPER);
+    root.setBackgroundColor(BACKGROUND);
     root.setOnApplyWindowInsetsListener(
         (v, insets) -> {
           v.setPadding(
@@ -124,7 +122,7 @@ public final class MainActivity extends Activity {
                 .show();
         };
     nav = row();
-    nav.setPadding(dp(12), dp(4), dp(12), dp(4));
+    nav.setPadding(dp(4), dp(4), dp(4), dp(4));
     for (String title : new String[] {"Map", "Routes"}) {
       TextView b = button(title, false, () -> showPage(title));
       b.setMinHeight(dp(48));
@@ -133,8 +131,7 @@ public final class MainActivity extends Activity {
       b.setSingleLine(true);
       nav.addView(b, new LinearLayout.LayoutParams(0, dp(48), 1));
     }
-    nav.setBackground(round(Color.WHITE, 28));
-    nav.setElevation(dp(4));
+    nav.setBackground(surface(SURFACE, OUTLINE, 28));
     FrameLayout.LayoutParams navParams =
         new FrameLayout.LayoutParams(dp(164), dp(56), Gravity.START | Gravity.BOTTOM);
     navParams.setMargins(dp(12), 0, 0, dp(12));
@@ -232,9 +229,12 @@ public final class MainActivity extends Activity {
     pages.removeAllViews();
     for (int i = 0; i < nav.getChildCount(); i++) {
       TextView b = (TextView) nav.getChildAt(i);
-      b.setTextColor(b.getText().toString().equals(title) ? GREEN : MUTED);
-      b.setTypeface(null, b.getText().toString().equals(title) ? Typeface.BOLD : Typeface.NORMAL);
-      b.setBackground(round(b.getText().toString().equals(title) ? 0xffE6EDE5 : PAPER, 20));
+      boolean selected = b.getText().toString().equals(title);
+      b.setTextColor(selected ? ON_PRIMARY : MUTED);
+      b.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
+      b.setSelected(selected);
+      b.setBackground(
+          buttonBackground(selected ? PRIMARY : SURFACE, Color.TRANSPARENT, 24));
     }
     if (title.equals("Map")) showMap();
     else if (title.equals("Routes")) showRoutes();
@@ -282,7 +282,6 @@ public final class MainActivity extends Activity {
     intervalChip.setTextSize(12);
     intervalChip.setSingleLine(true);
     intervalChip.setMinHeight(dp(48));
-    intervalChip.setElevation(dp(3));
     intervalChip.setContentDescription("GPS interval and battery settings");
     LinearLayout.LayoutParams gpsParams = new LinearLayout.LayoutParams(-2, dp(48));
     gpsParams.topMargin = dp(8);
@@ -295,8 +294,7 @@ public final class MainActivity extends Activity {
     if (planning) {
       LinearLayout bottom = column();
       bottom.setPadding(dp(12), dp(8), dp(12), dp(8));
-      bottom.setBackground(round(Color.WHITE, 24));
-      bottom.setElevation(dp(4));
+      bottom.setBackground(surface(SURFACE, OUTLINE, 24));
       planStatus = label("Long press to add points", 13, MUTED, false);
       bottom.addView(planStatus);
       LinearLayout actions = row();
@@ -355,11 +353,10 @@ public final class MainActivity extends Activity {
     } else {
       LinearLayout hike = row();
       hike.setGravity(Gravity.CENTER_VERTICAL);
-      hike.setPadding(dp(4), dp(4), dp(4), dp(4));
-      hike.setBackground(round(Color.WHITE, 28));
-      hike.setElevation(dp(4));
       if (renderedRecording) {
-        status = label("Recording", 12, INK, true);
+        hike.setPadding(dp(4), dp(4), dp(4), dp(4));
+        hike.setBackground(surface(SURFACE, OUTLINE, 28));
+        status = label("Recording", 12, TEXT, true);
         status.setMaxLines(2);
         status.setPadding(dp(8), 0, dp(4), 0);
         hike.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
@@ -368,15 +365,18 @@ public final class MainActivity extends Activity {
           button(renderedRecording ? "Finish" : "Start hike", true, this::toggleRecording);
       recordButton.setMinHeight(dp(48));
       recordButton.setTextSize(14);
+      recordButton.setBackground(buttonBackground(PRIMARY, PRIMARY_BORDER, 24));
       hike.addView(
-          recordButton, new LinearLayout.LayoutParams(dp(renderedRecording ? 80 : 112), dp(48)));
+          recordButton,
+          new LinearLayout.LayoutParams(renderedRecording ? dp(80) : -1, dp(48)));
       int width =
           renderedRecording
               ? Math.max(dp(148), getResources().getDisplayMetrics().widthPixels - dp(200))
               : dp(120);
       FrameLayout.LayoutParams params =
-          new FrameLayout.LayoutParams(width, dp(56), Gravity.END | Gravity.BOTTOM);
-      params.setMargins(0, 0, dp(12), dp(12));
+          new FrameLayout.LayoutParams(
+              width, dp(renderedRecording ? 56 : 48), Gravity.END | Gravity.BOTTOM);
+      params.setMargins(0, 0, dp(12), dp(renderedRecording ? 12 : 16));
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(planning ? 160 : 0);
@@ -387,7 +387,7 @@ public final class MainActivity extends Activity {
     scroll.setFillViewport(true);
     LinearLayout content = column();
     content.setPadding(dp(20), dp(20), dp(20), dp(100));
-    content.addView(label(title, 29, INK, true));
+    content.addView(label(title, 29, TEXT, true));
     TextView sub = label(subtitle, 14, MUTED, false);
     sub.setPadding(0, dp(8), 0, dp(24));
     content.addView(sub);
@@ -491,7 +491,7 @@ public final class MainActivity extends Activity {
             12,
             MUTED,
             false));
-    TextView licences = label("Licences & attribution", 12, GREEN, true);
+    TextView licences = label("Licences & attribution", 12, ACCENT, true);
     licences.setPadding(0, dp(16), 0, dp(16));
     licences.setOnClickListener(
         v -> {
@@ -613,7 +613,7 @@ public final class MainActivity extends Activity {
             MUTED,
             false));
     downloadStatus =
-        label(DownloadService.running ? "Map download in progress…" : "", 13, GREEN, false);
+        label(DownloadService.running ? "Map download in progress…" : "", 13, ACCENT, false);
     content.addView(downloadStatus);
     if (DownloadService.running)
       content.addView(
@@ -915,7 +915,7 @@ public final class MainActivity extends Activity {
     name.setSingleLine(true);
     name.setText(corridor ? "Route corridor" : "Plan IGN area");
     content.addView(name);
-    content.addView(label("Map detail", 14, INK, true));
+    content.addView(label("Map detail", 14, TEXT, true));
     Spinner detail = new Spinner(this);
     detail.setAdapter(
         new ArrayAdapter<>(
@@ -929,7 +929,7 @@ public final class MainActivity extends Activity {
         android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
     width.setText("1.0");
     if (corridor) {
-      content.addView(label("Kilometres on each side of the route", 14, INK, true));
+      content.addView(label("Kilometres on each side of the route", 14, TEXT, true));
       content.addView(width);
     }
     content.addView(
@@ -1095,7 +1095,7 @@ public final class MainActivity extends Activity {
   private void batterySettings() {
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(12));
-    content.addView(label("Seconds between requested GPS updates", 15, INK, true));
+    content.addView(label("Seconds between requested GPS updates", 15, TEXT, true));
     EditText seconds = new EditText(this);
     seconds.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
     seconds.setText(String.format(Locale.getDefault(), "%d", store.intervalMillis() / 1000));
@@ -1684,13 +1684,12 @@ public final class MainActivity extends Activity {
   }
 
   private TextView button(String text, boolean primary, Runnable action) {
-    TextView view = label(text, 15, primary ? Color.WHITE : GREEN, true);
+    TextView view = label(text, 15, primary ? ON_PRIMARY : ACCENT, true);
     view.setGravity(Gravity.CENTER);
     view.setMinHeight(dp(52));
     view.setPadding(dp(12), dp(10), dp(12), dp(10));
     view.setBackground(
-        new RippleDrawable(
-            ColorStateList.valueOf(0x223C6F5C), round(primary ? GREEN : 0xffEDF1E8, 14), null));
+        buttonBackground(primary ? PRIMARY : SURFACE, primary ? PRIMARY_BORDER : OUTLINE, 16));
     view.setOnClickListener(v -> action.run());
     view.setFocusable(true);
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
@@ -1703,9 +1702,7 @@ public final class MainActivity extends Activity {
     ImageButton view = new ImageButton(this);
     view.setImageDrawable(new MapIcon(icon));
     view.setPadding(dp(12), dp(12), dp(12), dp(12));
-    view.setBackground(
-        new RippleDrawable(ColorStateList.valueOf(0x223C6F5C), round(Color.WHITE, 24), null));
-    view.setElevation(dp(3));
+    view.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
     view.setContentDescription(description);
     view.setTooltipText(description);
     view.setOnClickListener(v -> action.run());
@@ -1717,6 +1714,17 @@ public final class MainActivity extends Activity {
     background.setColor(color);
     background.setCornerRadius(dp(radius));
     return background;
+  }
+
+  private GradientDrawable surface(int color, int border, int radius) {
+    GradientDrawable background = round(color, radius);
+    background.setStroke(dp(1), border);
+    return background;
+  }
+
+  private RippleDrawable buttonBackground(int color, int border, int radius) {
+    return new RippleDrawable(
+        ColorStateList.valueOf(RIPPLE), surface(color, border, radius), round(Color.WHITE, radius));
   }
 
   private View spacer(int height) {

@@ -313,7 +313,7 @@ public final class TrekMapView extends View {
   @Override
   protected void onDraw(Canvas c) {
     super.onDraw(c);
-    c.drawColor(Color.rgb(235, 238, 226));
+    c.drawColor(AppPalette.BACKGROUND);
     float tileSize = scaledTileSize();
     double cx = Geo.x(lon, zoom), cy = Geo.y(lat, zoom);
     int x0 = (int) Math.floor(cx - getWidth() / 2f / tileSize),
@@ -322,7 +322,7 @@ public final class TrekMapView extends View {
         y1 = (int) Math.ceil(cy + getHeight() / 2f / tileSize) - 1;
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeWidth(1);
-    paint.setColor(0x22657864);
+    paint.setColor(0x2243474E);
     int n = 1 << zoom, drawn = drawCachedBackground(c, cx, cy, tileSize);
     for (int x = x0; x <= x1; x++)
       for (int y = y0; y <= y1; y++) {
@@ -386,7 +386,7 @@ public final class TrekMapView extends View {
     }
     paint.setTextSize(dp(11));
     paint.setTextAlign(Paint.Align.LEFT);
-    paint.setColor(0xff536156);
+    paint.setColor(AppPalette.MUTED);
     if (source == null) {
       paint.setTextAlign(Paint.Align.CENTER);
       paint.setTextSize(dp(16));
@@ -424,9 +424,9 @@ public final class TrekMapView extends View {
       if (!route.isEmpty() || !otherRoutes.isEmpty()) text += " · routing © OSM";
       if (text.length() > 100) text = text.substring(0, 100) + "…";
       float width = paint.measureText(text) + dp(16);
-      paint.setColor(0xddffffff);
+      paint.setColor(AppPalette.SURFACE);
       c.drawRect(dp(4), dp(5), Math.min(getWidth(), width), dp(26), paint);
-      paint.setColor(0xff334438);
+      paint.setColor(AppPalette.MUTED);
       c.drawText(text, dp(8), dp(20), paint);
     }
     // A ground-distance scale remains useful with both saved and enlarged tiles.
@@ -437,9 +437,9 @@ public final class TrekMapView extends View {
         right = dp(116),
         bottom = getHeight() - dp(92) - bottomOverlay;
     paint.setStyle(Paint.Style.FILL);
-    paint.setColor(0xddffffff);
+    paint.setColor(AppPalette.SURFACE);
     c.drawRect(right - scaleWidth - dp(8), bottom - dp(22), right + dp(6), bottom + dp(7), paint);
-    paint.setColor(0xff1d332b);
+    paint.setColor(AppPalette.TEXT);
     paint.setStrokeWidth(dp(2));
     c.drawLine(right - scaleWidth, bottom, right, bottom, paint);
     c.drawLine(right - scaleWidth, bottom - dp(5), right - scaleWidth, bottom + dp(2), paint);
