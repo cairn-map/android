@@ -1,24 +1,30 @@
 name: Android checks
 on:
   pull_request:
-  push:
-    branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: android-checks-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-      - name: Install pinned Android packages
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35-ext15" "build-tools;35.0.0" > /dev/null'
+      - uses: ./.github/actions/android-toolchain
       - name: Build, test and lint
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          node --test scripts/test-auto-merge.cjs
+          node --test scripts/test-*.cjs
           bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2
+      - name: Record the validated source and toolchain
+        env:
+          VALIDATED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/validation-proof.cjs validation.json
+      - name: Save validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-source-${{ github.run_attempt }}
+          path: validation.json
+          if-no-files-found: error
+          retention-days: 7
