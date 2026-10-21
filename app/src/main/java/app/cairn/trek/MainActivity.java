@@ -23,6 +23,7 @@ import java.util.concurrent.*;
 public final class MainActivity extends Activity {
   private static final int IMPORT_GPX = 10, EXPORT_GPX = 12;
   private Store store;
+  private AppUpdates appUpdates;
   private TrekMapView map;
   private OfflineMap offlineMap;
   private IgnMap ignMap;
@@ -85,6 +86,7 @@ public final class MainActivity extends Activity {
   public void onCreate(Bundle state) {
     super.onCreate(state);
     store = new Store(this);
+    appUpdates = new AppUpdates(this);
     mapStore = new PlanIgnStore(this);
     ignMap = new IgnMap(this);
     router = new EmbeddedRouter(this);
@@ -116,10 +118,7 @@ public final class MainActivity extends Activity {
           if (planning && !calculationRunning) {
             waypoints.add(p);
             refreshPlanning();
-          } else if (!planning)
-            Toast.makeText(
-                    this, "Routes → Create a route to add planning points", Toast.LENGTH_SHORT)
-                .show();
+          }
         };
     nav = row();
     nav.setPadding(dp(4), dp(4), dp(4), dp(4));
@@ -173,10 +172,12 @@ public final class MainActivity extends Activity {
     loadPoints();
     reloadLibrary();
     refreshStatus();
+    if ("Routes".equals(currentPage)) appUpdates.resume();
   }
 
   @Override
   protected void onPause() {
+    appUpdates.pause();
     double[] camera = map.camera();
     store
         .prefs
@@ -225,6 +226,7 @@ public final class MainActivity extends Activity {
 
   private void showPage(String title) {
     currentPage = title;
+    if (!"Routes".equals(title)) appUpdates.pause();
     if (!"Map".equals(title) && ignMap.online()) setMapOnline(false);
     pages.removeAllViews();
     for (int i = 0; i < nav.getChildCount(); i++) {
@@ -261,16 +263,7 @@ public final class MainActivity extends Activity {
         iconButton(
             ignMap.online() ? MapIcon.ONLINE : MapIcon.OFFLINE,
             "",
-            () -> {
-              setMapOnline(!ignMap.online());
-              Toast.makeText(
-                      this,
-                      ignMap.online()
-                          ? "Online · viewed tiles are kept"
-                          : "Offline · kept maps only",
-                      Toast.LENGTH_SHORT)
-                  .show();
-            });
+            () -> setMapOnline(!ignMap.online()));
     updatePreviewIcon();
     LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
     iconParams.topMargin = dp(8);
@@ -507,11 +500,7 @@ public final class MainActivity extends Activity {
           }
         });
     content.addView(licences);
-    content.addView(
-        button(
-            "App updates",
-            false,
-            () -> startActivity(new Intent(this, UpdateActivity.class))));
+    content.addView(appUpdates.view());
   }
 
   private void routeActions(Store.RouteEntry entry) {
@@ -678,7 +667,7 @@ public final class MainActivity extends Activity {
                         })
                     .show();
               }));
-    if (offlineMap != null)
+    if (offlineMap != null && map.tileSource() != offlineMap)
       content.addView(
           button(
               "Show imported MBTiles",
@@ -689,14 +678,15 @@ public final class MainActivity extends Activity {
                 map.source(offlineMap);
                 if (mapDialog != null) mapDialog.dismiss();
               }));
-    content.addView(
-        button(
-            "Use Plan IGN",
-            false,
-            () -> {
-              selectPlanIgn();
-              if (mapDialog != null) mapDialog.dismiss();
-            }));
+    if (map.tileSource() != ignMap)
+      content.addView(
+          button(
+              "Switch to Plan IGN",
+              false,
+              () -> {
+                selectPlanIgn();
+                if (mapDialog != null) mapDialog.dismiss();
+              }));
     content.addView(
         button(
             "Clear viewed-map cache",
@@ -805,11 +795,6 @@ public final class MainActivity extends Activity {
             startForegroundService(
                 new Intent(this, RoutingDownloadService.class)
                     .putStringArrayListExtra("regions", new ArrayList<>(needed)));
-            Toast.makeText(
-                    this,
-                    "Routing download started · pause from its notification",
-                    Toast.LENGTH_LONG)
-                .show();
           });
     builder.setNeutralButton(
         "Regions",
@@ -980,7 +965,6 @@ public final class MainActivity extends Activity {
                       List<Point> points = new ArrayList<>(route);
                       int zoom = new int[] {16, 17, 19}[detail.getSelectedItemPosition()];
                       dialog.dismiss();
-                      Toast.makeText(this, "Checking map coverage…", Toast.LENGTH_SHORT).show();
                       io.execute(
                           () -> {
                             try {
@@ -1379,7 +1363,6 @@ public final class MainActivity extends Activity {
   }
 
   private void importFile(Uri uri) {
-    Toast.makeText(this, "Adding file…", Toast.LENGTH_SHORT).show();
     io.execute(
         () -> {
           try {
@@ -1474,7 +1457,6 @@ public final class MainActivity extends Activity {
           updateService();
           showPage("Map");
           reloadLibrary();
-          Toast.makeText(this, "GPX added to Routes", Toast.LENGTH_LONG).show();
         });
   }
 
@@ -1553,7 +1535,6 @@ public final class MainActivity extends Activity {
               store.prefs.edit().putBoolean("importedMap", true).apply();
               map.source(offlineMap);
               showPage("Map");
-              Toast.makeText(this, "Map ready offline", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
               message("Could not store map: " + e.getMessage());
             }
@@ -1645,7 +1626,6 @@ public final class MainActivity extends Activity {
                         updateService();
                         showPage("Map");
                         reloadLibrary();
-                        Toast.makeText(this, "Offline route calculated", Toast.LENGTH_SHORT).show();
                       });
                 } catch (RuntimeException e) {
                   main.post(
@@ -1675,6 +1655,11 @@ public final class MainActivity extends Activity {
   private LinearLayout row() {
     LinearLayout value = new LinearLayout(this);
     value.setOrientation(LinearLayout.HORIZONTAL);
+    GradientDrawable gap = new GradientDrawable();
+    gap.setColor(Color.TRANSPARENT);
+    gap.setSize(dp(8), 1);
+    value.setDividerDrawable(gap);
+    value.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
     return value;
   }
 
@@ -1698,7 +1683,7 @@ public final class MainActivity extends Activity {
     view.setOnClickListener(v -> action.run());
     view.setFocusable(true);
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.topMargin = dp(6);
+    params.topMargin = dp(8);
     view.setLayoutParams(params);
     return view;
   }
@@ -1745,6 +1730,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onDestroy() {
     destroyed = true;
+    appUpdates.close();
     main.removeCallbacksAndMessages(null);
     cancelLocate();
     router.close();

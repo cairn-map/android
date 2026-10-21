@@ -1,8 +1,8 @@
 # Manual in-app updates
 
-Open **Routes → App updates → Check for updates**. Cairn fetches the latest stable public GitHub release and its small `update.json` manifest. If the release is newer, choose **Download update**, then **Install downloaded update**. Android confirms installation. If prompted, allow Cairn under Android's Install unknown apps settings, return, and tap Install again.
+Open **Routes → Check for updates**. Cairn fetches the latest stable public GitHub release and its small `update.json` manifest. If the release is newer, choose **Download update**, then **Install downloaded update**. Android confirms installation. If prompted, allow Cairn under Android's Install unknown apps settings, return, and tap Install again.
 
-There are no startup/resume checks, timers, jobs, alarms, update services, automatic downloads, automatic retries or wake locks. Opening/resuming the update screen only reads local state. All network work starts from a button press and is canceled when that screen stops. A canceled download is deleted and never resumed automatically. A verified completed download can be installed later without another network request. Check, download and install are blocked during a hike recording; installation can restart the app and interrupt a recording.
+There are no startup/resume checks, timers, jobs, alarms, update services, automatic downloads, automatic retries or wake locks. Opening/resuming Routes only reads local state. All network work starts from a button press and is canceled when you leave Routes or the app. A canceled download is deleted and never resumed automatically. A verified completed download can be installed later without another network request. Check, download and install are blocked during a hike recording; installation can restart the app and interrupt a recording.
 
 ## Release integrity and installation
 

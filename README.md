@@ -5,7 +5,7 @@ A native Android trekking app built around offline maps, a minimal map screen, a
 ## This build
 
 - Always-dark interface inspired by Morphe: charcoal surfaces, blue accents, flat rounded controls, and dark dialogs/settings. Map tiles keep their original cartographic colors; map controls, attribution and scale stay dark.
-- Manual in-app updates under **Routes → App updates**: check, download, verify and open Android's installer. No update polling, scheduled jobs or automatic downloads; transfers stop when you leave the update screen, and updates are blocked while recording a hike.
+- Manual in-app updates directly in **Routes**: check, download, verify and open Android's installer. No update polling, scheduled jobs or automatic downloads; transfers stop when you leave Routes, and updates are blocked while recording a hike.
 - Full-screen map, no header or zoom buttons, two floating Map/Routes destinations. Map mode, location, saved maps and GPS settings sit on the right for one-handed use.
 - Smooth pinch zoom, cached geographic backdrops, center-first loading of visible tiles, and cancellation of obsolete viewport requests. Offline enlargements are replaced with real detail when online mode is enabled.
 - Plan IGN through the public WMTS service. Online mode automatically keeps viewed tiles permanently in local storage; the camera is remembered across restarts. No provider account or key is needed.
@@ -33,7 +33,7 @@ Raster MBTiles accepts PNG/JPEG tiles in TMS or declared XYZ order. Vector MBTil
 
 ## Updates on your phone
 
-Open **Routes → App updates → Check for updates**. If a newer release is available, tap **Download update**, then **Install downloaded update** and confirm in Android. Android may first ask you to allow Cairn to install apps; return and tap Install again after granting that permission. No GitHub account or token is needed. Checks only happen when requested and downloads are never automatic. See [update behavior and release publishing](docs/UPDATES.md).
+Open **Routes → Check for updates**. If a newer release is available, tap **Download update**, then **Install downloaded update** and confirm in Android. Android may first ask you to allow Cairn to install apps; return and tap Install again after granting that permission. No GitHub account or token is needed. Checks only happen when requested and downloads are never automatic. See [update behavior and release publishing](docs/UPDATES.md).
 
 ## Offline routing and storage
 
