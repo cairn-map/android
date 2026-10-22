@@ -34,7 +34,10 @@ public final class TrekMapView extends View {
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
   private final RectF tileRect = new RectF();
-  private final Path linePath = new Path();
+  private final IdentityHashMap<List<Point>, ProjectedLine> projectedLines = new IdentityHashMap<>();
+  private long lineFrame;
+  private double lineLat = Double.NaN, lineLon, lineScale;
+  private int lineZoom, lineWidth, lineHeight;
   private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
   private final ThreadPoolExecutor executor =
       new ThreadPoolExecutor(
@@ -868,12 +871,26 @@ public final class TrekMapView extends View {
       }
       if (complete) previousTiles.clear();
     }
+    // Camera changes invalidate screen coordinates. GPS appends only project the new points;
+    // the active route's outline and fill share one path.
+    if (lineLat != lat || lineLon != lon || lineZoom != zoom || lineScale != zoomScale
+        || lineWidth != getWidth() || lineHeight != getHeight()) {
+      projectedLines.clear();
+      lineLat = lat;
+      lineLon = lon;
+      lineZoom = zoom;
+      lineScale = zoomScale;
+      lineWidth = getWidth();
+      lineHeight = getHeight();
+    }
+    lineFrame++;
     int[] colors = {0xff647BAC, 0xffA079A3, 0xffA27D37};
     for (int i = 0; i < otherRoutes.size(); i++)
       line(c, otherRoutes.get(i), colors[i % colors.length], 3);
     line(c, route, Color.WHITE, 8);
     line(c, route, 0xff235D4D, 5);
     line(c, track, 0xffC36C39, 3);
+    projectedLines.values().removeIf(line -> line.frame != lineFrame);
     paint.setStyle(Paint.Style.FILL);
     for (int i = 0; i < waypoints.size(); i++) {
       Point p = waypoints.get(i);
@@ -1074,21 +1091,50 @@ public final class TrekMapView extends View {
 
   private void line(Canvas c, List<Point> points, int color, float width) {
     if (points.isEmpty()) return;
-    Path path = linePath;
-    path.reset();
-    Point previous = null;
-    for (Point p : points) {
-      if (previous == null || p.segment != previous.segment) path.moveTo(px(p.lon), py(p.lat));
-      else path.lineTo(px(p.lon), py(p.lat));
-      previous = p;
+    ProjectedLine line = projectedLines.get(points);
+    if (line == null) {
+      line = new ProjectedLine();
+      projectedLines.put(points, line);
     }
+    line.update(points);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeJoin(Paint.Join.ROUND);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeWidth(dp(width));
     paint.setColor(color);
-    c.drawPath(path, paint);
+    c.drawPath(line.path, paint);
     paint.setStyle(Paint.Style.FILL);
+  }
+
+  private final class ProjectedLine {
+    final Path path = new Path();
+    int count;
+    Point first, last;
+    long frame;
+
+    void update(List<Point> points) {
+      // Route edits replace their lists; the live track is append-only. Also handle clears,
+      // truncation and endpoint replacement without retaining an obsolete path.
+      if (count > points.size() || count > 0
+          && (first != points.get(0) || last != points.get(count - 1))) {
+        path.rewind();
+        count = 0;
+        last = null;
+      }
+      double centerY = Geo.y(lat, zoom);
+      float size = scaledTileSize();
+      for (int i = count; i < points.size(); i++) {
+        Point point = points.get(i);
+        float x = px(point.lon);
+        float y = (float) (getHeight() / 2f + (Geo.y(point.lat, zoom) - centerY) * size);
+        if (last == null || point.segment != last.segment) path.moveTo(x, y);
+        else path.lineTo(x, y);
+        last = point;
+        if (i == 0) first = point;
+      }
+      count = points.size();
+      frame = lineFrame;
+    }
   }
 
   private float dp(float value) {
@@ -1105,5 +1151,6 @@ public final class TrekMapView extends View {
     cacheChanged = true;
     cachedTiles.clear();
     previousTiles.clear();
+    projectedLines.clear();
   }
 }

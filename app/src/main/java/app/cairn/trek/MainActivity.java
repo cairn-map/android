@@ -41,6 +41,7 @@ public final class MainActivity extends Activity {
   private final ExecutorService io = Executors.newSingleThreadExecutor();
   private final Handler main = new Handler(Looper.getMainLooper());
   private List<Point> route = new ArrayList<>(), track = new ArrayList<>();
+  private double trackLength;
   private final List<Point> waypoints = new ArrayList<>();
   private List<Point> exportPoints;
   private boolean planning = false,
@@ -80,7 +81,13 @@ public final class MainActivity extends Activity {
                     i.getLongExtra("time", 0),
                     i.getFloatExtra("accuracy", 0),
                     0);
-            if (track.isEmpty() || track.get(track.size() - 1).time < p.time) track.add(p);
+            if (track.isEmpty() || track.get(track.size() - 1).time < p.time) {
+              if (!track.isEmpty()) {
+                Point previous = track.get(track.size() - 1);
+                if (previous.segment == p.segment) trackLength += Geo.distance(previous, p);
+              }
+              track.add(p);
+            }
             map.track = track;
             map.position = p;
             map.invalidate();
@@ -165,6 +172,7 @@ public final class MainActivity extends Activity {
     // adds the explicit non-exported flag on Android 13 and later.
     registerReceiver(fixes, filter, "app.cairn.trek.permission.INTERNAL", null, receiverFlags);
     receiverRegistered = true;
+    TrackingService.fixObservers.incrementAndGet();
     loadPoints();
     reloadLibrary();
     refreshStatus();
@@ -189,6 +197,7 @@ public final class MainActivity extends Activity {
         .putLong("mapZoom", Double.doubleToLongBits(camera[2]))
         .apply();
     if (receiverRegistered) {
+      TrackingService.fixObservers.decrementAndGet();
       unregisterReceiver(fixes);
       receiverRegistered = false;
     }
@@ -215,6 +224,7 @@ public final class MainActivity extends Activity {
                 for (Point point : track) if (point.time > last) loadedTrack.add(point);
                 if (revision == routeRevision) route = loadedRoute;
                 track = loadedTrack;
+                trackLength = Geo.length(track);
                 map.route = route;
                 map.track = track;
                 if (!track.isEmpty()
@@ -565,6 +575,7 @@ public final class MainActivity extends Activity {
                   if (destroyed) return;
                   if (current && !store.prefs.contains("currentTrek")) {
                     track = new ArrayList<>();
+                    trackLength = 0;
                     map.track = track;
                     map.invalidate();
                   }
@@ -1163,7 +1174,7 @@ public final class MainActivity extends Activity {
     if (intervalChip != null)
       intervalChip.setText(getString(R.string.gps_interval, store.intervalMillis() / 1000));
     if (status != null) {
-      String text = String.format(Locale.getDefault(), "%.1f km", Geo.length(track) / 1000);
+      String text = String.format(Locale.getDefault(), "%.1f km", trackLength / 1000);
       if (map.position == null) text += "\nAwaiting GPS";
       else text += "\n±" + Math.round(map.position.accuracy) + " m";
       status.setText(text);
@@ -1210,6 +1221,7 @@ public final class MainActivity extends Activity {
           }
         });
     content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(64)));
+    content.addView(label(getString(R.string.gps_interval_guidance), 13, MUTED, false));
     Switch alerts = new Switch(this);
     alerts.setText(R.string.off_route_alerts);
     alerts.setMinHeight(dp(56));
@@ -1272,6 +1284,7 @@ public final class MainActivity extends Activity {
     router.cancel();
     dataGeneration++;
     track = new ArrayList<>();
+    trackLength = 0;
     map.track = track;
     map.position = null;
     setMapOnline(false);

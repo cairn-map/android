@@ -106,4 +106,8 @@ polling timer and no continuous screen-on request. Guidance consumes received fi
 guidance preserves the subscription; stopping removes it. The map cancels gestures and tile work
 when paused/hidden/detached, rejects obsolete results and resumes its viewport on return. Recording
 notifications coalesce on received fixes, without a timer, while every accepted fix is persisted.
-Long route/track projection remains O(n), hence the separate route-size CPU fixtures.
+Projection is cached for each unchanged camera/list, the active route's two strokes share a path,
+and live-track appends project only new points. Camera changes still rebuild O(n) screen geometry.
+Guidance uses conservative block bounds with exact distance evaluation. Hidden fix broadcasts are
+suppressed and hidden notification refreshes coalesce to five minutes on received fixes; all
+accepted fixes remain persisted immediately. See [the multi-day audit and interval study](MULTIDAY-GPS.md).
