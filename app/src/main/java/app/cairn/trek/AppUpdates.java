@@ -31,6 +31,11 @@ final class AppUpdates {
   private boolean busy, waitingForPermission;
   private volatile int generation;
   private String status = "";
+  private final Runnable dismissStatus =
+      () -> {
+        status = "";
+        publish();
+      };
 
   AppUpdates(Activity activity) {
     this(
@@ -218,8 +223,19 @@ final class AppUpdates {
   }
 
   private void progress(String message) {
+    main.removeCallbacks(dismissStatus);
     status = message;
     publish();
+    if (!busy && !message.isEmpty()) {
+      android.view.accessibility.AccessibilityManager accessibility =
+          activity.getSystemService(android.view.accessibility.AccessibilityManager.class);
+      int timeout = 6000;
+      if (Build.VERSION.SDK_INT >= 29 && accessibility != null)
+        timeout =
+            accessibility.getRecommendedTimeoutMillis(
+                timeout, android.view.accessibility.AccessibilityManager.FLAG_CONTENT_TEXT);
+      main.postDelayed(dismissStatus, timeout);
+    }
   }
 
   private void publish() {

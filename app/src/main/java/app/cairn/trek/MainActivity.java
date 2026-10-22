@@ -254,11 +254,6 @@ public final class MainActivity extends Activity {
           if (!destroyed) refreshStatus();
         });
     libraryDialog.show();
-    libraryDialog
-        .getWindow()
-        .setLayout(
-            Math.min(getResources().getDisplayMetrics().widthPixels, dp(600)),
-            Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f));
     setIconActive(libraryButton, true);
   }
 
