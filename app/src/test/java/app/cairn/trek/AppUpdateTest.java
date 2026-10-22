@@ -277,8 +277,8 @@ public class AppUpdateTest {
       AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
       assertNull(field(updates, "client"));
       assertNull(field(updates, "transfer"));
-      assertNull(button(root, "App updates"));
-      assertNotNull(button(root, "Check for updates"));
+      assertNotNull(button(root, "APP UPDATES"));
+      assertNotNull(button(root, "Check"));
       assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
       root.measure(android.view.View.MeasureSpec.makeMeasureSpec(786, android.view.View.MeasureSpec.EXACTLY),
           android.view.View.MeasureSpec.makeMeasureSpec(1550, android.view.View.MeasureSpec.EXACTLY));
@@ -291,7 +291,7 @@ public class AppUpdateTest {
         bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
       }
       TrackingService.running = true;
-      button(root, "Check for updates").performClick();
+      button(root, "Check").performClick();
       assertNull(field(updates, "client"));
       assertNull(field(updates, "transfer"));
       assertEquals(android.view.View.VISIBLE, ((android.widget.TextView) field(updates, "status")).getVisibility());
@@ -304,6 +304,48 @@ public class AppUpdateTest {
       assertNull(field(updates, "transfer"));
     } finally {
       TrackingService.running = false;
+    }
+  }
+
+  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
+  public void updateButtonsShareCompactRowAndCancelReplacesActionsWhileBusy() throws Exception {
+    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      android.view.View root = activity.findViewById(android.R.id.content);
+      button(root, "Routes").performClick();
+      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
+
+      android.widget.Button check = (android.widget.Button) field(updates, "checkButton");
+      android.widget.Button download = (android.widget.Button) field(updates, "downloadButton");
+      android.widget.Button install = (android.widget.Button) field(updates, "installButton");
+      android.widget.Button discard = (android.widget.Button) field(updates, "discardButton");
+      android.widget.Button cancel = (android.widget.Button) field(updates, "cancelButton");
+      android.widget.LinearLayout actions = (android.widget.LinearLayout) check.getParent();
+      assertEquals(android.widget.LinearLayout.HORIZONTAL, actions.getOrientation());
+      for (android.widget.Button action : new android.widget.Button[] {download, install, discard, cancel})
+        assertSame(actions, action.getParent());
+      assertEquals("Check for updates", check.getContentDescription());
+      assertEquals("Install downloaded update", install.getContentDescription());
+      assertEquals(android.view.View.VISIBLE, check.getVisibility());
+      assertEquals(android.view.View.GONE, cancel.getVisibility());
+      assertTrue(check.getLayoutParams().height < 52 * activity.getResources().getDisplayMetrics().density);
+
+      java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
+      busy.setAccessible(true);
+      busy.setBoolean(updates, true);
+      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
+      refresh.setAccessible(true);
+      refresh.invoke(updates);
+      assertEquals(android.view.View.GONE, check.getVisibility());
+      assertEquals(android.view.View.GONE, download.getVisibility());
+      assertEquals(android.view.View.GONE, install.getVisibility());
+      assertEquals(android.view.View.GONE, discard.getVisibility());
+      assertEquals(android.view.View.VISIBLE, cancel.getVisibility());
+
+      busy.setBoolean(updates, false);
+      refresh.invoke(updates);
+      assertEquals(android.view.View.VISIBLE, check.getVisibility());
+      assertEquals(android.view.View.GONE, cancel.getVisibility());
     }
   }
 
