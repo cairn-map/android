@@ -55,6 +55,125 @@ public class MapControlsTest {
     return null;
   }
 
+  private <T extends View> T findType(View view, Class<T> type) {
+    if (type.isInstance(view)) return type.cast(view);
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++) {
+        T found = findType(group.getChildAt(i), type);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  @Config(sdk = {26, 35})
+  public void gpsSliderPreservesSavedValuesAndOnlyCommitsOnSave() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      Store store = (Store) field(activity, "store");
+      store.prefs.edit().putInt("intervalSeconds", 137).apply();
+      java.lang.reflect.Method settings = MainActivity.class.getDeclaredMethod("batterySettings");
+      settings.setAccessible(true);
+      settings.invoke(activity);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View content = dialog.getWindow().getDecorView();
+      SeekBar slider = findType(content, SeekBar.class);
+      assertNotNull(slider);
+      assertNull(findType(content, EditText.class));
+      assertEquals(137, slider.getProgress());
+      assertEquals(1, slider.getMin());
+      assertEquals(3600, slider.getMax());
+      assertTrue(dialog.getWindow().getAttributes().width > 0);
+      assertEquals(-2, dialog.getWindow().getAttributes().height);
+      slider.setProgress(3600);
+      assertNotNull(find(content, activity.getString(R.string.gps_interval, 3600)));
+      assertEquals(137000, store.intervalMillis());
+      dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+      assertEquals(137000, store.intervalMillis());
+      for (int seconds : new int[] {1, 60, 300, 3600}) {
+        settings.invoke(activity);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        slider = findType(dialog.getWindow().getDecorView(), SeekBar.class);
+        slider.setProgress(seconds);
+        findType(dialog.getWindow().getDecorView(), Switch.class).setChecked(false);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(dialog.isShowing());
+        assertEquals(seconds * 1000L, store.intervalMillis());
+        assertFalse(store.prefs.getBoolean("offRoute", true));
+      }
+    }
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(sdk = 35, qualifiers = "w393dp-h851dp-xhdpi")
+  public void updateFeedbackIsCenteredAndGpsSettingsWrapTheirContent() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      TextView feedback = (TextView) field(activity, "updateStatus");
+      feedback.setText("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
+      feedback.setVisibility(View.VISIBLE);
+      View root = activity.findViewById(android.R.id.content);
+      savePreview(root, 786, 1550, "centered-update-feedback");
+      View parent = (View) feedback.getParent();
+      assertEquals(parent.getWidth(), feedback.getLeft() + feedback.getRight(), 1);
+      assertEquals(parent.getHeight(), feedback.getTop() + feedback.getBottom(), 1);
+      assertEquals(Gravity.CENTER, feedback.getGravity());
+      java.lang.reflect.Method settings = MainActivity.class.getDeclaredMethod("batterySettings");
+      settings.setAccessible(true);
+      settings.invoke(activity);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View decor = dialog.getWindow().getDecorView();
+      decor.measure(
+          View.MeasureSpec.makeMeasureSpec(722, View.MeasureSpec.EXACTLY),
+          View.MeasureSpec.makeMeasureSpec(1550, View.MeasureSpec.AT_MOST));
+      int height = decor.getMeasuredHeight();
+      assertTrue("GPS settings must fit their content", height < 1550);
+      savePreview(decor, 722, height, "gps-slider-drawer");
+      assertTrue(findType(decor, SeekBar.class).getHeight() >= 96);
+      assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).getBottom() <= height);
+      dialog.dismiss();
+    }
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void locationToastsAreCenteredReplacedAndCanceledOnPause() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      TrackingService.running = true;
+      java.lang.reflect.Method locate = MainActivity.class.getDeclaredMethod("locate");
+      locate.setAccessible(true);
+      locate.invoke(activity);
+      Toast first = (Toast) field(activity, "currentToast");
+      assertEquals(Gravity.CENTER, first.getGravity());
+      assertEquals(Gravity.CENTER, ((TextView) first.getView()).getGravity());
+      assertEquals(
+          "Waiting for your next scheduled GPS fix", ((TextView) first.getView()).getText());
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      map.position = new Point(45, 6, Double.NaN, System.currentTimeMillis(), 5, 0);
+      locate.invoke(activity);
+      Toast second = (Toast) field(activity, "currentToast");
+      assertNotSame(first, second);
+      assertTrue(Shadows.shadowOf(first).isCancelled());
+      assertEquals(Gravity.CENTER, second.getGravity());
+      assertEquals(0, second.getXOffset());
+      assertEquals(0, second.getYOffset());
+      controller.pause();
+      assertTrue(Shadows.shadowOf(second).isCancelled());
+    } finally {
+      TrackingService.running = false;
+    }
+  }
+
   @Test
   public void onlineToggleChangesItsFillAndIconContrastAndRejectedToggleStaysOff()
       throws Exception {

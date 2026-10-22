@@ -42,8 +42,6 @@ public class CairnDialogsTest {
     dialog.show();
     Shadows.shadowOf(Looper.getMainLooper()).idle();
     assertTrue(shown[0]);
-    assertEquals(-1, dialog.getWindow().getAttributes().width);
-    assertEquals(-1, dialog.getWindow().getAttributes().height);
     assertEquals(R.style.CairnDrawerAnimation, dialog.getWindow().getAttributes().windowAnimations);
     View decor = dialog.getWindow().getDecorView();
     decor.measure(
@@ -62,13 +60,40 @@ public class CairnDialogsTest {
 
   @Test
   @Config(qualifiers = "w960dp-h1280dp")
-  public void drawersAndItemMenusFillTheWindowOnTablets() {
-    show(CairnDialogs.drawer(activity).setTitle("Settings").setMessage("Settings content"));
+  public void compactDrawersAndFixedMenusWrapTheirContentOnTablets() {
+    View swipe = show(CairnDialogs.drawer(activity).setTitle("GPS").setMessage("Settings"));
+    assertEquals(
+        560 * activity.getResources().getDisplayMetrics().density,
+        dialog.getWindow().getAttributes().width,
+        1);
+    assertEquals(-2, dialog.getWindow().getAttributes().height);
+    assertTrue(swipe.getHeight() < 800);
     dialog.dismiss();
     show(
         CairnDialogs.dialog(activity)
-            .setTitle("Route actions")
+            .setTitle("Actions")
             .setItems(new String[] {"Show", "Export"}, (d, which) -> {}));
+    assertTrue(dialog.getWindow().getAttributes().width > 0);
+    assertEquals(-2, dialog.getWindow().getAttributes().height);
+  }
+
+  @Test
+  public void heightAndWidthAreIndependentAndCallerShowListenersStillRun() {
+    show(CairnDialogs.drawer(activity).fullHeight().setTitle("Variable list"));
+    assertTrue(dialog.getWindow().getAttributes().width > 0);
+    assertEquals(-1, dialog.getWindow().getAttributes().height);
+    dialog.dismiss();
+    show(
+        CairnDialogs.drawer(activity)
+            .fullWidth()
+            .setTitle("Nested actions")
+            .setItems(new String[] {"Rename", "Remove"}, (d, which) -> {}));
+    assertEquals(-1, dialog.getWindow().getAttributes().width);
+    assertEquals(-2, dialog.getWindow().getAttributes().height);
+    dialog.dismiss();
+    show(CairnDialogs.drawer(activity).fullHeight().fullWidth().setTitle("Library"));
+    assertEquals(-1, dialog.getWindow().getAttributes().width);
+    assertEquals(-1, dialog.getWindow().getAttributes().height);
   }
 
   @Test
@@ -98,7 +123,13 @@ public class CairnDialogsTest {
       rows.addView(button, new LinearLayout.LayoutParams(-1, 48));
     }
     scroll.addView(rows);
-    View swipe = show(CairnDialogs.drawer(activity).setTitle("Routes").setView(scroll));
+    View swipe =
+        show(
+            CairnDialogs.drawer(activity)
+                .fullHeight()
+                .fullWidth()
+                .setTitle("Routes")
+                .setView(scroll));
     scroll.getChildAt(0).performClick();
     int[] location = new int[2];
     rows.getChildAt(0).getLocationOnScreen(location);
