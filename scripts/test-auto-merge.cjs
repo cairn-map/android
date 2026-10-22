@@ -16,7 +16,7 @@ test('PR checks have a stable required status with build, test and lint', () => 
   assert.match(checks, /on:\s*\n\s*pull_request:/);
   assert.match(checks, /jobs:\s*\n\s*checks:/);
   assert.match(checks, /python3 -m unittest discover/);
-  assert.match(checks, /node --test "\\$suite"/);
+  assert.match(checks, /node --test "\$suite"/);
   assert.match(checks, /assembleDebug testDebugUnitTest lintDebug/);
   assert.match(checks, /go run github.com\/rhysd\/actionlint\/cmd\/actionlint@v1\.7\.12/);
 });
