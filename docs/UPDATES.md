@@ -22,7 +22,7 @@ A native GitHub merge pushes a commit to `main`, triggering the existing **Publi
 
 ### One-time native auto-merge configuration
 
-The administrator must enable native auto-merge, branch cleanup, merge commits as the sole merge method, and the required status check **before removing the legacy auto-merge Action**. This repository includes a guarded, idempotent helper that preserves the existing `main-2` ruleset's other rules while enforcing the `checks` context, strict branch freshness, resolved conversations and no bypass role. It keeps zero required human approvals so agent-created PRs can merge automatically after CI succeeds. The separate `main-1` deletion and non-fast-forward protection remains unchanged.
+The administrator must maintain native auto-merge, branch cleanup, merge commits as the sole merge method, the strict required check, and code-owner review. The legacy auto-merge Action has already been removed. This repository includes a guarded, idempotent helper that preserves the existing `main` ruleset's other rules while enforcing the `checks` context, strict branch freshness, resolved conversations and no bypass role. It retains zero general approvals for routine PRs. Release-sensitive files listed in `.github/CODEOWNERS` require code-owner approval once the repository ruleset is updated. An author cannot approve their own PR; changes authored by @dayblox to those paths need another trusted maintainer. The existing deletion and non-fast-forward protection remains unchanged.
 
 Authenticate the GitHub CLI with repository administration permission, then run:
 
@@ -31,7 +31,9 @@ python3 scripts/configure_native_automerge.py --dry-run
 python3 scripts/configure_native_automerge.py
 ```
 
-Verify [repository auto-merge and branch deletion](https://github.com/dayblox/cairn/settings) and the [`main-2` ruleset](https://github.com/dayblox/cairn/rules/25598518), which must require the `checks` job. Only then mark the migration PR ready and enable its native auto-merge. **Do not merge the migration PR before verifying these settings**, or future PRs could lose automatic merging or skip CI protection.
+Verify [repository auto-merge and branch deletion](https://github.com/dayblox/cairn/settings) and the [`main` ruleset](https://github.com/dayblox/cairn/rules/25598518), which must require the `checks` job. Only then mark the migration PR ready and enable its native auto-merge. **Do not merge the migration PR before verifying these settings**, or future PRs could lose automatic merging or skip CI protection.
+
+Changes to `.github`, `scripts`, build and wrapper files, signing policy, or CODEOWNERS require an independent trusted code-owner review after the `main` ruleset has enabled `require_code_owner_review`. The CODEOWNERS file alone only requests reviews and does not enforce them. Since @dayblox cannot approve their own PR, add another trusted collaborator before merging owner-authored sensitive changes. The administrator can apply the reviewed rule using the helper above after this PR merges.
 
 For every subsequent PR, the agent creating it must enable native auto-merge itself. Failure to enable it means leaving the PR open and reporting the issue, not bypassing checks or force-merging.
 
@@ -43,13 +45,17 @@ Changes under `.github` or `scripts` always receive full validation again after 
 
 The shared Android toolchain action caches the pinned SDK platform/build tools separately from Robolectric's Android runtime downloads. The official Gradle setup action caches dependencies, transforms, and Gradle's local build cache, with the default branch writing shared entries and PRs restoring them. Android test results are never trusted from a cache as a substitute for validation evidence. The standalone Android checks workflow runs on PRs only; direct pushes and manual merges still get their validation in the release workflow, without a second redundant main-push checks run.
 
-The release workflow reads the latest public `update.json`, advances the Android version code and patch version, and passes those values to Gradle. An explicitly newer source version is preserved. Rerunning an already published source commit is a no-op. The workflow verifies the actual APK identity, version and pinned signing certificate, creates a draft release at the source commit, uploads APK/manifest/checksums together, then publishes it as latest. Published versions are never overwritten; a failed draft can be retried.
+Before checking out a historical manual-dispatch commit, the release workflow uses the current `main` script to require that the proposed source includes the latest published release source. It repeats the check before versioning, rejecting stale manual sources and out-of-order queued runs. The release workflow reads the latest public `update.json`, advances the Android version code and patch version, and passes those values to Gradle. An explicitly newer source version is preserved. Rerunning an already published source commit is a no-op. The workflow verifies the actual APK identity, version and pinned signing certificate, creates a draft release at the source commit, uploads APK/manifest/checksums together, then publishes it as latest. Published versions are never overwritten; a failed draft can be retried.
 
 ### Changelog in GitHub Releases
 
 Each new GitHub Release shows **GitHub-generated release notes**, listing changes since the previous release (including merged pull request titles and contributors), rather than repeating app-installation instructions. The publishing job generates the changelog for the specific source commit before creating its draft, and refreshes the notes when recovering an existing draft. Failure to generate non-empty notes blocks publication. Write clear, user-facing PR titles because they become release-note entries.
 
 Installation and in-app update instructions live in this document and the README, not in GitHub Release descriptions. Previously published release descriptions are left unchanged.
+
+### CI reliability and validation reuse smoke test
+
+Node test suites are executed individually with a 90-second limit per suite and a four-minute step bound, making hangs identifiable. Required PR CI now also runs pinned `actionlint`. Existing unit tests cover native merge validation reuse; after these CI/script changes merge, validate the real optimized path by merging a **source-only PR** that does not change `.github` or `scripts`. The associated release must log `Reusing successful PR validation run`, skip fallback test steps, and still sign and verify the APK. If evidence cannot be verified, fallback testing is mandatory.
 
 ### Measuring PR-to-release time
 
