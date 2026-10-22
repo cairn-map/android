@@ -39,6 +39,25 @@ def next_version(code, name, previous, source):
     return {'skip': 'false', 'version_name': '.'.join(map(str, version)), 'version_code': str(code)}
 
 
+def is_ancestor(older, newer):
+    """Check that the latest published source is included in a proposed release."""
+    result = subprocess.run(
+        ['git', 'merge-base', '--is-ancestor', older, newer],
+        cwd=ROOT, capture_output=True, text=True)
+    return result.returncode == 0
+
+
+def require_forward_release_source(previous, source, ancestor_check=is_ancestor):
+    """Block stale manual releases and out-of-order queued release runs."""
+    if previous is None:
+        return
+    old_source = previous.get('sourceCommit')
+    if not isinstance(old_source, str) or not re.fullmatch(r'[0-9a-f]{40}', old_source):
+        raise ValueError('Invalid previous published release source')
+    if old_source != source and not ancestor_check(old_source, source):
+        raise ValueError('Release source must contain the latest published source commit')
+
+
 def latest_manifest(repository):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('Invalid GitHub repository')
@@ -73,6 +92,7 @@ def main():
     code = int(re.search(r'\bversionCode\s+(\d+)', gradle)[1])
     name = re.search(r"\bversionName\s+'([^']+)'", gradle)[1]
     previous = json.loads(args.previous.read_text()) if args.previous else latest_manifest(args.repository) if args.repository else None
+    require_forward_release_source(previous, source)
     for key, value in next_version(code, name, previous, source).items():
         print(f'{key}={value}')
 
