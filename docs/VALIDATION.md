@@ -1,3 +1,15 @@
+# Full-width drawers, GPS ticks and unified feedback — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **202 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for this app/documentation change; workflows and automation are unchanged.
+
+Framework regression checks cover full-width drawers on phones/tablets, variable content filling the available height, swipe dismissal and scrolling, immediate GPS/alert persistence on API 26 and 35, and a slider gesture starting below the track with 120 pixels of downward drift. A tap near 70 seconds selects the 60-second tick; a drag selects 43 seconds without dismissing the drawer. Existing tests round-trip every whole-second setting from 1 through 3600.
+
+Feedback checks on API 28 and 35 cover one banner following nested dialogs, queued independent notices, collapsed duplicates, replacement of related location/update messages, persistent transfer progress, accessibility timeouts, expiration and cleanup on pause. Attribution is reachable from drawer footers with clickable source/update/licence links; imported maps retain their existing on-map credit.
+
+Search checks cover exact/partial names, accents, country qualifiers, city priority, soft distance bias, duplicate merging, direct coordinates, street numbers/postcodes, preserving named POIs with addresses, fallback, cancellation and late responses. Native Canvas previews of GPS, feedback, and populated search at full and reduced window heights were visually inspected. The reduced-height check simulates the space available above a keyboard; it is not a real IME/device trial.
+
+No physical-device gesture or live search-provider trial was performed. Ranking tests use controlled responses, and Photon/device-geocoder coverage remains provider-dependent; Google Maps equivalence has not been established.
+
 # Content-sized drawers, GPS slider and centered feedback — 22 October 2026
 
 JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **178 Android/JVM tests passed**, with no failures or skips. Android lint reported zero errors and four existing warnings in the swipe-to-remove view and place-search text. The Python automation suite (19 tests) and Node automation suite (39 tests) also passed.

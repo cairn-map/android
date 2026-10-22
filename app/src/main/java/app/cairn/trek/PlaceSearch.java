@@ -5,6 +5,7 @@ import android.location.Address;
 import android.location.Geocoder;
 import android.os.*;
 import java.io.IOException;
+import java.text.Normalizer;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -55,6 +56,11 @@ final class PlaceSearch implements AutoCloseable {
     cancel();
     int request = generation;
     Point focus = center;
+    Address coordinates = coordinates(query);
+    if (coordinates != null) {
+      callback.results(Collections.singletonList(coordinates));
+      return;
+    }
     main.postDelayed(
         () -> {
           if (request != generation) return;
@@ -70,7 +76,7 @@ final class PlaceSearch implements AutoCloseable {
                 List<Address> places = Collections.emptyList();
                 IOException primaryError = null;
                 try {
-                  places = lookup.search(query, focus);
+                  places = rank(query, focus, lookup.search(query, focus));
                 } catch (IOException error) {
                   primaryError = error;
                 }
@@ -79,15 +85,7 @@ final class PlaceSearch implements AutoCloseable {
                   if (Geocoder.isPresent()) places = geocoder.getFromLocationName(query, 10);
                   else if (primaryError != null) throw primaryError;
                 }
-                List<Address> usable = new ArrayList<>();
-                if (places != null)
-                  for (Address place : places)
-                    if (place.hasLatitude()
-                        && place.hasLongitude()
-                        && Double.isFinite(place.getLatitude())
-                        && Double.isFinite(place.getLongitude())
-                        && Math.abs(place.getLatitude()) <= 90
-                        && Math.abs(place.getLongitude()) <= 180) usable.add(place);
+                List<Address> usable = rank(query, focus, places);
                 main.post(
                     () -> {
                       if (request != generation) return;
@@ -104,6 +102,105 @@ final class PlaceSearch implements AutoCloseable {
                     });
               }
             });
+  }
+
+  /** Text relevance dominates; distance is only a soft tie-breaker among good matches. */
+  static List<Address> rank(String query, Point center, List<Address> places) {
+    List<Address> ranked = new ArrayList<>();
+    if (places == null) return ranked;
+    for (Address place : places) {
+      if (place == null
+          || !place.hasLatitude()
+          || !place.hasLongitude()
+          || !Double.isFinite(place.getLatitude())
+          || !Double.isFinite(place.getLongitude())
+          || Math.abs(place.getLatitude()) > 90
+          || Math.abs(place.getLongitude()) > 180) continue;
+      ranked.add(place);
+    }
+    String text = normalized(query);
+    ranked.sort(
+        Comparator.comparingDouble((Address place) -> relevance(text, place, center)).reversed());
+    List<Address> unique = new ArrayList<>();
+    for (Address place : ranked) {
+      boolean duplicate = false;
+      for (Address other : unique) {
+        if (normalized(place.getFeatureName()).equals(normalized(other.getFeatureName()))
+            && Geo.distance(
+                    new Point(place.getLatitude(), place.getLongitude()),
+                    new Point(other.getLatitude(), other.getLongitude()))
+                < 100) {
+          duplicate = true;
+          break;
+        }
+      }
+      if (!duplicate) unique.add(place);
+      if (unique.size() == 10) break;
+    }
+    return unique;
+  }
+
+  private static double relevance(String query, Address place, Point center) {
+    String name = normalized(place.getFeatureName());
+    String label = normalized(label(place));
+    double score =
+        name.equals(query) ? 240 : name.startsWith(query) ? 170 : name.contains(query) ? 130 : 0;
+    for (String token : query.split(" ")) {
+      boolean nameMatch = Arrays.stream(name.split(" ")).anyMatch(word -> word.startsWith(token));
+      boolean labelMatch = Arrays.stream(label.split(" ")).anyMatch(word -> word.startsWith(token));
+      score += nameMatch ? 35 : labelMatch ? 20 : -100;
+    }
+    String kind = place.getExtras() == null ? "" : place.getExtras().getString("kind", "");
+    switch (kind) {
+      case "city":
+        score += 50;
+        break;
+      case "town":
+        score += 40;
+        break;
+      case "peak":
+        score += 35;
+        break;
+      case "village":
+        score += 25;
+        break;
+      case "hamlet":
+        score += 15;
+        break;
+    }
+    if (center != null) {
+      double km = Geo.distance(center, new Point(place.getLatitude(), place.getLongitude())) / 1000;
+      score += 20 / (1 + km / 100);
+    }
+    return score;
+  }
+
+  static String normalized(String text) {
+    if (text == null) return "";
+    return Normalizer.normalize(
+            text.toLowerCase(Locale.ROOT).replace("œ", "oe").replace("æ", "ae"),
+            Normalizer.Form.NFD)
+        .replaceAll("\\p{M}+", "")
+        .replaceAll("[^\\p{L}\\p{N}]+", " ")
+        .trim();
+  }
+
+  static Address coordinates(String query) {
+    String[] parts = query.trim().split("\\s*[,;]\\s*");
+    if (parts.length != 2) return null;
+    try {
+      double lat = Double.parseDouble(parts[0]), lon = Double.parseDouble(parts[1]);
+      if (!Double.isFinite(lat)
+          || !Double.isFinite(lon)
+          || Math.abs(lat) > 90
+          || Math.abs(lon) > 180) return null;
+      Address place = new Address(Locale.getDefault());
+      place.setLatitude(lat);
+      place.setLongitude(lon);
+      return place;
+    } catch (NumberFormatException ignored) {
+      return null;
+    }
   }
 
   static String label(Address place) {

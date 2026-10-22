@@ -88,7 +88,7 @@ public class PhotonClientTest {
   public void queryIsEncodedAndMapCenterIsASoftBiasWithoutGeographicRestrictions() {
     Uri url = Uri.parse(PhotonClient.url("Thabor & col", new Point(45.1, 6.5)));
     assertEquals("Thabor & col", url.getQueryParameter("q"));
-    assertEquals("20", url.getQueryParameter("limit"));
+    assertEquals("40", url.getQueryParameter("limit"));
     assertEquals("45.1", url.getQueryParameter("lat"));
     assertEquals("6.5", url.getQueryParameter("lon"));
     assertNull(url.getQueryParameter("bbox"));
@@ -119,5 +119,35 @@ public class PhotonClientTest {
   @Test(expected = IOException.class)
   public void invalidResponseFailsSoTheDeviceFallbackCanRun() throws Exception {
     PhotonClient.parse("unavailable");
+  }
+
+  @Test
+  public void streetAddressesKeepHouseNumbersPostcodesAndCityForDisambiguation() throws Exception {
+    Address address =
+        PhotonClient.parse(
+                """
+                {"features":[{"properties":{"street":"Rue de Rivoli","housenumber":"12",
+                  "postcode":"75004","city":"Paris","country":"France"},
+                  "geometry":{"type":"Point","coordinates":[2.35,48.85]}}]}
+                """)
+            .get(0);
+    assertEquals("12 Rue de Rivoli", address.getFeatureName());
+    assertEquals("Paris", address.getLocality());
+    assertEquals("75004", address.getPostalCode());
+    assertEquals("12 Rue de Rivoli, 75004, Paris, France", PlaceSearch.label(address));
+  }
+
+  @Test
+  public void namedPlacesKeepTheirNameWhenTheyAlsoHaveAStreetAddress() throws Exception {
+    Address cafe =
+        PhotonClient.parse(
+                """
+                {"features":[{"properties":{"name":"Café des Alpes","street":"Rue de Rivoli",
+                  "housenumber":"12","city":"Paris"},
+                  "geometry":{"type":"Point","coordinates":[2.35,48.85]}}]}
+                """)
+            .get(0);
+    assertEquals("Café des Alpes", cafe.getFeatureName());
+    assertEquals("Café des Alpes, 12 Rue de Rivoli, Paris", PlaceSearch.label(cafe));
   }
 }

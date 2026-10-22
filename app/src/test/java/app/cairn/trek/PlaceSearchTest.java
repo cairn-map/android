@@ -108,6 +108,46 @@ public class PlaceSearchTest {
   }
 
   @Test
+  public void exactAccentedNamesBeatNearbyPartialMatchesAndQualifiersDisambiguate() {
+    Address exact = place("Saint-Étienne", 45.44, 4.39);
+    exact.setAddressLine(0, "Saint-Étienne, Loire, France");
+    Address partial = place("Saint Étienne café", 48.85, 2.35);
+    Address abroad = place("Saint Étienne", 46.8, -71.2);
+    abroad.setAddressLine(0, "Saint Étienne, Québec, Canada");
+    List<Address> ranked =
+        PlaceSearch.rank("saint etienne", new Point(48.85, 2.35), Arrays.asList(partial, exact));
+    assertSame(exact, ranked.get(0));
+    ranked =
+        PlaceSearch.rank(
+            "saint etienne canada", new Point(45.44, 4.39), Arrays.asList(exact, abroad));
+    assertSame(abroad, ranked.get(0));
+  }
+
+  @Test
+  public void townBeatsANearbyBusinessAndDuplicatesAcrossLabelsAreMerged() {
+    Address city = place("Paris", 48.85, 2.35);
+    android.os.Bundle metadata = new android.os.Bundle();
+    metadata.putString("kind", "city");
+    city.setExtras(metadata);
+    Address duplicate = place("Paris", 48.8501, 2.3501);
+    duplicate.setAddressLine(0, "Paris, France");
+    Address shop = place("Paris bakery", 48.851, 2.351);
+    assertEquals(
+        Arrays.asList(city, shop),
+        PlaceSearch.rank("Paris", new Point(48.851, 2.351), Arrays.asList(shop, duplicate, city)));
+  }
+
+  @Test
+  public void coordinatesAreImmediateWithoutCallingEitherOnlineBackend() {
+    search.search("45.9237, 6.8694", callback);
+    assertEquals(1, results.size());
+    assertEquals(45.9237, results.get(0).getLatitude(), 1e-6);
+    assertNull(SearchGeocoder.query);
+    assertNull(PlaceSearch.coordinates("95, 6"));
+    assertNull(PlaceSearch.coordinates("NaN, 6"));
+  }
+
+  @Test
   public void suggestionsDebounceTypingAndOnlyLookUpTheLatestText() throws Exception {
     search.suggest("Pa", callback);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
@@ -327,7 +367,7 @@ public class PlaceSearchTest {
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
-      dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
       assertNotNull(query.getError());
       assertNull(SearchGeocoder.query);
       query.setText("Paris");
@@ -356,11 +396,11 @@ public class PlaceSearchTest {
       find(activity.getWindow().getDecorView(), "Search places").performClick();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
-      ((EditText) find(dialog.getWindow().getDecorView(), "Place name or address"))
-          .setText("Paris");
+      EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
+      query.setText("Paris");
       SearchGeocoder.entered = new CountDownLatch(1);
       SearchGeocoder.release = new CountDownLatch(1);
-      dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
       assertTrue(SearchGeocoder.entered.await(5, TimeUnit.SECONDS));
       double[] before = ((TrekMapView) field(activity, "map")).camera();
       controller.pause();
@@ -378,14 +418,12 @@ public class PlaceSearchTest {
       TrackingService.running = true;
       find(controller.get().getWindow().getDecorView(), "Search places").performClick();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       assertNotNull(
           find(
-              dialog.getWindow().getDecorView(),
+              controller.get().getWindow().getDecorView(),
               "Finish recording before searching online. Offline maps and saved routes remain"
                   + " available."));
       assertNull(SearchGeocoder.query);
-      dialog.dismiss();
     } finally {
       TrackingService.running = false;
     }
