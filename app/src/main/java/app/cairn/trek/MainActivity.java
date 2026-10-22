@@ -45,6 +45,7 @@ public final class MainActivity extends Activity {
   private List<Point> exportPoints;
   private boolean planning = false,
       destroyed = false,
+      resumed = false,
       receiverRegistered = false,
       calculationRunning = false;
   private String currentPage = "Map";
@@ -155,6 +156,8 @@ public final class MainActivity extends Activity {
   @Override
   protected void onResume() {
     super.onResume();
+    resumed = true;
+    map.setRenderingEnabled(true);
     IntentFilter filter = new IntentFilter(TrackingService.EVENT);
     filter.addAction(DownloadService.EVENT);
     int receiverFlags = Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_NOT_EXPORTED : 0;
@@ -170,6 +173,10 @@ public final class MainActivity extends Activity {
 
   @Override
   protected void onPause() {
+    resumed = false;
+    dataGeneration++;
+    main.removeCallbacksAndMessages(null);
+    map.setRenderingEnabled(false);
     appUpdates.pause();
     feedback.clear();
     map.stopMotion();
@@ -202,7 +209,7 @@ public final class MainActivity extends Activity {
               loadedTrack = store.read(store.prefs.getString("currentTrek", null));
           main.post(
               () -> {
-                if (destroyed || generation != dataGeneration) return;
+                if (destroyed || !resumed || generation != dataGeneration) return;
                 long last =
                     loadedTrack.isEmpty() ? 0 : loadedTrack.get(loadedTrack.size() - 1).time;
                 for (Point point : track) if (point.time > last) loadedTrack.add(point);
@@ -460,7 +467,7 @@ public final class MainActivity extends Activity {
           boolean showActive = activeVisible;
           main.post(
               () -> {
-                if (destroyed) return;
+                if (destroyed || !resumed) return;
                 routeEntries = entries;
                 map.otherRoutes = overlays;
                 map.route = showActive ? route : Collections.emptyList();
@@ -1148,6 +1155,7 @@ public final class MainActivity extends Activity {
   }
 
   private void refreshStatus() {
+    if (destroyed || !resumed) return;
     if ("Map".equals(currentPage) && !planning && renderedRecording != TrackingService.running) {
       showPage("Map");
       return;

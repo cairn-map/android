@@ -19,6 +19,7 @@ public final class TrackingService extends Service implements LocationListener {
   private int outsideFixes = 0;
   private boolean warned = false;
   private long requestedInterval = -1;
+  private long lastNotificationElapsed = Long.MIN_VALUE;
 
   @Override
   public void onCreate() {
@@ -106,6 +107,15 @@ public final class TrackingService extends Service implements LocationListener {
 
   @Override
   public void onLocationChanged(Location l) {
+    Trace.beginSection("Cairn.fix");
+    try {
+      recordFix(l);
+    } finally {
+      Trace.endSection();
+    }
+  }
+
+  private void recordFix(Location l) {
     if (!running
         || !l.hasAccuracy()
         || l.getAccuracy() > 100
@@ -126,16 +136,21 @@ public final class TrackingService extends Service implements LocationListener {
       stopSelf();
       return;
     }
-    getSystemService(NotificationManager.class)
-        .notify(
-            1,
-            notification(
-                "Last fix "
-                    + new java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                        .format(new Date(p.time))
-                    + " · ±"
-                    + Math.round(p.accuracy)
-                    + " m"));
+    // NotificationManager wakes System UI too. Coalesce on received fixes, with no timer.
+    long now = SystemClock.elapsedRealtime();
+    if (lastNotificationElapsed == Long.MIN_VALUE || now - lastNotificationElapsed >= 60_000L) {
+      lastNotificationElapsed = now;
+      getSystemService(NotificationManager.class)
+          .notify(
+              1,
+              notification(
+                  "Last fix "
+                      + new java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                          .format(new Date(p.time))
+                      + " · ±"
+                      + Math.round(p.accuracy)
+                      + " m"));
+    }
     if (store.prefs.getBoolean("offRoute", true) && route.size() > 1 && p.accuracy <= 50) {
       double distance = Geo.routeDistance(p, route);
       if (distance > Math.max(50, p.accuracy * 2)) outsideFixes++;

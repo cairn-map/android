@@ -28,6 +28,7 @@ public final class TrekMapView extends View {
   private TileSource source;
   private volatile int generation = 0;
   private volatile boolean active = true;
+  private boolean renderingEnabled = true, windowVisible = true, hierarchyVisible = true;
   private boolean tapCandidate, doubleTap;
   private float downX, downY;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -318,6 +319,7 @@ public final class TrekMapView extends View {
 
   @Override
   public void computeScroll() {
+    if (!canRender()) return;
     if (panScroller.computeScrollOffset()) {
       int x = panScroller.getCurrX(), y = panScroller.getCurrY();
       panBy(x - panX, y - panY);
@@ -372,8 +374,60 @@ public final class TrekMapView extends View {
 
   @Override
   protected void onDetachedFromWindow() {
-    stopMotion();
+    windowVisible = false;
+    suspendRendering();
     super.onDetachedFromWindow();
+  }
+
+  @Override
+  protected void onAttachedToWindow() {
+    super.onAttachedToWindow();
+    windowVisible = getWindowVisibility() == VISIBLE;
+    if (canRender()) invalidate();
+  }
+
+  @Override
+  protected void onWindowVisibilityChanged(int visibility) {
+    super.onWindowVisibilityChanged(visibility);
+    windowVisible = visibility == VISIBLE;
+    if (executor != null) updateRendering();
+  }
+
+  @Override
+  public void onVisibilityAggregated(boolean visible) {
+    super.onVisibilityAggregated(visible);
+    hierarchyVisible = visible;
+    if (executor != null) updateRendering();
+  }
+
+  /** A paused activity must not load tiles even if its window is still visible. */
+  void setRenderingEnabled(boolean enabled) {
+    renderingEnabled = enabled;
+    updateRendering();
+  }
+
+  private boolean canRender() {
+    return active && renderingEnabled && windowVisible && hierarchyVisible;
+  }
+
+  private void updateRendering() {
+    if (canRender()) invalidate();
+    else suspendRendering();
+  }
+
+  private void suspendRendering() {
+    // GestureDetector otherwise retains its delayed tap/long-press callbacks after pause.
+    long now = android.os.SystemClock.uptimeMillis();
+    MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
+    gestures.onTouchEvent(cancel);
+    scales.onTouchEvent(cancel);
+    cancel.recycle();
+    stopMotion();
+    generation++;
+    executor.getQueue().clear();
+    pending.clear();
+    viewport = Collections.emptySet();
+    if (source != null) source.cancelRequests();
   }
 
   private int minZoom() {
@@ -755,7 +809,17 @@ public final class TrekMapView extends View {
 
   @Override
   protected void onDraw(Canvas c) {
+    if (!canRender()) return;
     super.onDraw(c);
+    android.os.Trace.beginSection("Cairn.map.draw");
+    try {
+      drawMap(c);
+    } finally {
+      android.os.Trace.endSection();
+    }
+  }
+
+  private void drawMap(Canvas c) {
     c.drawColor(AppPalette.BACKGROUND);
     float tileSize = scaledTileSize();
     double cx = Geo.x(lon, zoom), cy = Geo.y(lat, zoom);
@@ -953,7 +1017,7 @@ public final class TrekMapView extends View {
   }
 
   private void request(String key, int z, int x, int y) {
-    if (pending.containsKey(key) || missing.contains(key) || !active) return;
+    if (pending.containsKey(key) || missing.contains(key) || !canRender()) return;
     TileRequest task = new TileRequest(key, z, x, y);
     pending.put(key, task);
     executor.execute(task);
@@ -985,6 +1049,10 @@ public final class TrekMapView extends View {
       } catch (RuntimeException ignored) {
       }
       Bitmap value = result;
+      if (obsolete()) {
+        if (value != null) value.recycle();
+        return;
+      }
       main.post(
           () -> {
             if (obsolete()) {

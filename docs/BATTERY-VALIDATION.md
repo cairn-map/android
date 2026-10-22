@@ -1,38 +1,109 @@
-# Battery and recording validation
+# Virtual power and rendering performance
 
-## Goal
+Performance validation runs entirely in GitHub Actions, virtual Android tests and native Canvas
+benchmarks. No physical phones, field trials, manual battery baselines or competitor installations
+are required. This is the owner's explicit scope. These results measure software work and CPU time;
+they do not represent mAh, endurance or a measured hardware suspend percentage.
 
-Minimize energy use at the user-selected GPS interval while retaining a functioning recorder and honest guidance. Compare Cairn with OruxMaps under matching conditions. No comparative endurance result is available yet.
+## What runs on every PR
 
-## Current implementation
+The required `checks` job in **Android checks** builds/tests/lints, then runs:
 
-Uses Android's GPS location provider in a location foreground service, requests the selected minimum update interval, and removes updates when recording stops. No application-held continuous wake lock, screen-on request, compass polling loop, map animation loop, or automatic rerouting is present. Off-route detection consumes the same received fixes. Map network access is for explicitly requested Plan IGN preparation, then preview and downloads stop when recording begins.
+```sh
+python3 scripts/virtual_power.py --previous PREVIOUS_MAIN_SHA --current PR_HEAD_SHA
+```
 
-The manual Locate action can use Android's network location provider and recent cached positions outside a recording. It requests available GPS/network providers only while visible, for at most 30 seconds, and cancels on a usable fix, activity pause, a replacement request, or hike start. Version 0.4.0 always reuses the recording position during a hike, even if stale, without starting extra requests. Route/guidance-setting updates leave the GPS subscription intact when the interval is unchanged, and service cleanup removes queued subscriptions as well as active ones.
+The runner exports isolated Git trees, injects the identical versioned test harness into both,
+and runs real Cairn activity/service/location/SQLite code under Robolectric Android 28 with native
+Canvas rendering. The comparison uses the PR's actual base/head SHA, not `HEAD^`, so multiple-commit
+PRs and merge commits remain correct. The current build/test/lint also validates the merged source.
+The benchmark harness itself is tested and reviewed as code. It does not mock out Cairn's recorder.
 
-Map and routing-data preparation stop at hike start and cannot be enabled during recording. Offline BRouter calculations can still be explicitly requested with installed data: they use bounded CPU work without changing GPS subscriptions or contacting a routing server. Calculations cancel on activity pause and release profile caches afterward. Screen draws occur on input/data changes; no idle rendering loop runs.
+Each revision executes an hour of virtual time for **18 scenarios**:
 
-Changing a request interval does not prove the GNSS receiver powers down between fixes. Vendor behavior, acquisition time, signal conditions, and other apps' location requests affect consumption. [Android's battery guidance](https://developer.android.com/develop/sensors-and-location/location/battery/optimize) supports limiting subscriptions and bounding temporary requests; it does not establish this app's endurance.
+- GPS intervals **1, 5, 20, 30, 60 and 300 seconds**.
+- Screen on, screen off, and screen checks for 15 seconds every five minutes.
+- Timestamped simulated GPS fixes, clock advancement, due callback execution, activity pause/resume
+  and complete recording/stop cleanup. There is no one-hour wall-clock wait.
 
-## Trial procedure
+It measures persisted fixes, recording notification posts, requested GPS cadence, active providers,
+subscriptions after stop, queued recorder messages and adversarial hidden draw/tile probes. Visible
+probes keep the requested workload present: losing the recorder or suppressing visible drawing
+cannot earn a lower-work result. Hidden probes deliberately attempt a late draw after pause; they
+measure whether app code suppresses that request, not physical display frames.
 
-1. Record device model, OS/build, battery health, and the two app versions. Use the same route, map coverage, system location settings, screen brightness, connectivity state, and guidance configuration.
-2. Charge and thermally stabilize the phone. Run an idle baseline with recording off.
-3. Test intervals of 1, 5, 15, 60, and 300 seconds, or the closest explicitly available OruxMaps settings. Note when settings are not equivalent.
-4. Start with screen-off recording and no guidance. Repeat with off-route alerts. When turn cues exist, measure them separately without changing the GPS policy.
-5. Run repeated trials in alternating app order. Use a repeatable route with open sky, forest, stationary breaks, and difficult reception. Do not run both active recorders simultaneously for comparative energy trials because they may share or alter location behavior.
-6. Measure energy using available device charge-counter or external power instrumentation and Android battery diagnostics. Capture requested intervals, actual fix timestamps, accepted/rejected fixes, gaps, distance, process survival, and screen-on duration. A whole-percent battery change alone is too coarse for short trials.
-7. Test system Battery Saver, screen locking for several hours, location being disabled, notifications being denied, permission revocation, process death, and low storage.
+A lexical guard also rejects recorder timer/wake-lock scheduling sites. This is a conservative
+source check, not a runtime CPU wakeup counter. The worker queue check measures pending work after
+recording callbacks drain. Native Canvas lifecycle/cancellation/gesture tests complement the matrix.
 
-Use at least one recent Google device, one Samsung device, and one older/low-end device when possible. This is a proposed matrix, not a claim of tested support.
+A separate warmed microbenchmark renders fixed **1,000- and 10,000-point routes** at 128x128 pixels.
+It measures current-thread CPU time using the JVM CPU clock, with 20 warmup frames and seven batches
+of five frames. It retains median and p95 batch CPU time per draw. This measures route projection/
+Canvas work on the Actions host, not device frame latency or an emulator's fake battery percentage.
 
-## Acceptance
+## Baseline, previous and current
 
-- Every comparison includes track quality, delivered interval distribution, and unexpected recording gaps.
-- Stopping a hike removes GPS subscriptions.
-- A manual locate request times out and does not continue when the app goes into the background.
-- Alert logic never raises the requested GPS frequency without explicit user choice.
-- No successful endurance claim when the service stopped recording.
-- Device-specific regressions are identified before recommending settings.
+`scripts/performance/baseline.json` is a versioned engineering objective, not fabricated measurement:
 
-Long-interval modes may need a dedicated scheduling strategy after measurements. Evaluate reacquisition cost and delivery reliability before adopting receiver duty cycling or adding alarms/wake locks. Avoid equating fewer recorded points with lower hardware energy.
+| Metric | Baseline budget |
+| --- | --- |
+| Hidden draw probes that paint / hidden tile reads | 0 |
+| Pending recorder work after callbacks drain | 0 |
+| Extra network providers / GPS subscriptions after stop | 0 |
+| Recorder timer/wake-lock scheduling sites | 0 |
+| GPS request interval | Exactly the selected interval |
+| GPS subscriptions while recording | Exactly 1 |
+| Saved points | Every injected fix |
+| Recording notification updates | At most one per max(60s, selected interval) |
+| 1k-point native render CPU median | <=10 ms per draw |
+| 10k-point native render CPU median | <=50 ms per draw |
+
+Work counts have no regression allowance: current must meet baseline and be no worse than previous
+main. Saved fixes/request cadence/visible workload must remain correct. CPU time is noisy even on
+the same runner: current median must meet its fixed maximum and be no more than **previous median
+x 1.30 + 1 ms**. This explicitly defined noise margin avoids claiming sub-millisecond differences
+are reliable. A failed CPU comparison keeps auto-merge off; investigate or rerun, do not silently
+raise budgets. p95 and raw samples remain diagnostic evidence rather than a hardware FPS guarantee.
+
+The same harness SHA-256, protocol, SDK, complete matrix and immutable revisions are required.
+Missing scenarios, malformed/non-finite metrics, mismatched workloads, failed execution or timeouts
+fail closed. An incomplete attempt replaces any stale report with a blocked verdict. CPU budgets
+and the workload require owner review before being weakened; never reset a baseline to hide a loss.
+
+OruxMaps, Locus Map and OsmAnd remain qualitative design references for interval-based recording
+and low background work. They are **not measured competitors in this suite** and do not require
+APK access or phone trials. The practical target is no app work between necessary location/user
+events, minimum visible rendering and bounded work per fix. The virtual checks enforce observable
+software properties supporting that design without asserting hardware deep sleep.
+
+## Actions evidence and PR policy
+
+Actions always retains available logs, previous/current JSON, the exact baseline and `performance.md`
+in a `virtual-performance-ATTEMPT` artifact. It writes the table to the job summary and updates one
+PR comment on same-repository PRs. Fork PRs retain read-only permissions; their author/agent links
+the summary/artifact in a PR description/comment. Never use a privileged `pull_request_target` job
+to execute fork code. Performance failure prevents recording successful validation evidence.
+
+Every PR needs **baseline / previous / current** results for its exact head. The Actions report is
+the normal reporting mechanism; an agent should link it and summarize any regression in the PR.
+No manual phone step or physical baseline exists. After reviewing the full diff, passing required
+virtual performance checks and normal CI are sufficient to enable native auto-merge under the
+standing authorization. Keep auto-merge off for failed, missing or stale virtual evidence.
+
+## Local reproduction
+
+Use the normal JDK 17/Android SDK setup, then run the command above from the repository root with
+full Git revisions available. No emulator, ADB or attached device is needed. The script uses two
+temporary source trees and a bounded Gradle invocation for each. Output defaults to
+`build/reports/virtual-power/`; the harness is injected only into those temporary trees, so ordinary
+unit tests do not accidentally run the benchmark twice. The Python comparator tests cover invalid
+data and regression handling. The existing Android power/map regressions still run on every PR.
+
+## Implementation audit
+
+Cairn uses one GPS provider subscription, no application-held continuous wake lock, no recording
+polling timer and no continuous screen-on request. Guidance consumes received fixes. Changing
+guidance preserves the subscription; stopping removes it. The map cancels gestures and tile work
+when paused/hidden/detached, rejects obsolete results and resumes its viewport on return. Recording
+notifications coalesce on received fixes, without a timer, while every accepted fix is persisted.
+Long route/track projection remains O(n), hence the separate route-size CPU fixtures.

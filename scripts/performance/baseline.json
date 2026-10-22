@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "protocol": "virtual-power-v1",
+  "sdk": 28,
+  "duration_seconds": 3600,
+  "intervals_seconds": [1, 5, 20, 30, 60, 300],
+  "screens": ["off", "on", "check"],
+  "notification_interval_seconds": 60,
+  "render_cpu_max_ms": {"1000": 10, "10000": 50},
+  "cpu_regression_ratio": 1.3,
+  "cpu_noise_floor_ms": 1.0,
+  "maximum": {
+    "hidden_draws": 0,
+    "hidden_tile_reads": 0,
+    "queued_recorder_tasks": 0,
+    "network_subscriptions": 0,
+    "subscriptions_after_stop": 0,
+    "recorder_timer_sites": 0
+  },
+  "objective": "Virtual work budgets: no hidden rendering, tile reads, recorder timers or extra GPS providers; persist every injected fix and coalesce notification updates. These are software metrics, not mAh, battery endurance or hardware suspend measurements."
+}

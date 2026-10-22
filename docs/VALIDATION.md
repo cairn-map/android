@@ -1,3 +1,9 @@
+# Automated virtual performance — 22 October 2026
+
+This supersedes earlier physical-phone baseline plans: performance approval now uses GitHub Actions, virtual Android tests and native Canvas benchmarks only, per the owner's explicit instruction. No real-phone test or hardware baseline is required. See [virtual performance protocol](BATTERY-VALIDATION.md) for the baseline/previous/current matrix, budgets, runner-noise policy and automatic PR reports.
+
+Local validation passed: 221 Android tests, 26 Python tests, 40 Node tests, Android build/lint and pinned actionlint 1.7.12 (three pre-existing SwipeToRemoveView lint warnings). The same-run virtual comparison also passed all 18 scenarios and both native Canvas CPU fixtures. The benchmark runner separately injects the same harness into previous/current immutable Git trees and writes measured JSON and a comparison table. Those artifacts, rather than this historical log, establish the verdict for each exact PR head. Hardware mAh, endurance and suspend are not claimed.
+
 # Toast position above drawers with display cutouts — 22 October 2026
 
 Gradle 8.11.1 `assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **216 tests**, zero failures/errors/skips. Lint reported zero errors and five warnings in unchanged map/swipe code. The shared automation selector reports `required=false` for these app/test/documentation changes.
@@ -149,7 +155,7 @@ A bounded live HTTP range probe on the public graph endpoint read only 200 bytes
 - Large-font, TalkBack, landscape, and outdoor readability checks.
 - Long-running downloads, pause/resume, offline tile rendering, and download cancellation on an actual Android device. Desktop HTTP checks and simulated Android store tests cover parts of this flow, not the whole device workflow.
 
-Compilation, lint, simulated workflows, and the live client probe establish a useful starting point, not field reliability. The next validation step is to download a small Plan IGN area on a phone, verify it in airplane mode, record a short walk, and then run the battery trial described in BATTERY-VALIDATION.md.
+This historical validation record did not establish field reliability. Its proposed phone-trial follow-up has been superseded by the automated virtual performance policy at the top of this document. No physical-phone testing is required for PR approval.
 
 
 ## Map feedback, loading and place search (2026-10-22)

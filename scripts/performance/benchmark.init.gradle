@@ -1,0 +1,7 @@
+// Compile artifacts may be cached; benchmark execution and measurements must be fresh.
+allprojects {
+    tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+        outputs.upToDateWhen { false }
+        outputs.doNotCacheIf('Virtual performance must be measured for this invocation') { true }
+    }
+}

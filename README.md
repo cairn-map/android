@@ -49,7 +49,7 @@ Visited map tiles stay on disk until explicitly removed through the layers menu.
 
 The indoor fallback adds only an explicitly requested, foreground locate operation outside a recording, bounded to 30 seconds and canceled on pause or hike start. During recording, Locate reuses the existing position even if old; it does not request faster GPS or network updates. Route/alert-setting changes preserve the GPS subscription when its interval is unchanged. Stopping recording removes subscriptions, including queued configuration cleanup.
 
-The app holds no continuous wake lock, screen-on request, map animation loop or compass polling loop. Preparation traffic is off during a hike. Android and GNSS hardware still control actual delivery and receiver duty cycling. **No measured claim of best endurance or superiority to OruxMaps has been established.** See [battery validation](docs/BATTERY-VALIDATION.md).
+The app holds no continuous wake lock, screen-on request, map animation loop or compass polling loop. Preparation traffic is off during a hike. Android and GNSS hardware still control actual delivery and receiver duty cycling. **No measured claim of best endurance or superiority to OruxMaps has been established.** Performance checks run entirely in Actions using virtual Android workloads and native Canvas CPU benchmarks; no physical-phone trials are required. See [virtual performance validation](docs/BATTERY-VALIDATION.md).
 
 If Android kills the recording process, committed points remain but recording does not automatically resume. Reopen Cairn, inspect/export the previous hike, and explicitly start a new recording. Turn alerts are not implemented; off-route alerts use existing fixes and can be delayed by long intervals.
 
@@ -63,4 +63,4 @@ Use JDK 17, Android SDK Platform 35 extension 15, and Build Tools 35.0.0. Gradle
 
 The app uses Android platform APIs and the vendored MIT BRouter Java modules. Test-only dependencies include JUnit, XML Pull/KXml and Robolectric. No paid IDE or runtime service is needed. Build output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-See [validation](docs/VALIDATION.md) for executed checks and physical-device work still required. Test regional graphs and their original PBF are in `app/src/test/resources/routing`; they are not bundled in the APK. Native rendering previews are generated under `app/build/test-previews/`.
+See [validation](docs/VALIDATION.md) for executed checks and the automated virtual performance protocol. Test regional graphs and their original PBF are in `app/src/test/resources/routing`; they are not bundled in the APK. Native rendering previews are generated under `app/build/test-previews/`.
