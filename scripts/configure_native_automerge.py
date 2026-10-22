@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 REPOSITORY = "dayblox/cairn"
-RULESET_NAME = "main-2"
+RULESET_NAME = "main"
 REQUIRED_CHECK = "checks"
 # Repository-wide: no squash/rebase, so native auto-merge always creates
 # a two-parent commit suitable for release validation reuse.
@@ -54,6 +54,10 @@ def updated_ruleset(original):
     if pr is None:
         raise ValueError("Expected existing pull-request rule")
     pr["parameters"]["required_review_thread_resolution"] = True
+    pr["parameters"]["required_approving_review_count"] = 0
+    pr["parameters"]["require_code_owner_review"] = True
+    pr["parameters"]["dismiss_stale_reviews_on_push"] = True
+    pr["parameters"]["allowed_merge_methods"] = ["merge"]
     return {
         "name": original["name"],
         "target": original["target"],
@@ -78,7 +82,7 @@ def configure(repository, dry_run=False):
     updated = updated_ruleset(original)
     print(f"Repository: {repository}")
     print(f"Ruleset: {RULESET_NAME} ({rule_id}); required: {REQUIRED_CHECK}; strict: yes")
-    print("No ruleset bypass; resolved conversations required; zero mandatory approvals")
+    print("No bypass; code-owner review required for protected paths; zero general approvals")
     print("Allow merge commits ONLY; disable squash/rebase; keep auto-merge and branch deletion")
     if dry_run:
         print("Dry run: no settings changed")
@@ -93,6 +97,9 @@ def configure(repository, dry_run=False):
     assert any(c["context"] == REQUIRED_CHECK
                for c in statuses["required_status_checks"])
     assert not rule["bypass_actors"]
+    live_pr = next(r["parameters"] for r in rule["rules"] if r["type"] == "pull_request")
+    assert live_pr["require_code_owner_review"]
+    assert live_pr["allowed_merge_methods"] == ["merge"]
     if any(after.get(key) is not expected for key, expected in MERGE_SETTINGS.items()):
         raise RuntimeError("GitHub did not retain merge-commit-only repository settings")
     print("Verified merge-commit-only settings. Native auto-merge must also be enabled on each PR.")
