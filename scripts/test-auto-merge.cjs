@@ -16,8 +16,9 @@ test('PR checks have a stable required status with build, test and lint', () => 
   assert.match(checks, /on:\s*\n\s*pull_request:/);
   assert.match(checks, /jobs:\s*\n\s*checks:/);
   assert.match(checks, /python3 -m unittest discover/);
-  assert.match(checks, /node --test scripts\/test-\*\.cjs/);
+  assert.match(checks, /node --test "\\$suite"/);
   assert.match(checks, /assembleDebug testDebugUnitTest lintDebug/);
+  assert.match(checks, /go run github.com\/rhysd\/actionlint\/cmd\/actionlint@v1\.7\.12/);
 });
 
 test('native merge pushes to main and starts signed release normally', () => {
@@ -26,6 +27,7 @@ test('native merge pushes to main and starts signed release normally', () => {
   assert.match(release, /Build and verify the signed release/);
   assert.match(release, /Publish APK and update manifest together/);
   assert.match(release, /inputs\.validation_run_id/);
+  assert.match(release, /--source-commit "\$SOURCE_COMMIT"/);
 });
 
 test('release notes are generated from GitHub changes and updated on draft retries', () => {
@@ -45,4 +47,6 @@ test('administrator configuration requires strict checks and enables native auto
   assert.match(settings, /strict_required_status_checks_policy/);
   assert.match(settings, /"allow_auto_merge": True/);
   assert.match(settings, /"delete_branch_on_merge": True/);
+  assert.match(settings, /RULESET_NAME = "main"/);
+  assert.match(settings, /"require_code_owner_review"\] = True/);
 });
