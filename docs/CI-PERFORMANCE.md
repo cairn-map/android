@@ -96,3 +96,26 @@ Compare job duration separately from queueing and human time. The workflow-chang
 optimization PR must itself take full release validation; a later source-only
 PR is needed to measure actual reuse. Do not claim a runtime reduction from
 estimates alone.
+
+## First measured result
+
+[PR #17](https://github.com/dayblox/cairn/pull/17) passed required Android checks
+and merged through native auto-merge. Its
+[check job](https://github.com/dayblox/cairn/actions/runs/39708990202) also took
+56 seconds overall; individual setup improvements were offset by a slower
+Gradle restore and build on that runner.
+
+| Work | Before (#16) | After (#17) |
+| --- | ---: | ---: |
+| SDK cache restore | 8.9 s, failed | Removed |
+| SDK package handling | 3.3 s, sdkmanager | 0.063 s, presence check |
+| Workflow lint | 12 s, Go compilation | 2 s, verified binary |
+| Gradle cache restore | 3.5 s | 11.4 s |
+| Debug build, tests and lint | 12 s | 26 s |
+| Complete check job | 56 s | 56 s |
+
+Both builds restored the same 28 Gradle tasks from cache. The first result
+confirms removal of roughly 22 seconds of avoidable SDK/linter work, but does
+not establish an overall job speedup. This documentation-only follow-up also
+exercises validation reuse after the workflow changes, without changing CI or
+automation scripts again.
