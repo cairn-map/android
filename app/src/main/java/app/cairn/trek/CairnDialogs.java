@@ -24,6 +24,7 @@ final class CairnDialogs {
   static final class Builder extends AlertDialog.Builder {
     private boolean drawer, fullHeight;
     private CharSequence title;
+    private View titleView;
 
     Builder(Context context, boolean drawer) {
       super(context, R.style.CairnDialogTheme);
@@ -44,6 +45,12 @@ final class CairnDialogs {
     }
 
     @Override
+    public Builder setCustomTitle(View view) {
+      titleView = view;
+      return this;
+    }
+
+    @Override
     public Builder setItems(CharSequence[] items, DialogInterface.OnClickListener listener) {
       drawer = true;
       super.setItems(items, listener);
@@ -54,7 +61,7 @@ final class CairnDialogs {
     public AlertDialog create() {
       Context context = getContext();
       AlertDialog[] holder = new AlertDialog[1];
-      if (title != null || drawer) {
+      if (title != null || titleView != null || drawer) {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
         if (drawer) {
@@ -69,13 +76,17 @@ final class CairnDialogs {
         LinearLayout titleRow = new LinearLayout(context);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         titleRow.setPadding(dp(24), drawer ? 0 : dp(24), dp(12), dp(12));
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setTextSize(24);
-        heading.setTextColor(TEXT);
-        heading.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
-        titleRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        if (titleView != null) {
+          titleRow.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
+        } else {
+          TextView heading = new TextView(context);
+          heading.setText(title);
+          heading.setTextSize(24);
+          heading.setTextColor(TEXT);
+          heading.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+          if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
+          titleRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        }
         if (drawer) {
           ImageButton close = new ImageButton(context);
           close.setScaleType(ImageView.ScaleType.FIT_CENTER);

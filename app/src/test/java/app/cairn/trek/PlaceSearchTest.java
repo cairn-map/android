@@ -342,7 +342,7 @@ public class PlaceSearchTest {
     search.search("Chamonix", callback);
     drain();
     assertEquals(1, failed);
-    assertTrue(reason.contains("internet connection"));
+    assertEquals("Search unavailable", reason);
     SearchGeocoder.error = null;
     search.search("Chamonix", callback);
     drain();
@@ -467,7 +467,7 @@ public class PlaceSearchTest {
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
       query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-      assertNotNull(query.getError());
+      assertNull(query.getError());
       assertNull(SearchGeocoder.query);
       query.setText("Paris");
       query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
@@ -520,8 +520,7 @@ public class PlaceSearchTest {
       assertNotNull(
           find(
               controller.get().getWindow().getDecorView(),
-              "Finish recording before searching online. Offline maps and saved routes remain"
-                  + " available."));
+              "Search unavailable while recording"));
       assertNull(SearchGeocoder.query);
     } finally {
       TrackingService.running = false;
