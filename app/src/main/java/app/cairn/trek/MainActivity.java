@@ -181,6 +181,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onPause() {
     appUpdates.pause();
+    map.stopMotion();
     double[] camera = map.camera();
     store
         .prefs
@@ -490,7 +491,7 @@ public final class MainActivity extends Activity {
           && trek.getKey().equals(store.prefs.getString("currentTrek", ""))) {
         content.addView(recording);
       } else {
-        Runnable remove = () -> removeTrek(trek.getKey(), trek.getValue());
+        Runnable remove = () -> removeTrek(trek.getKey());
         TextView removeButton = button("Remove", false, remove);
         removeButton.setContentDescription("Remove " + trek.getValue());
         SwipeToRemoveView swipe = new SwipeToRemoveView(this, recording, removeButton, remove);
@@ -541,36 +542,32 @@ public final class MainActivity extends Activity {
     content.addView(ignCredit);
   }
 
-  private void removeTrek(String id, String title) {
-    new AlertDialog.Builder(this)
-        .setTitle("Remove " + title + "?")
-        .setMessage(
-            "Permanently remove this recording from Cairn? Export it first to keep a GPX copy.")
-        .setNegativeButton("Keep", null)
-        .setPositiveButton(
-            "Remove",
-            (dialog, which) ->
-                io.execute(
-                    () -> {
-                      try {
-                        boolean current = id.equals(store.prefs.getString("currentTrek", ""));
-                        store.deleteTrek(id);
-                        main.post(
-                            () -> {
-                              if (destroyed) return;
-                              if (current && !store.prefs.contains("currentTrek")) {
-                                track = new ArrayList<>();
-                                map.track = track;
-                                map.invalidate();
-                              }
-                              loadPoints();
-                              if ("Routes".equals(currentPage)) showPage("Routes");
-                            });
-                      } catch (RuntimeException error) {
-                        main.post(() -> message(error.getMessage()));
-                      }
-                    }))
-        .show();
+  private void removeTrek(String id) {
+    io.execute(
+        () -> {
+          try {
+            boolean current = id.equals(store.prefs.getString("currentTrek", ""));
+            store.deleteTrek(id);
+            main.post(
+                () -> {
+                  if (destroyed) return;
+                  if (current && !store.prefs.contains("currentTrek")) {
+                    track = new ArrayList<>();
+                    map.track = track;
+                    map.invalidate();
+                  }
+                  loadPoints();
+                  if ("Routes".equals(currentPage)) showPage("Routes");
+                });
+          } catch (RuntimeException error) {
+            main.post(
+                () -> {
+                  if (destroyed) return;
+                  if ("Routes".equals(currentPage)) showPage("Routes");
+                  message(error.getMessage());
+                });
+          }
+        });
   }
 
   private void routeActions(Store.RouteEntry entry) {

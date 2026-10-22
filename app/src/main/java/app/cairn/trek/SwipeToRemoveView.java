@@ -6,27 +6,24 @@ import android.view.*;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.*;
 
-/** A horizontal swipe reveals Remove while vertical gestures keep scrolling the library. */
+/** Swipe left to delete; short or cancelled swipes return to the resting position. */
 final class SwipeToRemoveView extends FrameLayout {
   private final View foreground, remove;
-  private final int actionWidth, slop;
-  private float downX, downY, initialOffset;
-  private boolean dragging;
+  private final int slop;
+  private final Runnable onRemove;
+  private float downX, downY;
+  private boolean dragging, vertical, dismissed;
 
   SwipeToRemoveView(Context context, View foreground, View remove, Runnable onRemove) {
     super(context);
     this.foreground = foreground;
     this.remove = remove;
-    actionWidth = Math.round(96 * getResources().getDisplayMetrics().density);
+    this.onRemove = onRemove;
+    int actionWidth = Math.round(96 * getResources().getDisplayMetrics().density);
     slop = ViewConfiguration.get(context).getScaledTouchSlop();
     addView(remove, new FrameLayout.LayoutParams(actionWidth, -1, Gravity.RIGHT));
     addView(foreground, new FrameLayout.LayoutParams(-1, -2));
     remove.setVisibility(INVISIBLE);
-    foreground.setOnLongClickListener(
-        v -> {
-          onRemove.run();
-          return true;
-        });
     foreground.setAccessibilityDelegate(
         new View.AccessibilityDelegate() {
           @Override
@@ -40,7 +37,7 @@ final class SwipeToRemoveView extends FrameLayout {
           @Override
           public boolean performAccessibilityAction(View host, int action, Bundle args) {
             if (action == AccessibilityNodeInfo.ACTION_DISMISS) {
-              onRemove.run();
+              dismiss();
               return true;
             }
             return super.performAccessibilityAction(host, action, args);
@@ -50,17 +47,19 @@ final class SwipeToRemoveView extends FrameLayout {
 
   @Override
   public boolean onInterceptTouchEvent(android.view.MotionEvent event) {
+    if (dismissed) return true;
     if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
       downX = event.getX();
       downY = event.getY();
-      initialOffset = foreground.getTranslationX();
       dragging = false;
+      vertical = false;
     } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
       float dx = event.getX() - downX, dy = event.getY() - downY;
-      if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) && (dx < 0 || initialOffset < 0)) {
+      if (Math.abs(dy) > slop && Math.abs(dy) >= Math.abs(dx)) vertical = true;
+      if (!vertical && dx < -slop && Math.abs(dx) > Math.abs(dy)) {
         dragging = true;
         getParent().requestDisallowInterceptTouchEvent(true);
-        offset(Math.max(-actionWidth, Math.min(0, initialOffset + dx)));
+        dragTo(event.getX());
         return true;
       }
     }
@@ -72,20 +71,36 @@ final class SwipeToRemoveView extends FrameLayout {
     remove.setVisibility(value < 0 ? VISIBLE : INVISIBLE);
   }
 
+  private void dragTo(float x) {
+    offset(Math.max(-getWidth(), Math.min(0, x - downX)));
+  }
+
+  private void dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    offset(-getWidth());
+    onRemove.run();
+  }
+
   @Override
   public boolean onTouchEvent(MotionEvent event) {
+    if (dismissed) return true;
     if (!dragging) return super.onTouchEvent(event);
     switch (event.getActionMasked()) {
       case MotionEvent.ACTION_MOVE:
-        offset(Math.max(-actionWidth, Math.min(0, initialOffset + event.getX() - downX)));
+        dragTo(event.getX());
         break;
       case MotionEvent.ACTION_UP:
-        offset(foreground.getTranslationX() < -actionWidth / 2f ? -actionWidth : 0);
+        dragTo(event.getX());
+        if (getWidth() > 0 && -foreground.getTranslationX() >= getWidth() * 0.4f) dismiss();
+        else offset(0);
         dragging = false;
         break;
       case MotionEvent.ACTION_CANCEL:
-        offset(initialOffset);
+      case MotionEvent.ACTION_POINTER_DOWN:
+        offset(0);
         dragging = false;
+        vertical = true;
         break;
     }
     return true;

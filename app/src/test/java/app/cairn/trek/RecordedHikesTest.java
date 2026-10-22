@@ -66,8 +66,7 @@ public class RecordedHikesTest {
   }
 
   @Test
-  public void swipeRevealsRemoveAndConfirmationDeletesTheRecordingAndItsMapTrail()
-      throws Exception {
+  public void swipeDeletesTheRecordingAndItsMapTrailWithoutConfirmation() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -82,20 +81,12 @@ public class RecordedHikesTest {
       swipe.layout(0, 0, 400, 96);
       View remove = find(swipe, "Remove");
       assertEquals(View.INVISIBLE, remove.getVisibility());
+      AlertDialog previousDialog = ShadowAlertDialog.getLatestAlertDialog();
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_UP, 100, 32);
       assertTrue(recording.getTranslationX() < 0);
-      assertEquals(View.VISIBLE, remove.getVisibility());
-      remove.performClick();
-      ShadowAlertDialog.getLatestAlertDialog()
-          .getButton(AlertDialog.BUTTON_NEGATIVE)
-          .performClick();
-      assertTrue(((Store) field(activity, "store")).treks().containsKey(id));
-      remove.performClick();
-      ShadowAlertDialog.getLatestAlertDialog()
-          .getButton(AlertDialog.BUTTON_POSITIVE)
-          .performClick();
+      assertSame(previousDialog, ShadowAlertDialog.getLatestAlertDialog());
       drain(activity);
       Store store = (Store) field(activity, "store");
       assertFalse(store.treks().containsKey(id));
@@ -106,7 +97,7 @@ public class RecordedHikesTest {
   }
 
   @Test
-  public void verticalAndCancelledSwipesDoNotExposeRemoveOrDeleteAnything() throws Exception {
+  public void shortVerticalAndCancelledSwipesDoNotDeleteAnything() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -118,6 +109,10 @@ public class RecordedHikesTest {
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
       swipe.layout(0, 0, 400, 96);
+      touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
+      touch(swipe, MotionEvent.ACTION_MOVE, 240, 32);
+      touch(swipe, MotionEvent.ACTION_UP, 240, 32);
+      assertEquals(0, recording.getTranslationX(), 0);
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 290, 90);
       touch(swipe, MotionEvent.ACTION_CANCEL, 290, 90);

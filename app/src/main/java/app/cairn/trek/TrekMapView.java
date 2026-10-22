@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.*;
 import android.util.LruCache;
 import android.view.*;
+import android.widget.OverScroller;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -48,10 +49,21 @@ public final class TrekMapView extends View {
   private final List<CachedTile> previousTiles = new ArrayList<>();
   private final GestureDetector gestures;
   private final ScaleGestureDetector scales;
+  // One zoom level per 160 dp, independent of distance from the second tap or event rate.
+  private final float quickZoomDistance;
+  private final OverScroller zoomScroller;
+  private VelocityTracker zoomVelocity;
+  private boolean quickZooming, quickZoomEligible, zoomFling;
+  private float quickFocusX, quickFocusY, quickDragDistance;
+  private int flingPosition;
+  private long lastQuickMove;
 
   public TrekMapView(Context context) {
     super(context);
     tileSize = 256 * getResources().getDisplayMetrics().density;
+    quickZoomDistance = dp(160);
+    zoomScroller = new OverScroller(context);
+    zoomScroller.setFriction(0.02f);
     setContentDescription(
         "Offline trekking map. Drag to move, pinch to zoom. Long press to add a"
             + " planning point.");
@@ -83,9 +95,41 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onDoubleTapEvent(MotionEvent e) {
-                if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) {
-                  scaleBy(2, e.getX(), e.getY());
-                  refreshTiles(false);
+                switch (e.getActionMasked()) {
+                  case MotionEvent.ACTION_DOWN:
+                    quickZoomEligible = true;
+                    quickFocusX = e.getX();
+                    quickFocusY = e.getY();
+                    quickDragDistance = 0;
+                    break;
+                  case MotionEvent.ACTION_MOVE:
+                    if (!quickZoomEligible || e.getPointerCount() != 1) break;
+                    float dy = e.getY() - quickFocusY;
+                    int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+                    if (!quickZooming && Math.abs(dy) <= slop) break;
+                    if (!quickZooming) {
+                      quickZooming = true;
+                      tapCandidate = false;
+                      refreshTiles(false);
+                    }
+                    float distance = Math.copySign(Math.max(0, Math.abs(dy) - slop), dy);
+                    scaleBy(
+                        Math.pow(2, (distance - quickDragDistance) / quickZoomDistance),
+                        quickFocusX,
+                        quickFocusY);
+                    if (distance != quickDragDistance) lastQuickMove = e.getEventTime();
+                    quickDragDistance = distance;
+                    break;
+                  case MotionEvent.ACTION_UP:
+                    if (!quickZoomEligible) break;
+                    if (quickZooming) {
+                      quickZooming = false;
+                      if (!flingQuickZoom(e.getEventTime())) refreshTiles(false);
+                    } else if (tapCandidate) {
+                      scaleBy(2, e.getX(), e.getY());
+                      refreshTiles(false);
+                    }
+                    break;
                 }
                 return true;
               }
@@ -129,6 +173,64 @@ public final class TrekMapView extends View {
                 refreshTiles(false);
               }
             });
+    // Handle one-finger zoom in log zoom units; retain the platform detector for pinches.
+    scales.setQuickScaleEnabled(false);
+  }
+
+  private boolean flingQuickZoom(long releasedAt) {
+    if (zoomVelocity == null || releasedAt - lastQuickMove > 100) return false;
+    zoomVelocity.computeCurrentVelocity(1000, quickZoomDistance * 4);
+    float velocity = zoomVelocity.getYVelocity();
+    if (Math.abs(velocity) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity())
+      return false;
+    double level = camera()[2];
+    int minimum = (int) ((minZoom() - level) * quickZoomDistance);
+    int maximum = (int) ((maxZoom() - level) * quickZoomDistance);
+    if (velocity < 0 && minimum == 0 || velocity > 0 && maximum == 0) return false;
+    flingPosition = 0;
+    zoomFling = true;
+    zoomScroller.fling(0, 0, 0, (int) velocity, 0, 0, minimum, maximum);
+    postInvalidateOnAnimation();
+    return true;
+  }
+
+  @Override
+  public void computeScroll() {
+    if (!zoomFling) return;
+    if (zoomScroller.computeScrollOffset()) {
+      int position = zoomScroller.getCurrY();
+      scaleBy(
+          Math.pow(2, (position - flingPosition) / quickZoomDistance), quickFocusX, quickFocusY);
+      flingPosition = position;
+      postInvalidateOnAnimation();
+    } else {
+      zoomFling = false;
+      refreshTiles(false);
+    }
+  }
+
+  void stopMotion() {
+    zoomScroller.forceFinished(true);
+    zoomFling = false;
+    quickZooming = false;
+    quickZoomEligible = false;
+    doubleTap = false;
+    if (zoomVelocity != null) zoomVelocity.recycle();
+    zoomVelocity = null;
+  }
+
+  @Override
+  protected void onDetachedFromWindow() {
+    stopMotion();
+    super.onDetachedFromWindow();
+  }
+
+  private int minZoom() {
+    return source == null ? 2 : source.minZoom();
+  }
+
+  private int maxZoom() {
+    return source == null ? 19 : source.maxZoom();
   }
 
   public void source(TileSource value) {
@@ -136,6 +238,7 @@ public final class TrekMapView extends View {
   }
 
   public void source(TileSource value, boolean recenter) {
+    stopMotion();
     generation++;
     executor.getQueue().clear();
     if (source != null) source.cancelRequests();
@@ -165,7 +268,7 @@ public final class TrekMapView extends View {
 
   /** Preserve the geographical point under the fingers at every fractional zoom. */
   void scaleBy(double factor, float focusX, float focusY) {
-    // Android quick-scale can produce zero/negative factors after a fast upward drag.
+    // Keep malformed gesture input out of the camera calculations.
     if (!Double.isFinite(factor)
         || factor <= 0
         || !Float.isFinite(focusX)
@@ -174,10 +277,7 @@ public final class TrekMapView extends View {
     double anchorX = Geo.x(lon, 0) + (focusX - getWidth() / 2f) / oldWorld;
     double anchorY = Geo.y(lat, 0) + (focusY - getHeight() / 2f) / oldWorld;
     double level = zoom + (Math.log(zoomScale) + Math.log(factor)) / Math.log(2);
-    level =
-        Math.max(
-            source == null ? 2 : source.minZoom(),
-            Math.min(source == null ? 19 : source.maxZoom(), level));
+    level = Math.max(minZoom(), Math.min(maxZoom(), level));
     zoom = (int) Math.round(level);
     zoomScale = Math.pow(2, level - zoom);
     double newWorld = scaledTileSize() * (1 << zoom);
@@ -187,6 +287,7 @@ public final class TrekMapView extends View {
   }
 
   public void center(Point p) {
+    stopMotion();
     lat = Math.max(-85, Math.min(85, p.lat));
     lon = p.lon;
     refreshTiles(false);
@@ -209,6 +310,7 @@ public final class TrekMapView extends View {
         || !Double.isFinite(camera[0])
         || !Double.isFinite(camera[1])
         || !Double.isFinite(camera[2])) return;
+    stopMotion();
     lat = Math.max(-85, Math.min(85, camera[0]));
     lon = Geo.wrap(camera[1]);
     double level =
@@ -230,6 +332,7 @@ public final class TrekMapView extends View {
   }
 
   public void zoom(int delta) {
+    stopMotion();
     scaleBy(Math.pow(2, delta), getWidth() / 2f, getHeight() / 2f);
     refreshTiles(false);
   }
@@ -272,20 +375,41 @@ public final class TrekMapView extends View {
   @Override
   public boolean onTouchEvent(MotionEvent e) {
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+      boolean wasMoving = zoomFling;
+      stopMotion();
+      if (wasMoving) refreshTiles(false);
+      zoomVelocity = VelocityTracker.obtain();
       tapCandidate = true;
       downX = e.getX();
       downY = e.getY();
     }
-    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) tapCandidate = false;
+    if (zoomVelocity != null) zoomVelocity.addMovement(e);
+    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+      tapCandidate = false;
+      quickZoomEligible = false;
+      if (quickZooming) {
+        quickZooming = false;
+        refreshTiles(false);
+      }
+    }
     if (e.getActionMasked() == MotionEvent.ACTION_MOVE
         && Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
     scales.onTouchEvent(e);
     gestures.onTouchEvent(e);
     if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) performClick();
-    if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) tapCandidate = false;
+    if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      tapCandidate = false;
+      if (quickZooming) refreshTiles(false);
+      stopMotion();
+    }
     if (e.getActionMasked() == MotionEvent.ACTION_UP
-        || e.getActionMasked() == MotionEvent.ACTION_CANCEL) doubleTap = false;
+        || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      doubleTap = false;
+      quickZoomEligible = false;
+      if (zoomVelocity != null) zoomVelocity.recycle();
+      zoomVelocity = null;
+    }
     return true;
   }
 
@@ -362,7 +486,7 @@ public final class TrekMapView extends View {
           }
         }
       }
-    if (source != null && !scales.isInProgress()) {
+    if (source != null && !scales.isInProgress() && !quickZooming && !zoomFling) {
       boolean complete = true;
       for (TilePlanner.Tile tile :
           TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize)) {
@@ -575,6 +699,7 @@ public final class TrekMapView extends View {
   }
 
   public void dispose() {
+    stopMotion();
     active = false;
     generation++;
     executor.shutdownNow();
