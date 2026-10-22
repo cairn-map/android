@@ -28,6 +28,17 @@ test('native merge pushes to main and starts signed release normally', () => {
   assert.match(release, /inputs\.validation_run_id/);
 });
 
+test('release notes are generated from GitHub changes and updated on draft retries', () => {
+  const release = workflow('release.yml');
+  const prepare = fs.readFileSync(path.join(root, 'scripts/prepare-release.py'), 'utf8');
+  assert.match(release, /releases\/generate-notes/);
+  assert.match(release, /target_commitish="\$SOURCE_COMMIT"/);
+  assert.match(release, /gh release create "\$TAG" --draft[^\n]*--notes-file dist\/release-notes\.md/);
+  assert.match(release, /gh release edit "\$TAG" --notes-file dist\/release-notes\.md/);
+  assert.match(release, /if \[ ! -s dist\/release-notes\.md \]/);
+  assert.doesNotMatch(prepare, /release-notes\.md|Install this APK/);
+});
+
 test('administrator configuration requires strict checks and enables native auto-merge', () => {
   const settings = fs.readFileSync(path.join(root, 'scripts/configure_native_automerge.py'), 'utf8');
   assert.match(settings, /REQUIRED_CHECK = "checks"/);
