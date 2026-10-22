@@ -30,7 +30,9 @@ class NativeAutoMergeRulesetTest(unittest.TestCase):
                 {"type": "pull_request", "parameters": {
                     "required_approving_review_count": 0,
                     "required_review_thread_resolution": False,
-                    "require_code_owner_review": False,
+                    "require_code_owner_review": True,
+                    "dismiss_stale_reviews_on_push": True,
+                    "require_last_push_approval": True,
                     "allowed_merge_methods": ["merge", "squash", "rebase"],
                 }},
             ],
@@ -47,8 +49,9 @@ class NativeAutoMergeRulesetTest(unittest.TestCase):
                          status["required_status_checks"])
         self.assertTrue(result["rules"][1]["parameters"]["required_review_thread_resolution"])
         self.assertEqual(0, result["rules"][1]["parameters"]["required_approving_review_count"])
-        self.assertTrue(result["rules"][1]["parameters"]["require_code_owner_review"])
-        self.assertTrue(result["rules"][1]["parameters"]["dismiss_stale_reviews_on_push"])
+        self.assertFalse(result["rules"][1]["parameters"]["require_code_owner_review"])
+        self.assertFalse(result["rules"][1]["parameters"]["dismiss_stale_reviews_on_push"])
+        self.assertFalse(result["rules"][1]["parameters"]["require_last_push_approval"])
         self.assertEqual(["merge"], result["rules"][1]["parameters"]["allowed_merge_methods"])
         self.assertEqual([], result["bypass_actors"])
 
