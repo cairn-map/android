@@ -1,3 +1,13 @@
+# Route selection, compact drawer corners and toast crashes — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **215 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/documentation changes.
+
+Regression checks cover the six remaining route actions, selecting a hidden route for guidance, making it visible, persisting guidance after reopening the library store, and retaining corridor downloads after the menu indices changed. Camera checks fit wide, tall, looping and high-latitude routes in portrait/landscape, date-line crossings, single/repeated points, and fitting after the map is laid out or reparented. Padding reserves room for map controls and planning panels.
+
+Feedback checks on API 28 and 35 now distinguish the activity's application token from its view-window token. The earlier overlay failed these checks on both APIs; letting the activity's WindowManager supply the application token passes them. Coverage includes a toast before opening a drawer, nested drawers, dismissal, feedback created inside a drawer, expiration, clearing and continuing progress.
+
+The native Canvas GPS drawer preview was visually inspected: its top corners are rounded and its bottom corners are square. No physical-device UI trial was performed.
+
 # Stable toast placement and cleaner search/GPS — 22 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **210 tests**, zero failures/errors/skips. Lint reported zero errors and five existing warnings in unchanged `TrekMapView` and `SwipeToRemoveView` code. The shared automation selector reports `required=false` for these app/documentation changes.

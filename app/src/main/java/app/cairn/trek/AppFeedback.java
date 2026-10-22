@@ -155,7 +155,8 @@ final class AppFeedback implements AutoCloseable {
                   | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
               PixelFormat.TRANSLUCENT);
       panel.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-      panel.token = activity.getWindow().getDecorView().getApplicationWindowToken();
+      // Leave the token unset so the activity's WindowManager supplies its app token.
+      // getApplicationWindowToken() identifies the view window, valid only for subwindows.
       if (Build.VERSION.SDK_INT >= 30) panel.setFitInsetsTypes(0);
       activity.getWindowManager().addView(overlay, panel);
     }

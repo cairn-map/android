@@ -581,7 +581,6 @@ public final class MainActivity extends Activity {
         .setItems(
             new String[] {
               "Show and select",
-              "Follow route",
               "Save offline corridor",
               "Export GPX",
               entry.visible ? "Hide on map" : "Show on map",
@@ -589,26 +588,25 @@ public final class MainActivity extends Activity {
               "Remove from library"
             },
             (d, which) -> {
-              if (which <= 2) {
+              if (which <= 1) {
                 io.execute(
                     () -> {
                       List<Point> points = store.activateRoute(entry.id);
                       store.routeVisible(entry.id, true);
-                      if (which == 1) store.prefs.edit().putBoolean("follow", true).apply();
                       main.post(
                           () -> {
                             if (destroyed) return;
                             routeRevision++;
                             route = points;
                             map.route = points;
-                            map.center(points.get(0));
                             updateService();
                             showPage("Map");
+                            map.fitRoute(points);
                             reloadLibrary();
-                            if (which == 2) prepareDownload(true);
+                            if (which == 1) prepareDownload(true);
                           });
                     });
-              } else if (which == 3)
+              } else if (which == 2)
                 io.execute(
                     () -> {
                       List<Point> points = store.read(entry.id);
@@ -617,13 +615,13 @@ public final class MainActivity extends Activity {
                             if (!destroyed) export(points, entry.title + ".gpx");
                           });
                     });
-              else if (which == 4)
+              else if (which == 3)
                 io.execute(
                     () -> {
                       store.routeVisible(entry.id, !entry.visible);
                       main.post(this::reloadLibrary);
                     });
-              else if (which == 5) {
+              else if (which == 4) {
                 EditText title = new EditText(this);
                 title.setSingleLine(true);
                 title.setText(entry.title);

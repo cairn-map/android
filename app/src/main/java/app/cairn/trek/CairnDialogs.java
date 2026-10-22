@@ -108,7 +108,10 @@ final class CairnDialogs {
       holder[0] = dialog;
       Window window = dialog.getWindow();
       GradientDrawable surface = shape(SURFACE, 28);
-      if (drawer && fullHeight) surface.setCornerRadius(0);
+      if (drawer) {
+        float radius = fullHeight ? 0 : dp(28);
+        surface.setCornerRadii(new float[] {radius, radius, radius, radius, 0, 0, 0, 0});
+      }
       window.setBackgroundDrawable(drawer ? new ColorDrawable(Color.TRANSPARENT) : surface);
       window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
       window.setDimAmount(0.45f);

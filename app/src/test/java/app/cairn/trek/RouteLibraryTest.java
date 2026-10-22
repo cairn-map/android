@@ -44,6 +44,7 @@ public class RouteLibraryTest {
       assertEquals(45, store.read("route").get(0).lat, 0);
       assertEquals(46, store.read(b).get(0).lat, 0);
       assertEquals(a, store.prefs.getString("activeRouteId", ""));
+      assertTrue(store.prefs.getBoolean("follow", false));
       assertFalse(store.routes().get(0).visible);
       assertEquals("Weekend", store.routes().get(1).title);
     }

@@ -117,9 +117,10 @@ public class OfflineWorkflowTest {
         drain(activity);
         View root = activity.getWindow().getDecorView();
         root = openLibrary(activity);
-        find(root, "Width check · selected").performClick();
+        find(root, "Width check · " + (width.equals("0.2") ? "selected" : "following"))
+            .performClick();
         AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-        actions.getListView().performItemClick(null, 2, 2);
+        actions.getListView().performItemClick(null, 1, 1);
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         ((EditText) find(form.getWindow().getDecorView(), "1.0")).setText(width);
