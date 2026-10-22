@@ -24,6 +24,18 @@ test('PR checks have a stable required status with build, test and lint', () => 
   assert.match(checks, /bash scripts\/lint-workflows\.sh/);
 });
 
+test('every PR compares virtual performance before recording reusable validation', () => {
+  const checks = workflow('checks.yml');
+  assert.match(checks, /name: Compare virtual power performance\n\s+id: performance\n\s+timeout-minutes:/);
+  assert.match(checks, /PERFORMANCE_PREVIOUS_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+  assert.match(checks, /PERFORMANCE_CURRENT_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(checks, /python3 scripts\/virtual_power\.py/);
+  assert.ok(checks.indexOf('Compare virtual power performance') < checks.indexOf('Record the validated source'));
+  assert.match(checks, /always\(\) && steps\.performance\.outcome != 'skipped'/);
+  assert.match(checks, /head\.repo\.full_name == github\.repository/);
+  assert.doesNotMatch(checks, /continue-on-error|pull_request_target/);
+});
+
 test('native merge pushes to main and starts signed release normally', () => {
   const release = workflow('release.yml');
   assert.match(release, /push:\s*\n\s*branches: \[main\]/);

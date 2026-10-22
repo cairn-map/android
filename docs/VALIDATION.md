@@ -2,7 +2,7 @@
 
 This supersedes earlier physical-phone baseline plans: performance approval now uses GitHub Actions, virtual Android tests and native Canvas benchmarks only, per the owner's explicit instruction. No real-phone test or hardware baseline is required. See [virtual performance protocol](BATTERY-VALIDATION.md) for the baseline/previous/current matrix, budgets, runner-noise policy and automatic PR reports.
 
-The existing 221 Android tests, Python/Node automation and actionlint remain required. The benchmark runner separately injects the same harness into previous/current immutable Git trees and writes measured JSON and a comparison table. Those artifacts, rather than this historical log, establish the verdict for each exact PR head. Hardware mAh, endurance and suspend are not claimed.
+Local validation passed: 221 Android tests, 26 Python tests, 40 Node tests, Android build/lint and pinned actionlint 1.7.12 (three pre-existing SwipeToRemoveView lint warnings). The same-run virtual comparison also passed all 18 scenarios and both native Canvas CPU fixtures. The benchmark runner separately injects the same harness into previous/current immutable Git trees and writes measured JSON and a comparison table. Those artifacts, rather than this historical log, establish the verdict for each exact PR head. Hardware mAh, endurance and suspend are not claimed.
 
 # Toast position above drawers with display cutouts — 22 October 2026
 
