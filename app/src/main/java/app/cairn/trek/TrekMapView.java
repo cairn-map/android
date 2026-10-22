@@ -23,6 +23,7 @@ public final class TrekMapView extends View {
   private double lat = 45.9237, lon = 6.8694;
   private int zoom = 13;
   private double zoomScale = 1;
+  private List<Point> pendingFit;
   private final float tileSize;
   private TileSource source;
   private volatile int generation = 0;
@@ -449,6 +450,65 @@ public final class TrekMapView extends View {
     lat = Math.max(-85, Math.min(85, p.lat));
     lon = p.lon;
     refreshTiles(false);
+  }
+
+  /** Fit every route segment in the space clear of the map controls. */
+  public void fitRoute(List<Point> points) {
+    if (points.isEmpty()) return;
+    stopMotion();
+    // Reparenting the map can leave its previous dimensions until the next layout.
+    if (getWidth() == 0 || getHeight() == 0 || isLayoutRequested()) {
+      pendingFit = new ArrayList<>(points);
+      requestLayout();
+      return;
+    }
+    pendingFit = null;
+    fitRouteNow(points);
+  }
+
+  private void fitRouteNow(List<Point> points) {
+    double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+    double[] xs = new double[points.size()];
+    for (int i = 0; i < points.size(); i++) {
+      Point point = points.get(i);
+      xs[i] = Geo.x(Geo.wrap(point.lon), 0);
+      double y = Geo.y(point.lat, 0);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+    // Exclude the largest empty longitude gap so date-line routes stay together.
+    Arrays.sort(xs);
+    double gap = xs[0] + 1 - xs[xs.length - 1], startX = xs[0];
+    for (int i = 1; i < xs.length; i++) {
+      double candidate = xs[i] - xs[i - 1];
+      if (candidate > gap) {
+        gap = candidate;
+        startX = xs[i];
+      }
+    }
+    double spanX = Math.max(0, 1 - gap), spanY = maxY - minY;
+    float left = dp(32), right = dp(96), top = dp(32);
+    float bottom = Math.max(dp(96), bottomOverlay + dp(32));
+    double width = Math.max(1, getWidth() - left - right);
+    double height = Math.max(1, getHeight() - top - bottom);
+    double scale = Math.min(width / (tileSize * spanX), height / (tileSize * spanY));
+    double level = Math.max(minZoom(), Math.min(maxZoom(), Math.log(scale) / Math.log(2)));
+    zoom = (int) Math.round(level);
+    zoomScale = Math.pow(2, level - zoom);
+    double world = tileSize * Math.pow(2, level);
+    lon = Geo.wrap(Geo.lon(startX + spanX / 2 + (right - left) / (2 * world), 0));
+    lat = Math.max(-85, Math.min(85, Geo.lat((minY + maxY) / 2 + (bottom - top) / (2 * world), 0)));
+    refreshTiles(false);
+  }
+
+  @Override
+  protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+    super.onLayout(changed, left, top, right, bottom);
+    if (pendingFit != null && getWidth() > 0 && getHeight() > 0) {
+      List<Point> points = pendingFit;
+      pendingFit = null;
+      fitRouteNow(points);
+    }
   }
 
   public Point center() {

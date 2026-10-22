@@ -93,7 +93,7 @@ public final class Store extends SQLiteOpenHelper {
     List<Point> points = read(id);
     if (points.isEmpty()) throw new IllegalArgumentException("This route has no points");
     replaceRoute(points);
-    prefs.edit().putString("activeRouteId", id).putBoolean("follow", false).apply();
+    prefs.edit().putString("activeRouteId", id).putBoolean("follow", true).apply();
     return points;
   }
 

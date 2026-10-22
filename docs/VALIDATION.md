@@ -1,3 +1,11 @@
+# Route selection and compact drawer corners — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **214 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/documentation changes.
+
+Regression checks cover the six remaining route actions, selecting a hidden route for guidance, making it visible, persisting guidance after reopening the library store, and retaining corridor downloads after the menu indices changed. Camera checks fit wide, tall, looping and high-latitude routes in portrait/landscape, date-line crossings, single/repeated points, and fitting after the map is laid out or reparented. Padding reserves room for map controls and planning panels.
+
+The native Canvas GPS drawer preview was visually inspected: its top corners are rounded and its bottom corners are square. No physical-device UI trial was performed.
+
 # Nature-prioritized search — 22 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **207 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for this app/documentation change.

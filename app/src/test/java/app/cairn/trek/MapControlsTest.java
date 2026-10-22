@@ -258,6 +258,51 @@ public class MapControlsTest {
   }
 
   @Test
+  public void selectingARouteEnablesGuidanceAndFitsItsWholeGeometry() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      Store store = (Store) field(activity, "store");
+      List<Point> points = Arrays.asList(new Point(45, 6), new Point(46, 7), new Point(45, 6.1));
+      String id = store.saveRoute(points, "Mountain loop");
+      store.routeVisible(id, false);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      map.layout(0, 0, 786, 1400);
+      map.restoreCamera(new double[] {48, 2, 18});
+      java.lang.reflect.Method actions =
+          MainActivity.class.getDeclaredMethod("routeActions", Store.RouteEntry.class);
+      actions.setAccessible(true);
+      actions.invoke(activity, store.routes().get(0));
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      ListAdapter menu = dialog.getListView().getAdapter();
+      assertEquals(6, menu.getCount());
+      String[] expected = {
+        "Show and select",
+        "Save offline corridor",
+        "Export GPX",
+        "Show on map",
+        "Rename",
+        "Remove from library"
+      };
+      for (int i = 0; i < expected.length; i++) assertEquals(expected[i], menu.getItem(i));
+      dialog.getListView().performItemClick(null, 0, 0);
+      drain(activity);
+      assertEquals(id, store.prefs.getString("activeRouteId", ""));
+      assertTrue(store.prefs.getBoolean("follow", false));
+      assertTrue(store.routes().get(0).visible);
+      assertEquals("Map", field(activity, "currentPage"));
+      assertEquals(points.size(), map.route.size());
+      assertTrue(map.camera()[2] < 18);
+      double[] bounds = map.bounds();
+      for (Point point : points) {
+        assertTrue(point.lon > bounds[0] && point.lon < bounds[2]);
+        assertTrue(point.lat > bounds[1] && point.lat < bounds[3]);
+      }
+    }
+  }
+
+  @Test
   @Config(sdk = {26, 28, 35})
   public void pathButtonOpensBothLibrariesAndClosingPreservesTheMapCamera() throws Exception {
     String hike;
