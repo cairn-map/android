@@ -72,8 +72,9 @@ public class RecordedHikesTest {
       MainActivity activity = controller.get();
       drain(activity);
       assertEquals(1, ((TrekMapView) field(activity, "map")).track.size());
-      find(activity.getWindow().getDecorView(), "Routes").performClick();
-      View recording = find(activity.getWindow().getDecorView(), title + "  ↗");
+      ((View) field(activity, "libraryButton")).performClick();
+      View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
+      View recording = find(library, title + "  ↗");
       SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
@@ -92,7 +93,7 @@ public class RecordedHikesTest {
       assertFalse(store.treks().containsKey(id));
       assertTrue(store.read(id).isEmpty());
       assertTrue(((TrekMapView) field(activity, "map")).track.isEmpty());
-      assertNull(find(activity.getWindow().getDecorView(), title + "  ↗"));
+      assertNull(find(library, title + "  ↗"));
     }
   }
 
@@ -102,8 +103,9 @@ public class RecordedHikesTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       drain(activity);
-      find(activity.getWindow().getDecorView(), "Routes").performClick();
-      View recording = find(activity.getWindow().getDecorView(), title + "  ↗");
+      ((View) field(activity, "libraryButton")).performClick();
+      View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
+      View recording = find(library, title + "  ↗");
       SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
@@ -133,8 +135,9 @@ public class RecordedHikesTest {
       MainActivity activity = controller.get();
       drain(activity);
       TrackingService.running = true;
-      find(activity.getWindow().getDecorView(), "Routes").performClick();
-      View recording = find(activity.getWindow().getDecorView(), title + "  ↗");
+      ((View) field(activity, "libraryButton")).performClick();
+      View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
+      View recording = find(library, title + "  ↗");
       assertFalse(recording.getParent() instanceof SwipeToRemoveView);
     } finally {
       TrackingService.running = false;

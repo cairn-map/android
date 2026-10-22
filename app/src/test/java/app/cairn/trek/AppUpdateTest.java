@@ -253,6 +253,12 @@ public class AppUpdateTest {
     return field.get(object);
   }
 
+  private android.view.View openLibrary(MainActivity activity) throws Exception {
+    ((android.view.View) field(activity, "libraryButton")).performClick();
+    Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+    return ((android.app.AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
+  }
+
   private android.widget.TextView button(android.view.View view, String title) {
     if (view instanceof android.widget.TextView
         && title.contentEquals(((android.widget.TextView) view).getText()))
@@ -274,7 +280,7 @@ public class AppUpdateTest {
     try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       android.view.View root = activity.findViewById(android.R.id.content);
-      button(root, "Routes").performClick();
+      root = openLibrary(activity);
       AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
       assertNull(field(updates, "client"));
       assertNull(field(updates, "transfer"));
@@ -297,8 +303,9 @@ public class AppUpdateTest {
       assertNull(field(updates, "transfer"));
       assertEquals(android.view.View.VISIBLE, ((android.widget.TextView) field(updates, "status")).getVisibility());
       TrackingService.running = false;
-      button(root, "Map").performClick();
-      button(root, "Routes").performClick();
+      ((android.app.AlertDialog) field(activity, "libraryDialog")).getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+      Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+      root = openLibrary(activity);
       controller.pause().stop().start().resume();
       assertSame(updates, field(activity, "appUpdates"));
       assertNull(field(updates, "client"));
@@ -313,7 +320,7 @@ public class AppUpdateTest {
     try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       android.view.View root = activity.findViewById(android.R.id.content);
-      button(root, "Routes").performClick();
+      root = openLibrary(activity);
       AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
 
       android.widget.Button check = (android.widget.Button) field(updates, "checkButton");
@@ -378,7 +385,7 @@ public class AppUpdateTest {
     try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       android.view.View root = activity.findViewById(android.R.id.content);
-      button(root, "Routes").performClick();
+      root = openLibrary(activity);
       AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
       android.widget.TextView licences = button(root, "Licences & attribution");
       android.widget.TextView status = (android.widget.TextView) field(updates, "status");
@@ -405,7 +412,7 @@ public class AppUpdateTest {
     try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       android.view.View root = activity.findViewById(android.R.id.content);
-      button(root, "Routes").performClick();
+      root = openLibrary(activity);
       AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
       java.util.concurrent.FutureTask<Void> transfer = new java.util.concurrent.FutureTask<>(() -> null);
       java.lang.reflect.Field task = AppUpdates.class.getDeclaredField("transfer");
@@ -414,11 +421,12 @@ public class AppUpdateTest {
       java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
       busy.setAccessible(true);
       busy.setBoolean(updates, true);
-      button(root, "Map").performClick();
+      ((android.app.AlertDialog) field(activity, "libraryDialog")).getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+      Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
       assertTrue(transfer.isCancelled());
       assertFalse(busy.getBoolean(updates));
       assertEquals(false, field(updates, "active"));
-      button(root, "Routes").performClick();
+      root = openLibrary(activity);
       assertTrue(transfer.isCancelled());
       assertFalse(busy.getBoolean(updates));
       assertNull(field(updates, "client"));
