@@ -53,7 +53,7 @@ final class AppUpdates {
     });
     discardButton.setContentDescription("Discard downloaded update");
 
-    // Keep actions on one compact row; refresh() shows only those relevant to the current state.
+    // Replace the Check button with the next available actions in this compact row.
     LinearLayout actions = new LinearLayout(activity);
     actions.setOrientation(LinearLayout.HORIZONTAL);
     for (Button button : new Button[] {checkButton, downloadButton, installButton, cancelButton, discardButton})
@@ -254,10 +254,11 @@ final class AppUpdates {
       // Preserve staged data when installed package state cannot be read.
     }
     status.setVisibility(status.length() == 0 ? View.GONE : View.VISIBLE);
-    // While working, Cancel takes the place of the other actions instead of crowding them.
-    checkButton.setVisibility(busy ? View.GONE : View.VISIBLE);
-    downloadButton.setVisibility(!busy && offered != null ? View.VISIBLE : View.GONE);
+    // Present a single contextual action group instead of stacking every possible button.
+    // Check -> Download -> Install/Discard, with Cancel replacing them during work.
     boolean ready = UpdateFiles.ready(activity);
+    checkButton.setVisibility(!busy && !ready && offered == null ? View.VISIBLE : View.GONE);
+    downloadButton.setVisibility(!busy && !ready && offered != null ? View.VISIBLE : View.GONE);
     installButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
     discardButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
     cancelButton.setVisibility(busy ? View.VISIBLE : View.GONE);
