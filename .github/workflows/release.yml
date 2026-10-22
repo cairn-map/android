@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
@@ -61,6 +61,8 @@ jobs:
             const result = await reuseValidation({ github, ...context.repo, source, runId: process.env.VALIDATION_RUN_ID });
             core.info(result.reason);
             core.setOutput('reused', String(result.reused));
+      - uses: ./.github/actions/android-test-runtime
+        if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true'
       - name: Python automation tests (fallback)
         if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true'
         timeout-minutes: 2
