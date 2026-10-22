@@ -1,3 +1,13 @@
+# Zoom momentum and corridor downloads — 22 October 2026
+
+JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **139 Android/JVM tests passed**, with no failures or skips; Android lint reported no issues.
+
+Gesture simulation covers a longer, speed-sensitive coast in both directions, deceleration, a fixed geographic anchor, consistent travel across frame rates, zoom limits, reversals, held gestures and immediate interruption by touch or lifecycle changes. Simulated HTTP transfers fill all 32 slots without the old serial delay and cancel every connection. A service integration check holds one tile open, confirms the pipeline continues beyond the initial pool, pauses without committing canceled data, and resumes to a complete pack.
+
+The route-menu workflow saves the exact planned tile sets for 0.2 km and 2 km corridors. Geometry checks cover width changes, diagonal routes without filling their bounding square, disconnected GPX segments, date-line crossing, continuous coverage between sparse points, and rejecting tiles beyond the buffered footprint. Store checks confirm selected-detail tiles precede the large overview tiles. The viewport cancellation test deliberately creates a queue and observes center priority with one worker, avoiding an assumption about concurrent thread start order.
+
+No physical-device comparison with Google Maps or live IGN throughput benchmark was performed. The transfer cap and simulated concurrency are verified; actual speed depends on the connection and server throttling. Overview tiles remain useful geographic context and can span roughly 100 km per side. They download after the detailed corridor. Existing saved packs retain their selections; newly prepared corridors use the tighter footprint.
+
 # Map gestures and place search — 22 October 2026
 
 JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **92 Android/JVM tests passed**; Android lint reported no issues. Python automation tests (19) and Node automation tests (39) also passed.

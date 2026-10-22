@@ -10,7 +10,7 @@ public final class DownloadService extends Service {
   public static volatile boolean running = false;
   public static volatile String activePack;
   private volatile boolean cancelled = false;
-  private final IgnClient client = new IgnClient();
+  IgnClient client = new IgnClient();
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
   @Override
@@ -47,7 +47,7 @@ public final class DownloadService extends Service {
   private void download(String id) {
     String outcome = "paused", error = null;
     int done = 0, total = 0;
-    ExecutorService transfers = Executors.newFixedThreadPool(4);
+    ExecutorService transfers = Executors.newFixedThreadPool(IgnClient.PARALLELISM);
     try (PlanIgnStore store = new PlanIgnStore(this)) {
       try {
         PlanIgnStore.Pack pack = null;
@@ -58,37 +58,45 @@ public final class DownloadService extends Service {
         total = pack.total;
         store.state(id, "downloading", null);
         long lastProgress = 0;
+        // Snapshot only unfinished coordinates; no bytes or database handles go to workers.
+        java.util.Iterator<TilePlanner.Tile> remaining =
+            store.next(id, TilePlanner.MAX_TILES).iterator();
+        CompletionService<Runnable> completed = new ExecutorCompletionService<>(transfers);
+        int inFlight = 0;
         while (!cancelled && !TrackingService.running) {
-          java.util.List<TilePlanner.Tile> batch = store.next(id, 4);
-          if (batch.isEmpty()) break;
-          CompletionService<Runnable> completed = new ExecutorCompletionService<>(transfers);
-          for (TilePlanner.Tile tile : batch) {
+          while (inFlight < IgnClient.PARALLELISM
+              && remaining.hasNext()
+              && !cancelled
+              && !TrackingService.running) {
+            TilePlanner.Tile tile = remaining.next();
             PlanIgnStore.Cached cached = store.cached(tile);
-            completed.submit(() -> {
-              IgnClient.Result result = client.fetch(
-                  tile, cached == null ? null : cached.etag,
-                  cached == null ? null : cached.modified,
-                  () -> cancelled || TrackingService.running);
-              // Commit on the coordinator only, after confirming the job is still active.
-              return () -> store.completeTile(id, tile, result);
-            });
+            completed.submit(
+                () -> {
+                  IgnClient.Result result =
+                      client.fetch(
+                          tile,
+                          cached == null ? null : cached.etag,
+                          cached == null ? null : cached.modified,
+                          () -> cancelled || TrackingService.running);
+                  // Commit on the coordinator only, after confirming the job is still active.
+                  return () -> store.completeTile(id, tile, result);
+                });
+            inFlight++;
           }
-          for (int i = 0; i < batch.size() && !cancelled && !TrackingService.running; i++) {
-            Future<Runnable> result;
-            do {
-              result = completed.poll(200, TimeUnit.MILLISECONDS);
-            } while (result == null && !cancelled && !TrackingService.running);
-            if (cancelled || TrackingService.running) break;
-            result.get().run();
-            done++;
-            long now = android.os.SystemClock.elapsedRealtime();
-            if (now - lastProgress >= 1000) {
-              lastProgress = now;
-              String message = "Plan IGN · " + done + " / " + total + " tiles";
-              getSystemService(NotificationManager.class)
-                  .notify(3, notification(message, done, total));
-              progress(message, done, total, false);
-            }
+          if (inFlight == 0) break;
+          Future<Runnable> result = completed.poll(100, TimeUnit.MILLISECONDS);
+          if (result == null) continue;
+          if (cancelled || TrackingService.running) break;
+          result.get().run();
+          inFlight--;
+          done++;
+          long now = android.os.SystemClock.elapsedRealtime();
+          if (now - lastProgress >= 1000) {
+            lastProgress = now;
+            String message = "Plan IGN · " + done + " / " + total + " tiles";
+            getSystemService(NotificationManager.class)
+                .notify(3, notification(message, done, total));
+            progress(message, done, total, false);
           }
         }
         if (!cancelled && !TrackingService.running && store.finish(id)) outcome = "complete";

@@ -119,14 +119,14 @@ public final class TilePlanner {
       for (int step = 0; step < steps; step++) {
         double x0 = ax + (bx - ax) * step / steps, y0 = ay + (by - ay) * step / steps;
         double x1 = ax + (bx - ax) * (step + 1) / steps, y1 = ay + (by - ay) * (step + 1) / steps;
-        double padding = radius + Math.sqrt(0.5);
+        double padding = radius;
         int left = (int) Math.floor(Math.min(x0, x1) - padding),
             right = (int) Math.floor(Math.max(x0, x1) + padding);
         int top = Math.max(0, (int) Math.floor(Math.min(y0, y1) - padding)),
             bottom = Math.min((1 << maxZoom) - 1, (int) Math.floor(Math.max(y0, y1) + padding));
         for (int x = left; x <= right; x++)
           for (int y = top; y <= bottom; y++)
-            if (distance(x + 0.5, y + 0.5, x0, y0, x1, y1) <= padding) add(highest, maxZoom, x, y);
+            if (intersects(x, y, x0, y0, x1, y1, radius)) add(highest, maxZoom, x, y);
       }
     }
     Set<Tile> all = new HashSet<>();
@@ -134,6 +134,40 @@ public final class TilePlanner {
       for (int z = MIN_ZOOM; z <= maxZoom; z++)
         add(all, z, t.x >> (maxZoom - z), t.y >> (maxZoom - z));
     return new Plan(all, route.get(0));
+  }
+
+  /** The buffered segment must actually touch the tile, not just its bounding square. */
+  private static boolean intersects(
+      int x, int y, double ax, double ay, double bx, double by, double radius) {
+    double dx = bx - ax, dy = by - ay;
+    double enter = 0, exit = 1;
+    if (dx == 0) {
+      if (ax < x || ax > x + 1) exit = -1;
+    } else {
+      double first = (x - ax) / dx, second = (x + 1 - ax) / dx;
+      enter = Math.max(enter, Math.min(first, second));
+      exit = Math.min(exit, Math.max(first, second));
+    }
+    if (dy == 0) {
+      if (ay < y || ay > y + 1) exit = -1;
+    } else {
+      double first = (y - ay) / dy, second = (y + 1 - ay) / dy;
+      enter = Math.max(enter, Math.min(first, second));
+      exit = Math.min(exit, Math.max(first, second));
+    }
+    if (enter <= exit) return true;
+    if (Math.hypot(
+                Math.max(x - ax, Math.max(0, ax - x - 1)),
+                Math.max(y - ay, Math.max(0, ay - y - 1)))
+            <= radius
+        || Math.hypot(
+                Math.max(x - bx, Math.max(0, bx - x - 1)),
+                Math.max(y - by, Math.max(0, by - y - 1)))
+            <= radius) return true;
+    return distance(x, y, ax, ay, bx, by) <= radius
+        || distance(x + 1, y, ax, ay, bx, by) <= radius
+        || distance(x, y + 1, ax, ay, bx, by) <= radius
+        || distance(x + 1, y + 1, ax, ay, bx, by) <= radius;
   }
 
   private static double distance(double x, double y, double ax, double ay, double bx, double by) {

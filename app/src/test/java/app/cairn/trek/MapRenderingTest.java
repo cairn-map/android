@@ -118,6 +118,9 @@ public class MapRenderingTest {
     TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
     CountDownLatch firstStarted = new CountDownLatch(4), release = new CountDownLatch(1);
     ThreadPoolExecutor worker = executor(view);
+    // Force a queue even on a small viewport with the larger production pool.
+    worker.setCorePoolSize(4);
+    worker.setMaximumPoolSize(4);
     List<TilePlanner.Tile> requests = Collections.synchronizedList(new ArrayList<>());
     view.source(
         new EmptySource() {
@@ -167,13 +170,17 @@ public class MapRenderingTest {
       else view.center(new Point(46.1, 7.2));
       int oldRequests = requests.size();
       assertEquals("Queued obsolete tiles must never start", 4, oldRequests);
+      drain(view);
+      // Observe submission priority with one worker; concurrent thread start order
+      // is scheduler-dependent even when the executor queue is correctly ordered.
+      worker.setCorePoolSize(1);
+      worker.setMaximumPoolSize(1);
       draw(view);
       drain(view);
       int z = view.zoomLevel();
       List<TilePlanner.Tile> expected =
           TileViewport.ordered(z, Geo.x(7.2, z), Geo.y(46.1, z), 786, 1200, 512);
-      assertTrue(requests.subList(oldRequests, Math.min(oldRequests + 4, requests.size()))
-          .contains(expected.get(0)));
+      assertEquals(expected.get(0), requests.get(oldRequests));
       for (int i = oldRequests; i < requests.size(); i++) assertTrue(expected.contains(requests.get(i)));
     } finally {
       release.countDown();

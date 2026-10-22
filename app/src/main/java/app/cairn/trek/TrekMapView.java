@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.*;
 import android.util.LruCache;
 import android.view.*;
-import android.widget.OverScroller;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -35,7 +34,12 @@ public final class TrekMapView extends View {
   private final Path linePath = new Path();
   private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
   private final ThreadPoolExecutor executor =
-      new ThreadPoolExecutor(4, 4, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+      new ThreadPoolExecutor(
+          IgnClient.PARALLELISM,
+          IgnClient.PARALLELISM,
+          0,
+          TimeUnit.MILLISECONDS,
+          new LinkedBlockingQueue<>());
   private final Set<String> pending = new HashSet<>(), missing = new HashSet<>();
   private final LruCache<String, Bitmap> cache =
       new LruCache<String, Bitmap>(12 * 1024 * 1024) {
@@ -51,11 +55,13 @@ public final class TrekMapView extends View {
   private final ScaleGestureDetector scales;
   // One zoom level per 160 dp, independent of distance from the second tap or event rate.
   private final float quickZoomDistance;
-  private final OverScroller zoomScroller;
   private VelocityTracker zoomVelocity;
   private boolean quickZooming, quickZoomEligible, zoomFling;
   private float quickFocusX, quickFocusY, quickLastY, quickDirection;
-  private int flingPosition;
+  // Decay in zoom levels, so density and frame rate do not change the coast.
+  private static final double ZOOM_DECAY_SECONDS = 0.32;
+  private double flingStartLevel, flingVelocity;
+  private long flingStarted;
   private long lastQuickMove;
   private boolean tapZoom;
   private long tapZoomStarted;
@@ -65,8 +71,6 @@ public final class TrekMapView extends View {
     super(context);
     tileSize = 256 * getResources().getDisplayMetrics().density;
     quickZoomDistance = dp(160);
-    zoomScroller = new OverScroller(context);
-    zoomScroller.setFriction(0.02f);
     setContentDescription(
         "Offline trekking map. Drag to move, pinch to zoom. Long press to add a"
             + " planning point.");
@@ -204,19 +208,18 @@ public final class TrekMapView extends View {
 
   private boolean flingQuickZoom(long releasedAt) {
     if (zoomVelocity == null || releasedAt - lastQuickMove > 100) return false;
-    zoomVelocity.computeCurrentVelocity(1000, quickZoomDistance * 4);
+    zoomVelocity.computeCurrentVelocity(1000, quickZoomDistance * 8);
     float velocity = zoomVelocity.getYVelocity();
     if (!Float.isFinite(velocity)
         || velocity * quickDirection <= 0
         || Math.abs(velocity) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity())
       return false;
     double level = camera()[2];
-    int minimum = (int) ((minZoom() - level) * quickZoomDistance);
-    int maximum = (int) ((maxZoom() - level) * quickZoomDistance);
-    if (velocity < 0 && minimum == 0 || velocity > 0 && maximum == 0) return false;
-    flingPosition = 0;
+    if (velocity < 0 && level <= minZoom() || velocity > 0 && level >= maxZoom()) return false;
+    flingStartLevel = level;
+    flingVelocity = velocity / quickZoomDistance;
+    flingStarted = android.os.SystemClock.uptimeMillis();
     zoomFling = true;
-    zoomScroller.fling(0, 0, 0, (int) velocity, 0, 0, minimum, maximum);
     postInvalidateOnAnimation();
     return true;
   }
@@ -224,7 +227,8 @@ public final class TrekMapView extends View {
   @Override
   public void computeScroll() {
     if (tapZoom) {
-      double progress = Math.min(1, (android.os.SystemClock.uptimeMillis() - tapZoomStarted) / 180.0);
+      double progress =
+          Math.min(1, (android.os.SystemClock.uptimeMillis() - tapZoomStarted) / 180.0);
       double eased = 1 - Math.pow(1 - progress, 3);
       double level = tapZoomStart + (tapZoomTarget - tapZoomStart) * eased;
       scaleBy(Math.pow(2, level - camera()[2]), quickFocusX, quickFocusY);
@@ -236,21 +240,22 @@ public final class TrekMapView extends View {
       return;
     }
     if (!zoomFling) return;
-    if (zoomScroller.computeScrollOffset()) {
-      int position = zoomScroller.getCurrY();
-      scaleBy(
-          Math.pow(2, (position - flingPosition) / quickZoomDistance), quickFocusX, quickFocusY);
-      flingPosition = position;
-      postInvalidateOnAnimation();
-    } else {
+    double elapsed = (android.os.SystemClock.uptimeMillis() - flingStarted) / 1000.0;
+    double remaining = Math.exp(-elapsed / ZOOM_DECAY_SECONDS);
+    double travel = flingVelocity * ZOOM_DECAY_SECONDS;
+    double target = flingStartLevel + travel * (1 - remaining);
+    scaleBy(Math.pow(2, target - camera()[2]), quickFocusX, quickFocusY);
+    if (Math.abs(travel * remaining) < 0.002
+        || elapsed >= 2.4
+        || target <= minZoom()
+        || target >= maxZoom()) {
       zoomFling = false;
       refreshTiles(false);
-    }
+    } else postInvalidateOnAnimation();
   }
 
   void stopMotion() {
     tapZoom = false;
-    zoomScroller.forceFinished(true);
     zoomFling = false;
     quickZooming = false;
     quickZoomEligible = false;
