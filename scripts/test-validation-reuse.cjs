@@ -18,12 +18,17 @@ async function scenario(change = () => {}) {
   const merged = { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } };
   const tested = { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } };
   const artifact = { id: 456, name: 'validated-source-2', expired: false, size_in_bytes: 500 };
-  const options = { run, proof, merged, tested, artifacts: [artifact], changed: false,
-    runId: '123', loads: 0, queries: 0, latest: null, failure: false };
+  const options = { run, proof, merged, tested, artifacts: [artifact], runs: [run], changed: false,
+    runId: '123', loads: 0, queries: 0, discoveries: 0, latest: null, failure: false };
   change(options);
   const github = { paginate: async () => options.artifacts, rest: {
     actions: {
       getWorkflow: async () => ({ data: { id: 9 } }),
+      listWorkflowRunsForWorkflow: async () => {
+        options.discoveries++;
+        if (options.discoveryFailure) throw new Error('Cannot list workflow runs');
+        return { data: { workflow_runs: options.runs } };
+      },
       getWorkflowRun: async () => ({ data: ++options.queries > 1 && options.latest ? options.latest : run }),
       listWorkflowRunArtifacts: () => {}
     },
@@ -43,10 +48,22 @@ test('reuses a successful current PR attempt for the identical merge tree and to
   assert.equal(result.reused, true);
   assert.equal(result.options.loads, 1);
   assert.equal(result.options.queries, 2);
+  assert.equal(result.options.discoveries, 0);
+});
+
+test('native GitHub merge discovers and verifies the completed PR check', async () => {
+  const result = await scenario(x => { x.runId = ''; });
+  assert.equal(result.reused, true);
+  assert.equal(result.options.discoveries, 1);
+  assert.equal(result.options.loads, 1);
 });
 
 const cases = {
-  'manual dispatch without evidence': x => { x.runId = ''; },
+  'no discoverable PR run': x => { x.runId = ''; x.runs = []; },
+  'ambiguous PR runs': x => { x.runId = ''; x.runs.push({ ...x.run, id: 124 }); },
+  'discovered PR check has failed': x => { x.runId = ''; x.runs[0] = { ...x.run, conclusion: 'failure' }; },
+  'discovered PR check has wrong head': x => { x.runId = ''; x.runs[0] = { ...x.run, head_sha: BASE }; },
+  'discovery API unavailable': x => { x.runId = ''; x.discoveryFailure = true; },
   'invalid run ID': x => { x.runId = '123; echo bad'; },
   'direct push or squash merge': x => { x.merged.parents.pop(); },
   'CI configuration changed': x => { x.changed = true; },
