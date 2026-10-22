@@ -48,5 +48,6 @@ test('administrator configuration requires strict checks and enables native auto
   assert.match(settings, /"allow_auto_merge": True/);
   assert.match(settings, /"delete_branch_on_merge": True/);
   assert.match(settings, /RULESET_NAME = "main"/);
-  assert.match(settings, /"require_code_owner_review"\] = True/);
+  assert.match(settings, /"required_approving_review_count"\] = 0/);
+  assert.match(settings, /"require_code_owner_review"\] = False/);
 });
