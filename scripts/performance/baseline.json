@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "status": "unmeasured",
+  "runs": [],
+  "objective": "Match or beat the best qualifying OruxMaps, Locus Map or OsmAnd result on the same device, OS and profile; never regress against pinned Cairn baseline or previous main.",
+  "reason": "No physical-device battery or suspend measurements are available. This file cannot authorize auto-merge. Keep the competitive reference and pinned Cairn baseline separately once measured."
+}

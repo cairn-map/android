@@ -82,6 +82,78 @@ public class PowerPolicyTest {
   }
 
   @Test
+  public void pausingCancelsPendingLongPressWork() {
+    TrekMapView map = new TrekMapView(RuntimeEnvironment.getApplication());
+    java.util.concurrent.atomic.AtomicInteger callbacks = new java.util.concurrent.atomic.AtomicInteger();
+    map.onLongPress = p -> callbacks.incrementAndGet();
+    try {
+      long now = SystemClock.uptimeMillis();
+      android.view.MotionEvent down = android.view.MotionEvent.obtain(
+          now, now, android.view.MotionEvent.ACTION_DOWN, 30, 30, 0);
+      map.onTouchEvent(down);
+      down.recycle();
+      map.setRenderingEnabled(false);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
+      assertEquals(0, callbacks.get());
+    } finally {
+      map.dispose();
+    }
+  }
+
+  @Test
+  public void pausedActivitySuspendsMapWorkAndResumesOnReturn() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      TrekMapView map = (TrekMapView) field(controller.get(), "map");
+      assertEquals(true, field(map, "renderingEnabled"));
+      controller.pause();
+      assertEquals(false, field(map, "renderingEnabled"));
+      controller.resume();
+      assertEquals(true, field(map, "renderingEnabled"));
+    }
+  }
+
+  @Test
+  public void frequentFixesAreAllSavedWithoutUpdatingSystemUiEverySecond() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    Shadows.shadowOf(RuntimeEnvironment.getApplication())
+        .grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
+    LocationManager manager = context.getSystemService(LocationManager.class);
+    Shadows.shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true);
+    ServiceController<TrackingService> controller = Robolectric.buildService(TrackingService.class).create();
+    TrackingService service = controller.get();
+    try {
+      service.onStartCommand(new Intent(context, TrackingService.class).setAction("start"), 0, 1);
+      barrier(service);
+      android.app.NotificationManager notifications = context.getSystemService(android.app.NotificationManager.class);
+      android.app.Notification first = null;
+      for (int i = 0; i < 3; i++) {
+        Location fix = new Location(LocationManager.GPS_PROVIDER);
+        fix.setLatitude(45);
+        fix.setLongitude(6);
+        fix.setAccuracy(5);
+        fix.setTime(1000L + i * 1000L);
+        fix.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+        service.onLocationChanged(fix);
+        android.app.Notification current = Shadows.shadowOf(notifications).getNotification(1);
+        if (i == 0) first = current;
+        else assertSame(first, current);
+      }
+      Store store = (Store) field(service, "store");
+      assertEquals(3, store.read((String) field(service, "trekId")).size());
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMinutes(1));
+      Location next = new Location(LocationManager.GPS_PROVIDER);
+      next.setAccuracy(5);
+      next.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+      service.onLocationChanged(next);
+      assertNotSame(first, Shadows.shadowOf(notifications).getNotification(1));
+      assertEquals(4, store.read((String) field(service, "trekId")).size());
+    } finally {
+      controller.destroy();
+    }
+  }
+
+  @Test
   public void recordingUsesOnlyGpsAndRouteUpdatesDoNotRestartTheSubscription() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
     Shadows.shadowOf(RuntimeEnvironment.getApplication())

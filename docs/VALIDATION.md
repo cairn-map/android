@@ -1,3 +1,17 @@
+# Visible-only rendering and battery benchmark policy — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **221 Android tests**, no failures/errors/skips. Lint has zero errors and three existing warnings in `SwipeToRemoveView`. The Python suite passes **30 tests** and the Node automation suite **39 tests**. Pinned actionlint 1.7.12 passes. The automation change selector requires both automation suites for this PR.
+
+New regressions exercise pause/window/ancestor visibility, tile queue/source cancellation, obsolete tile rejection, resuming the same viewport, canceling delayed long presses, and persisting every received fix while limiting recording notification updates to once a minute. Benchmark tests cover charge/suspend arithmetic, unsupported diagnostics, GPX terminal gaps/duplicates, complete matched matrices/repetitions, zero background work, frame budgets, baseline and previous-result regressions, invalid measurements, and fail-closed CLI behavior.
+
+| Performance | Baseline | Previous main (`dd1d29f`) | Current change |
+| --- | --- | --- | --- |
+| Device energy, screen on/off/check at 1/5/20/30/60/300s | unmeasured | unmeasured | unmeasured |
+| Hardware suspend, wake reasons, GNSS duty cycle | unmeasured | unmeasured | unmeasured |
+| Device frame p95 and track positional quality | unmeasured | unmeasured | unmeasured |
+
+No physical phone, live GPS, charge-counter trial or competitor run was available in this cloud workspace. This table must not be treated as passing battery evidence. The benchmark matrix, primary-source competitor research and objectives are in [BATTERY-VALIDATION.md](BATTERY-VALIDATION.md). Baseline/previous/current comparison is blocked until matched physical-device reports exist; auto-merge stays off under the new performance policy.
+
 # Toast position above drawers with display cutouts — 22 October 2026
 
 Gradle 8.11.1 `assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **216 tests**, zero failures/errors/skips. Lint reported zero errors and five warnings in unchanged map/swipe code. The shared automation selector reports `required=false` for these app/test/documentation changes.
