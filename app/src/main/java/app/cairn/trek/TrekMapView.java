@@ -54,7 +54,7 @@ public final class TrekMapView extends View {
   private final OverScroller zoomScroller;
   private VelocityTracker zoomVelocity;
   private boolean quickZooming, quickZoomEligible, zoomFling;
-  private float quickFocusX, quickFocusY, quickDragDistance;
+  private float quickFocusX, quickFocusY, quickLastY, quickDirection;
   private int flingPosition;
   private long lastQuickMove;
 
@@ -100,29 +100,17 @@ public final class TrekMapView extends View {
                     quickZoomEligible = true;
                     quickFocusX = e.getX();
                     quickFocusY = e.getY();
-                    quickDragDistance = 0;
+                    quickLastY = e.getY();
+                    quickDirection = 0;
                     break;
                   case MotionEvent.ACTION_MOVE:
                     if (!quickZoomEligible || e.getPointerCount() != 1) break;
-                    float dy = e.getY() - quickFocusY;
-                    int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
-                    if (!quickZooming && Math.abs(dy) <= slop) break;
-                    if (!quickZooming) {
-                      quickZooming = true;
-                      tapCandidate = false;
-                      refreshTiles(false);
-                    }
-                    float distance = Math.copySign(Math.max(0, Math.abs(dy) - slop), dy);
-                    scaleBy(
-                        Math.pow(2, (distance - quickDragDistance) / quickZoomDistance),
-                        quickFocusX,
-                        quickFocusY);
-                    if (distance != quickDragDistance) lastQuickMove = e.getEventTime();
-                    quickDragDistance = distance;
+                    dragQuickZoom(e);
                     break;
                   case MotionEvent.ACTION_UP:
                     if (!quickZoomEligible) break;
                     if (quickZooming) {
+                      dragQuickZoom(e);
                       quickZooming = false;
                       if (!flingQuickZoom(e.getEventTime())) refreshTiles(false);
                     } else if (tapCandidate) {
@@ -177,11 +165,40 @@ public final class TrekMapView extends View {
     scales.setQuickScaleEnabled(false);
   }
 
+  private void dragQuickZoom(MotionEvent event) {
+    float y = event.getY();
+    if (!Float.isFinite(y)) return;
+    if (!quickZooming) {
+      float dy = y - quickFocusY;
+      int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+      if (Math.abs(dy) <= slop) return;
+      quickZooming = true;
+      tapCandidate = false;
+      // Apply the initial movement threshold once; reversals must have no dead zone.
+      quickLastY = quickFocusY + Math.copySign(slop, dy);
+      refreshTiles(false);
+    }
+    float delta = y - quickLastY;
+    if (delta == 0) return;
+    float direction = Math.signum(delta);
+    if (quickDirection != 0 && direction != quickDirection && zoomVelocity != null) {
+      // Earlier movement must not pull the zoom back after the user reverses and releases.
+      zoomVelocity.clear();
+      zoomVelocity.addMovement(event);
+    }
+    quickDirection = direction;
+    scaleBy(Math.pow(2, delta / quickZoomDistance), quickFocusX, quickFocusY);
+    lastQuickMove = event.getEventTime();
+    quickLastY = y;
+  }
+
   private boolean flingQuickZoom(long releasedAt) {
     if (zoomVelocity == null || releasedAt - lastQuickMove > 100) return false;
     zoomVelocity.computeCurrentVelocity(1000, quickZoomDistance * 4);
     float velocity = zoomVelocity.getYVelocity();
-    if (Math.abs(velocity) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity())
+    if (!Float.isFinite(velocity)
+        || velocity * quickDirection <= 0
+        || Math.abs(velocity) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity())
       return false;
     double level = camera()[2];
     int minimum = (int) ((minZoom() - level) * quickZoomDistance);
