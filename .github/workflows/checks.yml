@@ -12,12 +12,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Select automation tests
+        id: automation
+        env:
+          AUTOMATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/automation_changes.py "$AUTOMATION_BASE_SHA" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/android-toolchain
       - uses: ./.github/actions/android-test-runtime
       - name: Python automation tests
+        if: steps.automation.outputs.required != 'false'
         timeout-minutes: 2
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Node automation tests
+        if: steps.automation.outputs.required != 'false'
         timeout-minutes: 4
         run: |
           # Separate suites to identify hangs and avoid process-concurrency stalls.
