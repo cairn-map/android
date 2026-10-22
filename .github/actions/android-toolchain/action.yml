@@ -1,5 +1,5 @@
 name: Cairn Android toolchain
-description: Set up Java and cache the pinned Android SDK and Robolectric runtimes
+description: Set up Java, cached Gradle state and required Android SDK packages
 runs:
   using: composite
   steps:
@@ -8,27 +8,18 @@ runs:
         distribution: temurin
         java-version: '17'
     - uses: gradle/actions/setup-gradle@v6
-      with:
-        gradle-version: wrapper
-    - name: Locate Android SDK
-      id: sdk
+    - name: Ensure required Android packages
       shell: bash
-      run: printf 'root=%s\n' "$ANDROID_HOME" >> "$GITHUB_OUTPUT"
-    - name: Cache pinned Android SDK packages
-      id: sdk-cache
-      uses: actions/cache@v5
-      with:
-        path: |
-          ${{ steps.sdk.outputs.root }}/platforms/android-35-ext15
-          ${{ steps.sdk.outputs.root }}/build-tools/35.0.0
-        key: android-sdk-${{ runner.os }}-${{ runner.arch }}-35-ext15-build-tools-35.0.0-v1
-    - name: Cache Robolectric Android runtimes
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2/repository/org/robolectric/android-all-instrumented
-        key: robolectric-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/build.gradle', 'app/src/test/**/*.java') }}-v1
-        restore-keys: robolectric-${{ runner.os }}-${{ runner.arch }}-
-    - name: Install pinned Android packages
-      if: steps.sdk-cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35-ext15" "build-tools;35.0.0" > /dev/null'
+      run: |
+        # Hosted images already include these packages. Restoring a cache over
+        # root-owned SDK files fails and costs more than checking their presence.
+        packages=()
+        if [[ ! -f "$ANDROID_HOME/platforms/android-35-ext15/android.jar" ]]; then
+          packages+=("platforms;android-35-ext15")
+        fi
+        if [[ ! -x "$ANDROID_HOME/build-tools/35.0.0/aapt" || ! -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" ]]; then
+          packages+=("build-tools;35.0.0")
+        fi
+        if (( ${#packages[@]} )); then
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "${packages[@]}" > /dev/null
+        fi

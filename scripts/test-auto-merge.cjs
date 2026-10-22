@@ -18,7 +18,7 @@ test('PR checks have a stable required status with build, test and lint', () => 
   assert.match(checks, /python3 -m unittest discover/);
   assert.match(checks, /node --test "\$suite"/);
   assert.match(checks, /assembleDebug testDebugUnitTest lintDebug/);
-  assert.match(checks, /go run github.com\/rhysd\/actionlint\/cmd\/actionlint@v1\.7\.12/);
+  assert.match(checks, /bash scripts\/lint-workflows\.sh/);
 });
 
 test('native merge pushes to main and starts signed release normally', () => {

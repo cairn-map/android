@@ -1,0 +1,10 @@
+name: Cairn Android test runtime
+description: Restore Robolectric runtimes only for jobs that run Android tests
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v5
+      with:
+        path: ~/.m2/repository/org/robolectric/android-all-instrumented
+        key: robolectric-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/build.gradle', 'app/src/test/**/*.java') }}-v1
+        restore-keys: robolectric-${{ runner.os }}-${{ runner.arch }}-

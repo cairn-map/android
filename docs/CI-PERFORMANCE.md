@@ -1,0 +1,98 @@
+# Actions performance audit
+
+Reviewed on 22 October 2026 against `main` at `e5a46de`, including merged PRs
+[#5](https://github.com/dayblox/cairn/pull/5),
+[#9](https://github.com/dayblox/cairn/pull/9), and
+[#10–16](https://github.com/dayblox/cairn/pulls?q=is%3Apr+is%3Amerged).
+
+## Measured baseline
+
+The latest successful [PR checks](https://github.com/dayblox/cairn/actions/runs/39707528817)
+took 56 seconds in the job (59 seconds from workflow creation to completion).
+The associated [release](https://github.com/dayblox/cairn/actions/runs/39707867073)
+took 57 seconds in the job (61 seconds including scheduling and finalization).
+Step timestamps are rounded to seconds; nested action timings come from job logs.
+
+| Work | PR checks | Release |
+| --- | ---: | ---: |
+| Shared Android toolchain | 20 s | 19 s |
+| Compile actionlint from source | 12 s | — |
+| Debug build, tests and lint | 12 s | 11 s |
+| Signed APK build and verification | — | 8 s |
+| Publish release | — | 5 s |
+| Toolchain post actions | 4 s | 6 s |
+
+Within toolchain setup, restoring the 109 MiB SDK cache failed with permission
+errors over existing runner SDK directories (8.9 s in checks, 6.9 s in release).
+The cache miss then caused an unnecessary `sdkmanager` invocation (3.3 s / 2.3 s).
+Robolectric restored another 354 MiB (2.3 s / 3.1 s). Gradle restore itself was
+working and took 3.5–4.4 s; keep it.
+
+The six-minute duration of [PR #14's checks](https://github.com/dayblox/cairn/actions/runs/39703164451)
+was mostly runner queueing: the job started at 01:06:26 UTC after workflow
+creation at 01:00:52 UTC and ran for only 38 seconds. Removing tests cannot fix
+that queue. PR #9's stalled release was canceled; later PRs added step and job
+timeouts, so retain those bounds and individually bounded Node suites.
+
+## Changes
+
+- Remove SDK caching. Check for SDK 35 extension 15 and Build Tools 35.0.0 in the
+  hosted image, installing only missing packages. This also removes the failed
+  restore, cache upload and hundreds of permission-error log lines.
+- Use the pinned actionlint 1.7.12 Linux x64 release binary, verifying its archive
+  SHA-256 before execution. Downloading a small binary avoids compiling Go on
+  every PR; an additional cache action would add overhead for a short download.
+- Let `gradlew` select the Gradle distribution. Omit `gradle-version: wrapper`
+  from setup-gradle, which otherwise provisions Gradle separately before every
+  build. Keep dependency, transform and local build caches enabled.
+- Restore Robolectric only in PR checks or release full-validation fallback.
+  A release with verified reusable evidence does not need Android test runtimes.
+  Keep test-source hashes in the runtime cache key because annotations select
+  Android SDK versions; changing a tested SDK must allow saving new runtimes.
+- Use `ubuntu-24.04` for both jobs so the moving `ubuntu-latest` alias cannot
+  change their OS generation independently. Exact image and Java equality are
+  still checked before validation reuse.
+
+## Recent PRs and validation reuse
+
+PR #5 introduced verified proof and caches. PR #9 replaced the privileged merge
+workflow with native auto-merge but initially lost automatic proof discovery.
+PR #11 restored discovery and Gradle build caching. PR #12 temporarily supported
+squash merges; PR #13 deliberately removed that support and selected merge
+commits only. PR #14 added generated release notes. PR #15 added pinned workflow
+linting, current Actions majors, bounded suites and stale-source release guards.
+PR #16 removed the self-approval deadlock for the sole maintainer.
+
+Recent releases after PRs #11–16 all changed CI or automation scripts. Their
+full-validation fallback is intentional, not evidence that discovery is broken.
+The latest release explicitly logged `CI or validation scripts changed in this
+merge`. Preserve that rule and verify the fast path with a subsequent PR changing
+only application source or documentation. Its release should log
+`Reusing successful PR validation run`, skip both fallback tests and Robolectric
+restoration, and still build, sign, verify and publish the APK.
+
+## Repository configuration
+
+Read the live repository settings and active `main` ruleset during this audit:
+
+- Native auto-merge, merge commits and automatic head-branch deletion: enabled.
+- Repository squash and rebase merging: disabled.
+- Required `checks`, bound to GitHub Actions, with strict up-to-date enforcement:
+  enabled. Zero required approvals, no code-owner/last-push approval, resolved
+  conversations required, no bypass actors, force pushes and deletion blocked.
+- The ruleset itself still lists `merge`, `squash`, and `rebase`, although the
+  repository settings already disable the latter two. Align it to `merge` only
+  using the existing administrator helper, after reviewing its dry run:
+  `python3 scripts/configure_native_automerge.py --dry-run`, then the same command
+  without `--dry-run`. The GitHub connector cannot administer repository rulesets.
+
+Do not relax strict checks, skip all required CI on documentation PRs, remove
+full history from release checkout, or remove release freshness/version/signature
+checks for speed. The stable required job and validation evidence need complete
+PR validation; release ancestry checks need history. This small repository's
+checkout and freshness checks each took about one second.
+
+Compare job duration separately from queueing and human time. The workflow-changing
+optimization PR must itself take full release validation; a later source-only
+PR is needed to measure actual reuse. Do not claim a runtime reduction from
+estimates alone.
