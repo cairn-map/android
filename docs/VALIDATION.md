@@ -1,4 +1,12 @@
-# Validation — version 0.4.0, 21 October 2026
+# Map gestures and place search — 22 October 2026
+
+JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **92 Android/JVM tests passed**; Android lint reported no issues. Python automation tests (19) and Node automation tests (39) also passed.
+
+New framework-simulated checks exercise second-tap release timing, a held second tap without an accidental planning point, quick-scale in both directions with no release jump, cancellation and ordinary panning. Place-search checks cover matching and invalid coordinates, missing geocoding support, empty results, network errors and retry, timeout, discarded late replies, keyboard submission, empty input, result selection without enabling online tiles, activity pause, and recording blocking online search. The native Canvas map preview was visually inspected with the added search control and compact IGN credit.
+
+No physical-device gesture trial or live device geocoding lookup was performed. Place-name coverage and network behavior depend on the phone's geocoding service. Full IGN source/licence/update-information links are in Routes; the map retains a compact © IGN credit.
+
+# Earlier validation — version 0.4.0, 21 October 2026
 
 ## Executed
 
