@@ -90,6 +90,9 @@ public final class TrekMapView extends View {
               public boolean onDoubleTap(MotionEvent e) {
                 // The second press may become a one-finger quick-scale gesture.
                 doubleTap = true;
+                // Disable before the detector arms its second-press timer. Ignoring the
+                // callback alone still lets it enter long-press mode and swallow MOVE events.
+                gestures.setIsLongpressEnabled(false);
                 return true;
               }
 
@@ -392,6 +395,7 @@ public final class TrekMapView extends View {
   @Override
   public boolean onTouchEvent(MotionEvent e) {
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+      gestures.setIsLongpressEnabled(true);
       boolean wasMoving = zoomFling;
       stopMotion();
       if (wasMoving) refreshTiles(false);
@@ -422,6 +426,7 @@ public final class TrekMapView extends View {
     }
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      gestures.setIsLongpressEnabled(true);
       doubleTap = false;
       quickZoomEligible = false;
       if (zoomVelocity != null) zoomVelocity.recycle();
