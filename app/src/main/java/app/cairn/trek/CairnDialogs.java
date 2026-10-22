@@ -4,7 +4,6 @@ import static app.cairn.trek.AppPalette.*;
 
 import android.app.AlertDialog;
 import android.content.*;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.*;
@@ -60,22 +59,22 @@ final class CairnDialogs {
     @Override
     public AlertDialog create() {
       Context context = getContext();
-      AlertDialog[] holder = new AlertDialog[1];
       if (title != null || titleView != null || drawer) {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
         if (drawer) {
           FrameLayout grip = new FrameLayout(context);
           View handle = new View(context);
-          handle.setBackground(shape(OUTLINE, 2));
-          FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(dp(36), dp(4), Gravity.CENTER);
+          handle.setBackground(shape(MUTED, 3));
+          handle.setAlpha(0.65f);
+          FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(dp(44), dp(5), Gravity.CENTER);
           grip.addView(handle, hp);
           header.addView(grip, new LinearLayout.LayoutParams(-1, dp(28)));
           grip.setContentDescription("Swipe down to close drawer");
         }
         LinearLayout titleRow = new LinearLayout(context);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        titleRow.setPadding(dp(24), drawer ? 0 : dp(24), dp(12), dp(12));
+        titleRow.setPadding(dp(24), drawer ? 0 : dp(24), dp(24), dp(12));
         if (titleView != null) {
           titleRow.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         } else {
@@ -87,25 +86,10 @@ final class CairnDialogs {
           if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
           titleRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
         }
-        if (drawer) {
-          ImageButton close = new ImageButton(context);
-          close.setScaleType(ImageView.ScaleType.FIT_CENTER);
-          close.setImageDrawable(new MapIcon(MapIcon.CLOSE));
-          close.setPadding(dp(12), dp(12), dp(12), dp(12));
-          close.setContentDescription("Close drawer");
-          close.setBackground(
-              new RippleDrawable(
-                  ColorStateList.valueOf(RIPPLE),
-                  shape(Color.TRANSPARENT, 24),
-                  shape(Color.WHITE, 24)));
-          close.setOnClickListener(v -> holder[0].cancel());
-          titleRow.addView(close, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        }
         header.addView(titleRow);
         super.setCustomTitle(header);
       }
       AlertDialog dialog = super.create();
-      holder[0] = dialog;
       Window window = dialog.getWindow();
       GradientDrawable surface = shape(SURFACE, 28);
       if (drawer) {

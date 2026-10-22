@@ -1719,8 +1719,8 @@ public final class MainActivity extends Activity {
     query.setTextSize(16);
     query.setTextColor(TEXT);
     query.setMinHeight(dp(52));
-    query.setPadding(dp(16), dp(12), dp(16), dp(12));
-    query.setBackground(surface(BACKGROUND, OUTLINE, 26));
+    query.setPaddingRelative(dp(16), dp(12), dp(16), dp(12));
+    query.setBackgroundColor(Color.TRANSPARENT);
     MapIcon searchIcon = new MapIcon(MapIcon.SEARCH);
     searchIcon.setBounds(0, 0, dp(22), dp(22));
     query.setCompoundDrawablesRelative(searchIcon, null, null, null);
@@ -1728,6 +1728,25 @@ public final class MainActivity extends Activity {
     query.setInputType(
         android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_NORMAL);
     query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+    FrameLayout searchBar = new FrameLayout(this);
+    searchBar.setBackground(surface(BACKGROUND, OUTLINE, 26));
+    searchBar.addView(query, new FrameLayout.LayoutParams(-1, -2));
+    ImageButton clearSearch =
+        iconButton(
+            MapIcon.CLOSE,
+            "Clear search",
+            () -> {
+              query.getText().clear();
+              query.requestFocus();
+            });
+    clearSearch.setBackground(
+        new RippleDrawable(
+            ColorStateList.valueOf(RIPPLE), round(Color.TRANSPARENT, 24), round(Color.WHITE, 24)));
+    clearSearch.setVisibility(View.GONE);
+    FrameLayout.LayoutParams clearParams =
+        new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END | Gravity.CENTER_VERTICAL);
+    clearParams.setMarginEnd(dp(2));
+    searchBar.addView(clearSearch, clearParams);
     TextView searchStatus = label("", 13, MUTED, false);
     searchStatus.setVisibility(View.GONE);
     content.addView(searchStatus);
@@ -1749,7 +1768,7 @@ public final class MainActivity extends Activity {
     content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
     content.addView(searchCredit);
     AlertDialog dialog =
-        CairnDialogs.drawer(this).fullHeight().setCustomTitle(query).setView(content).create();
+        CairnDialogs.drawer(this).fullHeight().setCustomTitle(searchBar).setView(content).create();
     searchDialog = dialog;
     dialog.setOnDismissListener(
         d -> {
@@ -1791,6 +1810,8 @@ public final class MainActivity extends Activity {
           public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
 
           public void onTextChanged(CharSequence text, int start, int before, int count) {
+            clearSearch.setVisibility(text.length() == 0 ? View.GONE : View.VISIBLE);
+            query.setPaddingRelative(dp(16), dp(12), dp(text.length() == 0 ? 16 : 56), dp(12));
             results.removeAllViews();
             String value = text.toString().trim();
             showSearchStatus.accept(value.length() < 2 ? "" : "Searching…");
