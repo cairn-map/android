@@ -47,6 +47,8 @@ public final class MainActivity extends Activity {
   private String currentPage = "Map";
   private int dataGeneration = 0, routeRevision = 0;
   private ManualLocation manualLocation;
+  private PlaceSearch placeSearch;
+  private AlertDialog searchDialog;
 
   private final BroadcastReceiver fixes =
       new BroadcastReceiver() {
@@ -87,6 +89,7 @@ public final class MainActivity extends Activity {
     super.onCreate(state);
     store = new Store(this);
     appUpdates = new AppUpdates(this);
+    placeSearch = new PlaceSearch(this);
     mapStore = new PlanIgnStore(this);
     ignMap = new IgnMap(this);
     router = new EmbeddedRouter(this);
@@ -191,6 +194,7 @@ public final class MainActivity extends Activity {
       receiverRegistered = false;
     }
     cancelLocate();
+    cancelSearch();
     router.cancel();
     setMapOnline(false);
     super.onPause();
@@ -226,6 +230,7 @@ public final class MainActivity extends Activity {
 
   private void showPage(String title) {
     currentPage = title;
+    if (!"Map".equals(title)) cancelSearch();
     if (!"Routes".equals(title)) appUpdates.pause();
     if (!"Map".equals(title) && ignMap.online()) setMapOnline(false);
     pages.removeAllViews();
@@ -271,6 +276,9 @@ public final class MainActivity extends Activity {
     iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
     iconParams.topMargin = dp(8);
     controls.addView(iconButton(MapIcon.LOCATE, "Find my location", this::locate), iconParams);
+    iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+    iconParams.topMargin = dp(8);
+    controls.addView(iconButton(MapIcon.SEARCH, "Search places", this::searchPlaces), iconParams);
     intervalChip = button("GPS · 60s", false, this::batterySettings);
     intervalChip.setTextSize(12);
     intervalChip.setSingleLine(true);
@@ -494,12 +502,26 @@ public final class MainActivity extends Activity {
                     + "\n"
                     + "Routing data: © OpenStreetMap contributors, Open Database Licence (ODbL)."
                     + " https://www.openstreetmap.org/copyright\n"
-                    + "Plan IGN: © IGN, Licence Ouverte 2.0.");
+                    + "Plan IGN: © IGN, Licence Ouverte 2.0.\n"
+                    + "Source and update information: https://www.data.gouv.fr/datasets/plan-ign\n"
+                    + "Licence: https://github.com/etalab/licence-ouverte/blob/master/LO.md");
           } catch (IOException error) {
             message(error.getMessage());
           }
         });
     content.addView(licences);
+    TextView ignCredit = label("", 12, MUTED, false);
+    ignCredit.setText(
+        android.text.Html.fromHtml(
+            "Plan IGN · © IGN · <a"
+                + " href=\"https://github.com/etalab/licence-ouverte/blob/master/LO.md\">Licence"
+                + " Ouverte 2.0</a><br><a"
+                + " href=\"https://www.data.gouv.fr/datasets/plan-ign\">Source and update"
+                + " information</a>",
+            android.text.Html.FROM_HTML_MODE_LEGACY));
+    ignCredit.setLinkTextColor(ACCENT);
+    ignCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    content.addView(ignCredit);
     content.addView(appUpdates.view());
   }
 
@@ -1190,6 +1212,7 @@ public final class MainActivity extends Activity {
       return;
     }
     cancelLocate();
+    cancelSearch();
     router.cancel();
     dataGeneration++;
     track = new ArrayList<>();
@@ -1636,6 +1659,114 @@ public final class MainActivity extends Activity {
         });
   }
 
+  private void searchPlaces() {
+    if (TrackingService.running) {
+      message(
+          "Finish recording before searching online. Offline maps and saved routes remain"
+              + " available.");
+      return;
+    }
+    cancelSearch();
+    LinearLayout content = column();
+    content.setPadding(dp(24), dp(8), dp(24), dp(8));
+    EditText query = new EditText(this);
+    query.setHint("Town, mountain, or address");
+    query.setContentDescription("Place name or address");
+    query.setSingleLine(true);
+    query.setInputType(
+        android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_NORMAL);
+    query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+    content.addView(query);
+    TextView feedback =
+        label("Online search · uses your phone’s geocoding service", 12, MUTED, false);
+    content.addView(feedback);
+    LinearLayout results = column();
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(results);
+    content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(220)));
+    AlertDialog dialog =
+        new AlertDialog.Builder(this)
+            .setTitle("Search places")
+            .setView(content)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Search", null)
+            .create();
+    searchDialog = dialog;
+    dialog.setOnDismissListener(
+        d -> {
+          placeSearch.cancel();
+          if (searchDialog == dialog) searchDialog = null;
+        });
+    dialog.setOnShowListener(
+        d -> {
+          query.requestFocus();
+          dialog.getWindow().setSoftInputMode(
+              WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                  | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+          Runnable submit =
+              () -> {
+                String text = query.getText().toString().trim();
+                if (text.isEmpty()) {
+                  query.setError("Enter a place name");
+                  return;
+                }
+                results.removeAllViews();
+                feedback.setText("Searching…");
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                placeSearch.search(
+                    text,
+                    new PlaceSearch.Callback() {
+                      @Override
+                      public void results(List<Address> places) {
+                        if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        feedback.setText(
+                            places.isEmpty()
+                                ? "No places found. Try a nearby town or a more specific name."
+                                : "Choose a place to show on the map");
+                        for (Address place : places) {
+                          results.addView(
+                              button(
+                                  PlaceSearch.label(place),
+                                  false,
+                                  () -> {
+                                    cancelLocate();
+                                    double[] camera = map.camera();
+                                    map.restoreCamera(
+                                        new double[] {
+                                          place.getLatitude(),
+                                          place.getLongitude(),
+                                          Math.max(13, camera[2])
+                                        });
+                                    dialog.dismiss();
+                                  }));
+                        }
+                      }
+
+                      @Override
+                      public void unavailable(String reason) {
+                        if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        feedback.setText(reason);
+                      }
+                    });
+              };
+          dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> submit.run());
+          query.setOnEditorActionListener(
+              (v, action, event) -> {
+                if (action != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
+                if (dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled()) submit.run();
+                return true;
+              });
+        });
+    dialog.show();
+  }
+
+  private void cancelSearch() {
+    if (placeSearch != null) placeSearch.cancel();
+    if (searchDialog != null) searchDialog.dismiss();
+  }
+
   private void message(String text) {
     if (!destroyed && !isFinishing())
       new AlertDialog.Builder(this)
@@ -1729,6 +1860,8 @@ public final class MainActivity extends Activity {
   protected void onDestroy() {
     destroyed = true;
     appUpdates.close();
+    cancelSearch();
+    placeSearch.close();
     main.removeCallbacksAndMessages(null);
     cancelLocate();
     router.close();

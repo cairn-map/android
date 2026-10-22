@@ -28,4 +28,8 @@ The test resources include BRouter's upstream Dreieich OpenStreetMap PBF fixture
 
 ## Plan IGN
 
-The app fetches Plan IGN from IGN's public service when the user explicitly enables preview or starts a download. The source is identified on the map and in offline package details. Dataset: https://www.data.gouv.fr/datasets/plan-ign. Licence Ouverte 2.0: https://www.etalab.gouv.fr/licence-ouverte-open-licence/.
+The app fetches Plan IGN from IGN's public service when the user explicitly enables preview or starts a download. A compact © IGN credit is shown on the map. Full source, licence and update-information links are available at the bottom of Routes and under Licences & attribution. Dataset and current update information: https://www.data.gouv.fr/datasets/plan-ign. Licence Ouverte 2.0: https://github.com/etalab/licence-ouverte/blob/master/LO.md. The licence requires effective source/update attribution and allows a URL to the information; it does not prescribe a permanent on-map licence label. Imported maps retain their own attribution and terms.
+
+## Place search
+
+Name searches use Android's Geocoder and the geocoding service supplied by the device. Only explicitly submitted text is sent; search does not request a GPS or network location fix or enable online map tiles. There is no background polling; late responses after cancellation are discarded. Availability and coverage depend on the device's backend and internet access. Search results are not stored or bundled as map data.

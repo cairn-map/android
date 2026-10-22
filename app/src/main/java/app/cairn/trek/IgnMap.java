@@ -119,7 +119,7 @@ public final class IgnMap implements TileSource, AutoCloseable {
   }
 
   public String attribution() {
-    return "© IGN · Plan IGN · Licence Ouverte 2.0";
+    return "© IGN";
   }
 
   public synchronized void close() {

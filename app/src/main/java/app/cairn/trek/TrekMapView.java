@@ -26,7 +26,7 @@ public final class TrekMapView extends View {
   private TileSource source;
   private volatile int generation = 0;
   private volatile boolean active = true;
-  private boolean tapCandidate;
+  private boolean tapCandidate, doubleTap;
   private float downX, downY;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -66,7 +66,7 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onScroll(MotionEvent first, MotionEvent now, float dx, float dy) {
-                if (scales.isInProgress()) return true;
+                if (doubleTap || scales.isInProgress()) return true;
                 center(
                     new Point(
                         Geo.lat(Geo.y(lat, zoom) + dy / scaledTileSize(), zoom),
@@ -76,13 +76,23 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onDoubleTap(MotionEvent e) {
-                scaleBy(2, e.getX(), e.getY());
-                refreshTiles(false);
+                // The second press may become a one-finger quick-scale gesture.
+                doubleTap = true;
+                return true;
+              }
+
+              @Override
+              public boolean onDoubleTapEvent(MotionEvent e) {
+                if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) {
+                  scaleBy(2, e.getX(), e.getY());
+                  refreshTiles(false);
+                }
                 return true;
               }
 
               @Override
               public void onLongPress(MotionEvent e) {
+                if (doubleTap) return;
                 tapCandidate = false;
                 if (onLongPress != null)
                   onLongPress.at(
@@ -261,6 +271,7 @@ public final class TrekMapView extends View {
       downX = e.getX();
       downY = e.getY();
     }
+    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) tapCandidate = false;
     if (e.getActionMasked() == MotionEvent.ACTION_MOVE
         && Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
@@ -268,6 +279,8 @@ public final class TrekMapView extends View {
     gestures.onTouchEvent(e);
     if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) performClick();
     if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) tapCandidate = false;
+    if (e.getActionMasked() == MotionEvent.ACTION_UP
+        || e.getActionMasked() == MotionEvent.ACTION_CANCEL) doubleTap = false;
     return true;
   }
 
