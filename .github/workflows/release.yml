@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
