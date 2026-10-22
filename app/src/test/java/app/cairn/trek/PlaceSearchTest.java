@@ -107,6 +107,105 @@ public class PlaceSearchTest {
     return result;
   }
 
+  private Address destination(String name, String category, String kind, double lat, double lon) {
+    Address result = place(name, lat, lon);
+    android.os.Bundle metadata = new android.os.Bundle();
+    metadata.putString("category", category);
+    metadata.putString("kind", kind);
+    result.setExtras(metadata);
+    return result;
+  }
+
+  @Test
+  public void thaborPromotesMountainAndRefugesAboveNearbyExactUrbanNamesakes() throws Exception {
+    List<Address> places =
+        PhotonClient.parse(
+            """
+            {"features":[
+              {"properties":{"name":"Thabor","osm_key":"place","osm_value":"city"},
+               "geometry":{"type":"Point","coordinates":[2.35,48.85]}},
+              {"properties":{"name":"Thabor","osm_key":"shop","osm_value":"bakery"},
+               "geometry":{"type":"Point","coordinates":[2.36,48.85]}},
+              {"properties":{"name":"Mont Thabor","osm_key":"natural","osm_value":"peak"},
+               "geometry":{"type":"Point","coordinates":[6.563,45.115]}},
+              {"properties":{"name":"Refuge du Thabor","osm_key":"tourism","osm_value":"alpine_hut"},
+               "geometry":{"type":"Point","coordinates":[6.59,45.13]}},
+              {"properties":{"name":"Cabane du Thabor","osm_key":"tourism","osm_value":"wilderness_hut"},
+               "geometry":{"type":"Point","coordinates":[6.6,45.14]}}
+            ]}
+            """);
+    search.close();
+    search = new PlaceSearch(RuntimeEnvironment.getApplication(), (query, center) -> places);
+    search.near(new Point(48.85, 2.35));
+    search.search("Thabor", callback);
+    drain();
+    assertEquals(5, results.size());
+    assertSame(places.get(2), results.get(0));
+    assertEquals(new HashSet<>(places.subList(2, 5)), new HashSet<>(results.subList(0, 3)));
+    assertEquals(places.subList(0, 2), results.subList(3, 5));
+    assertNull(SearchGeocoder.query);
+  }
+
+  @Test
+  public void hikingFeaturesReceivePreferenceWithoutFilteringOtherPlaces() {
+    Address town = destination("Thabor", "place", "town", 48.85, 2.35);
+    String[] kinds = {
+      "peak", "saddle", "ridge", "valley", "glacier", "waterfall", "water", "wood",
+      "alpine_hut", "wilderness_hut", "shelter", "trailhead", "path", "footway", "hiking",
+      "viewpoint", "camp_site", "picnic_site", "national_park", "protected_area", "nature_reserve"
+    };
+    for (String kind : kinds) {
+      Address hike = destination("Destination Thabor", "", kind, 45.1, 6.5);
+      assertEquals(
+          kind,
+          Arrays.asList(hike, town),
+          PlaceSearch.rank("Thabor", new Point(48.85, 2.35), Arrays.asList(town, hike)));
+    }
+    Address natural = destination("Thabor landscape", "natural", "heath", 45.1, 6.5);
+    assertSame(natural, PlaceSearch.rank("Thabor", null, Arrays.asList(town, natural)).get(0));
+  }
+
+  @Test
+  public void naturePreferenceRespectsCountryAndAddressQualifiersAndNameRelevance() {
+    Address mountain = destination("Mont Thabor", "natural", "peak", 45.115, 6.563);
+    mountain.setCountryName("France");
+    Address abroad = destination("Thabor", "place", "town", 46.8, -71.2);
+    abroad.setCountryName("Canada");
+    assertSame(
+        abroad,
+        PlaceSearch.rank("Thabor Canada", null, Arrays.asList(mountain, abroad)).get(0));
+    Address street = place("12 Rue du Thabor", 48.85, 2.35);
+    assertSame(
+        street,
+        PlaceSearch.rank("12 rue du thabor", null, Arrays.asList(mountain, street)).get(0));
+    Address otherMountain = destination("Mont Blanc", "natural", "peak", 45.8, 6.9);
+    otherMountain.setLocality("Thabor");
+    assertSame(
+        abroad,
+        PlaceSearch.rank("Thabor", null, Arrays.asList(otherMountain, abroad)).get(0));
+  }
+
+  @Test
+  public void allProviderMatchesRemainAvailableBelowPreferredNatureResults() {
+    List<Address> places = new ArrayList<>();
+    for (int i = 0; i < 39; i++) places.add(place("Thabor business " + i, 48 + i * .01, 2));
+    Address mountain = destination("Mont Thabor", "natural", "peak", 45.115, 6.563);
+    places.add(mountain);
+    List<Address> ranked = PlaceSearch.rank("Thabor", null, places);
+    assertSame(mountain, ranked.get(0));
+    assertEquals(40, ranked.size());
+    assertEquals(new HashSet<>(places), new HashSet<>(ranked));
+  }
+
+  @Test
+  public void equallyRelevantHikingDestinationsKeepTheSoftDistanceBias() {
+    Address far = destination("Refuge du Thabor", "tourism", "alpine_hut", 45.13, 6.59);
+    Address near = destination("Cabane du Thabor", "tourism", "wilderness_hut", 45.14, 6.6);
+    assertEquals(
+        Arrays.asList(near, far),
+        PlaceSearch.rank("thabor", new Point(45.14, 6.6), Arrays.asList(far, near)));
+  }
+
   @Test
   public void exactAccentedNamesBeatNearbyPartialMatchesAndQualifiersDisambiguate() {
     Address exact = place("Saint-Étienne", 45.44, 4.39);
