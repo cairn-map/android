@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--repository', default='dayblox/cairn')
+    parser.add_argument('--repository', default='cairn-map/android')
     parser.add_argument('--keystore', type=Path, required=True)
     parser.add_argument('--password-file', type=Path, required=True)
     parser.add_argument('--alias', default='cairn')

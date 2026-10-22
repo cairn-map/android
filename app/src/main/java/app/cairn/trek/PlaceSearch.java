@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Explicit place lookups only; never subscribes to device location. */
+/** Place lookups while the search is open; never subscribes to device location. */
 final class PlaceSearch implements AutoCloseable {
   interface Callback {
     void results(List<Address> places);
@@ -24,6 +24,13 @@ final class PlaceSearch implements AutoCloseable {
 
   PlaceSearch(Context context) {
     geocoder = new Geocoder(context.getApplicationContext(), Locale.getDefault());
+  }
+
+  void suggest(String query, Callback callback) {
+    cancel();
+    String text = query.trim();
+    if (text.length() < 2) return;
+    main.postDelayed(() -> search(text, callback), 350);
   }
 
   @SuppressWarnings("deprecation")

@@ -65,6 +65,46 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void deletingARecordingRemovesItsPointsAndCurrentTrackButRetainsRoutesAndOtherHikes() {
+    try (Store store = new Store(context)) {
+      String route = store.saveRoute(points(45), "Keep route");
+      String hike = store.newTrek();
+      store.add(hike, new Point(46, 6));
+      store.add("trek-other", new Point(47, 7));
+      store.deleteTrek(hike);
+      assertFalse(store.treks().containsKey(hike));
+      assertTrue(store.read(hike).isEmpty());
+      assertFalse(store.prefs.contains("currentTrek"));
+      assertEquals(2, store.read(route).size());
+      assertEquals(2, store.read("route").size());
+      assertEquals(1, store.read("trek-other").size());
+      store.deleteTrek(route);
+      assertEquals(2, store.read(route).size());
+    }
+    try (Store reopened = new Store(context)) {
+      assertTrue(reopened.treks().isEmpty());
+    }
+  }
+
+  @Test
+  public void activeRecordingCannotBeDeletedUntilRecordingFinishes() {
+    try (Store store = new Store(context)) {
+      String hike = store.newTrek();
+      store.add(hike, new Point(46, 6));
+      TrackingService.running = true;
+      assertThrows(IllegalStateException.class, () -> store.deleteTrek(hike));
+      assertTrue(store.treks().containsKey(hike));
+      assertEquals(1, store.read(hike).size());
+      TrackingService.running = false;
+      store.deleteTrek(hike);
+      assertTrue(store.treks().isEmpty());
+      assertTrue(store.read(hike).isEmpty());
+    } finally {
+      TrackingService.running = false;
+    }
+  }
+
+  @Test
   public void upgradesThePreviousSingleRouteDatabaseWithoutLosingHikes() {
     try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
       db.execSQL(

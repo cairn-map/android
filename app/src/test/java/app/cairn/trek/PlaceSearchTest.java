@@ -106,6 +106,71 @@ public class PlaceSearchTest {
   }
 
   @Test
+  public void suggestionsDebounceTypingAndOnlyLookUpTheLatestText() throws Exception {
+    search.suggest("Pa", callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+    search.suggest("Paris", callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(349));
+    assertNull(SearchGeocoder.query);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1));
+    drain();
+    assertEquals("Paris", SearchGeocoder.query);
+    assertEquals(1, found);
+  }
+
+  @Test
+  public void clearingOrClosingSearchCancelsPendingSuggestions() throws Exception {
+    search.suggest("Paris", callback);
+    search.suggest("P", callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    drain();
+    assertNull(SearchGeocoder.query);
+    search.suggest("Paris", callback);
+    search.cancel();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    drain();
+    assertNull(SearchGeocoder.query);
+  }
+
+  @Test
+  public void typingReplacesAnOlderResponseAndClearingRemovesSuggestions() throws Exception {
+    SearchGeocoder.answer = Collections.singletonList(place("Paris, France", 48.8566, 2.3522));
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      find(activity.getWindow().getDecorView(), "Search places").performClick();
+      AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+      EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
+      query.setText("Paris");
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350));
+      drain((PlaceSearch) field(activity, "placeSearch"));
+      assertNotNull(find(dialog.getWindow().getDecorView(), "Paris, France"));
+      query.setText("Lyon");
+      assertNull(find(dialog.getWindow().getDecorView(), "Paris, France"));
+      query.setText("");
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      drain((PlaceSearch) field(activity, "placeSearch"));
+      assertEquals("Paris", SearchGeocoder.query);
+      assertNull(find(dialog.getWindow().getDecorView(), "Paris, France"));
+      dialog.dismiss();
+    }
+  }
+
+  @Test
+  public void editingDiscardsAnAlreadyQueuedResponseFromThePreviousQuery() throws Exception {
+    SearchGeocoder.answer = Collections.singletonList(place("Paris", 48, 2));
+    search.search("Paris", callback);
+    // Wait for the worker without dispatching its queued main-thread callback.
+    Field field = PlaceSearch.class.getDeclaredField("worker");
+    field.setAccessible(true);
+    ((ExecutorService) field.get(search)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    search.suggest("Lyon", callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertEquals(0, found);
+    search.cancel();
+  }
+
+  @Test
   public void returnsNamedMatchesAndRejectsUnusableCoordinates() throws Exception {
     Address chamonix = place("Chamonix", 45.9237, 6.8694);
     SearchGeocoder.answer =

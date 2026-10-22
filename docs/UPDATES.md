@@ -6,7 +6,7 @@ There are no startup/resume checks, timers, jobs, alarms, update services, autom
 
 ## Release integrity and installation
 
-- Only the latest stable public release from `dayblox/cairn` is considered. Public `/releases/latest/download/update.json` and versioned APK asset URLs avoid anonymous REST API quotas. Requests/redirects have timeouts, redirect limits, strict HTTPS host/path restrictions and bounded response sizes. 401/403/429 errors distinguish access denial from rate limiting using available response headers. No user credentials are stored or sent.
+- Only the latest stable public release from `cairn-map/android` is considered. Public `/releases/latest/download/update.json` and versioned APK asset URLs avoid anonymous REST API quotas. Requests/redirects have timeouts, redirect limits, strict HTTPS host/path restrictions and bounded response sizes. 401/403/429 errors distinguish access denial from rate limiting using available response headers. No user credentials are stored or sent.
 - The update manifest specifies the versioned APK download path; public GitHub release assets and local APK metadata/signature checks validate the artifact independently. APK downloads are capped at 150 MiB, checked for exact byte length and SHA-256, and kept in private cache storage.
 - Android's package parser must report the expected app ID, version and minimum Android level. The APK must have a strictly newer version code and the same actual signing certificate(s) as the installed app. There is no automatic signing-key rotation or downgrade path.
 - Downloaded APKs are reverified locally every time Install is tapped. Android's installer receives a temporary read-only content URI for one fixed APK path. Other files cannot be shared through the provider. Android performs its own install/signature checks and asks for confirmation.
@@ -69,7 +69,7 @@ Node test suites are executed individually with a 90-second limit per suite and 
 
 ### Measuring PR-to-release time
 
-Before these optimizations, [PR #4](https://github.com/dayblox/cairn/pull/4) to [Cairn 0.5.1](https://github.com/dayblox/cairn/releases/tag/v0.5.1) took **2 minutes 36 seconds**, including runner queues: PR checks took 72 seconds, automatic merge took 11 seconds, and the release job took 64 seconds. Repeated validation accounted for 38 seconds of the release; signed building/verification and publishing took about 8 seconds combined.
+Before these optimizations, [PR #4](https://github.com/cairn-map/android/pull/4) to [Cairn 0.5.1](https://github.com/cairn-map/android/releases/tag/v0.5.1) took **2 minutes 36 seconds**, including runner queues: PR checks took 72 seconds, automatic merge took 11 seconds, and the release job took 64 seconds. Repeated validation accounted for 38 seconds of the release; signed building/verification and publishing took about 8 seconds combined.
 
 After native auto-merge, compare PR creation with release publication to measure end-to-end time. In the release log, look for `Reusing successful PR validation run`; if verification fails or CI/scripts changed, expect a full validation fallback. Builds are bounded by step/job timeouts and Python/Node/Gradle checks have separate log sections. The PR must show a successful required `checks` status and the signed build, APK verification and publication must pass. Optimization must never bypass validation to meet a timing target.
 
