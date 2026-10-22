@@ -204,6 +204,9 @@ public class MapControlsTest {
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       View decor = dialog.getWindow().getDecorView();
       EditText query = (EditText) find(decor, "Place name or address");
+      View clear = find(decor, "Clear search");
+      assertNotNull(clear);
+      assertEquals(View.GONE, clear.getVisibility());
       assertEquals("", query.getText().toString());
       assertNull(query.getHint());
       assertEquals(
@@ -211,6 +214,7 @@ public class MapControlsTest {
           dialog.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
       savePreview(decor, 786, 1400, "empty-search-drawer");
       query.setText("Thabor");
+      assertEquals(View.VISIBLE, clear.getVisibility());
       query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
       Field worker = PlaceSearch.class.getDeclaredField("worker");
       worker.setAccessible(true);
@@ -226,6 +230,16 @@ public class MapControlsTest {
       TextView credit = (TextView) find(decor, "© OpenStreetMap");
       assertTrue(credit.getTop() >= results.getBottom());
       assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
+      clear.performClick();
+      assertEquals("", query.getText().toString());
+      assertEquals(View.GONE, clear.getVisibility());
+      assertNull(find(decor, "Mont Thabor, Mountain, France"));
+      assertTrue(query.hasFocus());
+      assertTrue(dialog.isShowing());
+      query.setText(" ");
+      assertEquals(View.VISIBLE, clear.getVisibility());
+      clear.performClick();
+      assertEquals(View.GONE, clear.getVisibility());
       dialog.dismiss();
     }
   }
