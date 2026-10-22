@@ -102,3 +102,12 @@ A bounded live HTTP range probe on the public graph endpoint read only 200 bytes
 - Long-running downloads, pause/resume, offline tile rendering, and download cancellation on an actual Android device. Desktop HTTP checks and simulated Android store tests cover parts of this flow, not the whole device workflow.
 
 Compilation, lint, simulated workflows, and the live client probe establish a useful starting point, not field reliability. The next validation step is to download a small Plan IGN area on a phone, verify it in airplane mode, record a short walk, and then run the battery trial described in BATTERY-VALIDATION.md.
+
+
+## Map feedback, loading and place search (2026-10-22)
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17 and Android SDK 35 extension 15: 190 tests, no failures, and no lint findings. The automation selector reports `required=false` for these app/documentation changes.
+
+Regression coverage includes requests beginning during pan/zoom momentum, retaining useful in-flight tiles during a drag, selective cancellation of obsolete HTTP transfers, exact round-tripping of all 1–3600-second GPS settings, top-centered transient feedback, and clickable source/update/licence links through map information. Native Canvas previews of the map controls, feedback and GPS drawer were visually inspected.
+
+Search tests cover a `Thabor` query with a `Mont Thabor` natural-feature response, map-center bias without a hard geographic filter, invalid-coordinate rejection, deduplication, memory caching, bounded HTTP responses, service failures, device-geocoder fallback, cancellation and late responses. These are controlled responses, not a live Photon coverage check. Photon availability and the live ordering/coverage of `Thabor`, accented names and typos still need checking on a device, along with tile-loading smoothness over a real mobile connection.

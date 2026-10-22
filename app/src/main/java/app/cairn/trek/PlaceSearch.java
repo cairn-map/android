@@ -10,6 +10,12 @@ import java.util.concurrent.*;
 
 /** Place lookups while the search is open; never subscribes to device location. */
 final class PlaceSearch implements AutoCloseable {
+  interface Lookup {
+    List<Address> search(String query, Point center) throws IOException;
+
+    default void cancel() {}
+  }
+
   interface Callback {
     void results(List<Address> places);
 
@@ -17,13 +23,24 @@ final class PlaceSearch implements AutoCloseable {
   }
 
   private final Geocoder geocoder;
+  private final Lookup lookup;
+  private Point center;
   private final Handler main = new Handler(Looper.getMainLooper());
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
   private Future<?> pending;
-  private int generation;
+  private volatile int generation;
 
   PlaceSearch(Context context) {
+    this(context, new PhotonClient());
+  }
+
+  PlaceSearch(Context context, Lookup lookup) {
     geocoder = new Geocoder(context.getApplicationContext(), Locale.getDefault());
+    this.lookup = lookup;
+  }
+
+  void near(Point center) {
+    this.center = center;
   }
 
   void suggest(String query, Callback callback) {
@@ -37,11 +54,7 @@ final class PlaceSearch implements AutoCloseable {
   void search(String query, Callback callback) {
     cancel();
     int request = generation;
-    if (!Geocoder.isPresent()) {
-      callback.unavailable(
-          "Place search is unavailable on this device. Try adding coordinates instead.");
-      return;
-    }
+    Point focus = center;
     main.postDelayed(
         () -> {
           if (request != generation) return;
@@ -53,7 +66,19 @@ final class PlaceSearch implements AutoCloseable {
         worker.submit(
             () -> {
               try {
-                List<Address> places = geocoder.getFromLocationName(query, 5);
+                if (request != generation) return;
+                List<Address> places = Collections.emptyList();
+                IOException primaryError = null;
+                try {
+                  places = lookup.search(query, focus);
+                } catch (IOException error) {
+                  primaryError = error;
+                }
+                if (request != generation) return;
+                if (places == null || places.isEmpty()) {
+                  if (Geocoder.isPresent()) places = geocoder.getFromLocationName(query, 10);
+                  else if (primaryError != null) throw primaryError;
+                }
                 List<Address> usable = new ArrayList<>();
                 if (places != null)
                   for (Address place : places)
@@ -100,6 +125,7 @@ final class PlaceSearch implements AutoCloseable {
     main.removeCallbacksAndMessages(null);
     if (pending != null) pending.cancel(true);
     pending = null;
+    lookup.cancel();
   }
 
   @Override

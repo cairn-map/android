@@ -11,6 +11,8 @@ public interface TileSource {
 
   default void cancelRequests() {}
 
+  default void cancelObsoleteRequests() {}
+
   int minZoom();
 
   int maxZoom();

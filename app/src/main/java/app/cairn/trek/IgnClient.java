@@ -11,8 +11,8 @@ public final class IgnClient {
   private static final java.util.concurrent.Semaphore slots =
       new java.util.concurrent.Semaphore(PARALLELISM, true);
   private static volatile long retryAfterNanos;
-  private final java.util.Set<HttpURLConnection> active =
-      java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final java.util.Map<HttpURLConnection, BooleanSupplier> active =
+      new java.util.concurrent.ConcurrentHashMap<>();
   private final java.util.concurrent.atomic.AtomicInteger generation =
       new java.util.concurrent.atomic.AtomicInteger();
 
@@ -109,7 +109,7 @@ public final class IgnClient {
       check(stop);
       awaitServer(stop);
       HttpURLConnection connection = connections.open(new URL(url(tile)));
-      active.add(connection);
+      active.put(connection, stop);
       connection.setConnectTimeout(10000);
       connection.setReadTimeout(15000);
       connection.setInstanceFollowRedirects(false);
@@ -223,8 +223,16 @@ public final class IgnClient {
         | bytes[at + 3] & 255;
   }
 
+  /** Disconnect only transfers whose individual viewport request became obsolete. */
+  public void cancelObsolete() {
+    active.forEach(
+        (connection, stop) -> {
+          if (stop.getAsBoolean()) connection.disconnect();
+        });
+  }
+
   public void cancel() {
     generation.incrementAndGet();
-    for (HttpURLConnection connection : active) connection.disconnect();
+    for (HttpURLConnection connection : active.keySet()) connection.disconnect();
   }
 }
