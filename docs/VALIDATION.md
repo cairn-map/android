@@ -1,3 +1,9 @@
+# Content-sized drawers, GPS slider and centered feedback — 22 October 2026
+
+JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **178 Android/JVM tests passed**, with no failures or skips. Android lint reported zero errors and four existing warnings in the swipe-to-remove view and place-search text. The Python automation suite (19 tests) and Node automation suite (39 tests) also passed.
+
+Framework checks cover independent drawer width/height on phones and tablets, content-sized fixed menus, full-height variable lists, scrolling, swipe dismissal and cancellation cleanup. GPS checks on API 26 and 35 preserve an existing interval, update the slider's displayed value, retain settings on Cancel, and save the full 1–3600-second range with alert settings. Toast checks on API 28 and 35 verify centered placement, replacement and cancellation on pause. Native Canvas previews of the compact GPS drawer and centered update feedback were visually inspected. No physical-device UI trial was performed.
+
 # Zoom momentum and corridor downloads — 22 October 2026
 
 JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed. All **139 Android/JVM tests passed**, with no failures or skips; Android lint reported no issues.

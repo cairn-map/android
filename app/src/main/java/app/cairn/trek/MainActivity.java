@@ -52,6 +52,7 @@ public final class MainActivity extends Activity {
   private ManualLocation manualLocation;
   private PlaceSearch placeSearch;
   private AlertDialog searchDialog;
+  private Toast currentToast;
 
   private final BroadcastReceiver fixes =
       new BroadcastReceiver() {
@@ -169,6 +170,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onPause() {
     appUpdates.pause();
+    if (currentToast != null) currentToast.cancel();
     map.stopMotion();
     double[] camera = map.camera();
     store
@@ -242,7 +244,12 @@ public final class MainActivity extends Activity {
     libraryBody = new FrameLayout(this);
     showRoutes();
     AlertDialog popout =
-        CairnDialogs.drawer(this).setTitle("Routes & Recordings").setView(libraryBody).create();
+        CairnDialogs.drawer(this)
+            .fullHeight()
+            .fullWidth()
+            .setTitle("Routes & Recordings")
+            .setView(libraryBody)
+            .create();
     libraryDialog = popout;
     popout.setOnDismissListener(
         dialog -> {
@@ -316,13 +323,13 @@ public final class MainActivity extends Activity {
 
     updateStatus = label("", 13, TEXT, false);
     updateStatus.setPadding(dp(16), dp(12), dp(16), dp(12));
+    updateStatus.setGravity(Gravity.CENTER);
     updateStatus.setBackground(surface(SURFACE, OUTLINE, 20));
     updateStatus.setMaxWidth(
-        Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(132)));
+        Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(48)));
     updateStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    FrameLayout.LayoutParams updateParams =
-        new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP);
-    updateParams.setMargins(dp(12), dp(12), dp(112), 0);
+    FrameLayout.LayoutParams updateParams = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
+    updateParams.setMargins(dp(24), dp(24), dp(24), dp(24));
     frame.addView(updateStatus, updateParams);
     appUpdates.listen(
         (message, busy) -> {
@@ -368,7 +375,8 @@ public final class MainActivity extends Activity {
               "More",
               false,
               () ->
-                  CairnDialogs.dialog(this)
+                  CairnDialogs.drawer(this)
+                      .fullWidth()
                       .setItems(
                           new String[] {
                             "Add coordinates", "Download routing data", "Cancel planning"
@@ -607,7 +615,8 @@ public final class MainActivity extends Activity {
   }
 
   private void routeActions(Store.RouteEntry entry) {
-    CairnDialogs.dialog(this)
+    CairnDialogs.drawer(this)
+        .fullWidth()
         .setTitle(entry.title)
         .setItems(
             new String[] {
@@ -727,7 +736,8 @@ public final class MainActivity extends Activity {
               false,
               () -> {
                 if (mapDialog != null) mapDialog.dismiss();
-                CairnDialogs.dialog(this)
+                CairnDialogs.drawer(this)
+                    .fullWidth()
                     .setTitle(pack.name)
                     .setItems(
                         new String[] {
@@ -828,6 +838,8 @@ public final class MainActivity extends Activity {
     scroll.addView(content);
     mapDialog =
         CairnDialogs.drawer(this)
+            .fullHeight()
+            .fullWidth()
             .setTitle("Saved maps")
             .setView(scroll)
             .setPositiveButton("Done", null)
@@ -873,6 +885,8 @@ public final class MainActivity extends Activity {
                 : String.join(", ", downloaded));
     AlertDialog.Builder builder =
         CairnDialogs.drawer(this)
+            .fullHeight()
+            .fullWidth()
             .setTitle("Offline routing data")
             .setMessage(text)
             .setNegativeButton("Close", null);
@@ -903,7 +917,9 @@ public final class MainActivity extends Activity {
           List<RoutingRegionMenu.Item> items = RoutingRegionMenu.items(usingMapCenter, downloaded);
           String[] labels = new String[items.size()];
           for (int i = 0; i < items.size(); i++) labels[i] = items.get(i).label;
-          CairnDialogs.dialog(this)
+          CairnDialogs.drawer(this)
+              .fullHeight()
+              .fullWidth()
               .setTitle("Routing regions")
               .setItems(
                   labels,
@@ -1045,7 +1061,8 @@ public final class MainActivity extends Activity {
             MUTED,
             false));
     AlertDialog dialog =
-        CairnDialogs.dialog(this)
+        CairnDialogs.drawer(this)
+            .fullWidth()
             .setTitle(corridor ? "Save route corridor" : "Save map area")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1206,18 +1223,35 @@ public final class MainActivity extends Activity {
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(12));
     content.addView(label("Seconds between requested GPS updates", 15, TEXT, true));
-    EditText seconds = new EditText(this);
-    seconds.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-    seconds.setText(String.format(Locale.getDefault(), "%d", store.intervalMillis() / 1000));
-    seconds.setSelectAllOnFocus(true);
-    content.addView(seconds);
-    LinearLayout presets = row();
-    for (int n : new int[] {15, 60, 300})
-      presets.addView(
-          button(
-              n + "s", false, () -> seconds.setText(String.format(Locale.getDefault(), "%d", n))),
-          new LinearLayout.LayoutParams(0, dp(48), 1));
-    content.addView(presets);
+    TextView interval = label("", 20, ACCENT, true);
+    content.addView(interval);
+    SeekBar seconds = new SeekBar(this);
+    seconds.setMin(1);
+    seconds.setMax(3600);
+    seconds.setKeyProgressIncrement(1);
+    seconds.setProgress((int) (store.intervalMillis() / 1000));
+    seconds.setContentDescription("Seconds between requested GPS updates");
+    interval.setText(getString(R.string.gps_interval, seconds.getProgress()));
+    seconds.setOnSeekBarChangeListener(
+        new SeekBar.OnSeekBarChangeListener() {
+          @Override
+          public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+            interval.setText(getString(R.string.gps_interval, progress));
+          }
+
+          @Override
+          public void onStartTrackingTouch(SeekBar bar) {}
+
+          @Override
+          public void onStopTrackingTouch(SeekBar bar) {}
+        });
+    content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(48)));
+    LinearLayout bounds = row();
+    bounds.addView(label("1 second", 12, MUTED, false), new LinearLayout.LayoutParams(0, -2, 1));
+    TextView maximum = label("1 hour", 12, MUTED, false);
+    maximum.setGravity(Gravity.END);
+    bounds.addView(maximum);
+    content.addView(bounds);
     content.addView(
         label(
             "Longer intervals reduce requested fixes and make track detail and alerts less"
@@ -1238,10 +1272,12 @@ public final class MainActivity extends Activity {
             13,
             MUTED,
             false));
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(content);
     AlertDialog dialog =
         CairnDialogs.drawer(this)
             .setTitle("Battery & GPS")
-            .setView(content)
+            .setView(scroll)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
             .create();
@@ -1251,21 +1287,15 @@ public final class MainActivity extends Activity {
                 .getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(
                     v -> {
-                      try {
-                        int n = Integer.parseInt(seconds.getText().toString());
-                        if (n < 1 || n > 3600) throw new NumberFormatException();
-                        store
-                            .prefs
-                            .edit()
-                            .putInt("intervalSeconds", n)
-                            .putBoolean("offRoute", alerts.isChecked())
-                            .apply();
-                        updateService();
-                        refreshStatus();
-                        dialog.dismiss();
-                      } catch (NumberFormatException e) {
-                        seconds.setError("Choose 1–3600 seconds");
-                      }
+                      store
+                          .prefs
+                          .edit()
+                          .putInt("intervalSeconds", seconds.getProgress())
+                          .putBoolean("offRoute", alerts.isChecked())
+                          .apply();
+                      updateService();
+                      refreshStatus();
+                      dialog.dismiss();
                     }));
     dialog.show();
   }
@@ -1361,8 +1391,7 @@ public final class MainActivity extends Activity {
       if (map.position != null) {
         map.center(map.position);
         showLocationAccuracy(map.position, true);
-      } else
-        Toast.makeText(this, "Waiting for your next scheduled GPS fix", Toast.LENGTH_LONG).show();
+      } else showToast("Waiting for your next scheduled GPS fix", Toast.LENGTH_LONG);
       return;
     }
     if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -1377,7 +1406,7 @@ public final class MainActivity extends Activity {
       return;
     }
     if (manualLocation == null) manualLocation = new ManualLocation(this);
-    Toast.makeText(this, "Finding your position…", Toast.LENGTH_SHORT).show();
+    showToast("Finding your position…", Toast.LENGTH_SHORT);
     manualLocation.start(
         new ManualLocation.Callback() {
           @Override
@@ -1398,7 +1427,7 @@ public final class MainActivity extends Activity {
     long seconds = Math.max(0, (System.currentTimeMillis() - point.time) / 1000);
     String text = String.format(Locale.getDefault(), "Position ±%.0f m", point.accuracy);
     if (cached) text += " · " + seconds + "s ago";
-    Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+    showToast(text, Toast.LENGTH_LONG);
   }
 
   private void cancelLocate() {
@@ -1525,9 +1554,7 @@ public final class MainActivity extends Activity {
               }
               main.post(
                   () -> {
-                    if (!destroyed)
-                      Toast.makeText(this, "Routing region ready offline", Toast.LENGTH_LONG)
-                          .show();
+                    if (!destroyed) showToast("Routing region ready offline", Toast.LENGTH_LONG);
                   });
               return;
             }
@@ -1617,7 +1644,7 @@ public final class MainActivity extends Activity {
             Gpx.write(output, snapshot, "Cairn hike");
             main.post(
                 () -> {
-                  if (!destroyed) Toast.makeText(this, "GPX exported", Toast.LENGTH_SHORT).show();
+                  if (!destroyed) showToast("GPX exported", Toast.LENGTH_SHORT);
                 });
           } catch (Exception error) {
             main.post(() -> message("Could not export: " + error.getMessage()));
@@ -1787,6 +1814,8 @@ public final class MainActivity extends Activity {
     content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(220)));
     AlertDialog dialog =
         CairnDialogs.drawer(this)
+            .fullHeight()
+            .fullWidth()
             .setTitle("Search places")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1879,6 +1908,23 @@ public final class MainActivity extends Activity {
   private void cancelSearch() {
     if (placeSearch != null) placeSearch.cancel();
     if (searchDialog != null) searchDialog.dismiss();
+  }
+
+  @SuppressWarnings("deprecation") // Custom foreground toasts still support centered placement.
+  private void showToast(String text, int duration) {
+    if (destroyed || isFinishing()) return;
+    if (currentToast != null) currentToast.cancel();
+    TextView notice = label(text, 14, TEXT, false);
+    notice.setGravity(Gravity.CENTER);
+    notice.setPadding(dp(24), dp(16), dp(24), dp(16));
+    notice.setMaxWidth(getResources().getDisplayMetrics().widthPixels - dp(48));
+    notice.setBackground(surface(SURFACE, OUTLINE, 24));
+    notice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+    currentToast = new Toast(this);
+    currentToast.setView(notice);
+    currentToast.setDuration(duration);
+    currentToast.setGravity(Gravity.CENTER, 0, 0);
+    currentToast.show();
   }
 
   private void message(String text) {

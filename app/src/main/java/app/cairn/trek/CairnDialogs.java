@@ -11,7 +11,7 @@ import android.graphics.drawable.*;
 import android.view.*;
 import android.widget.*;
 
-/** Shared dialogs and full-screen drawers, using the platform's accessible controls. */
+/** Shared dialogs and content-sized drawers, using the platform's accessible controls. */
 final class CairnDialogs {
   static Builder dialog(Context context) {
     return new Builder(context, false);
@@ -22,12 +22,24 @@ final class CairnDialogs {
   }
 
   static final class Builder extends AlertDialog.Builder {
-    private boolean drawer;
+    private boolean drawer, fullHeight, fullWidth;
     private CharSequence title;
 
     Builder(Context context, boolean drawer) {
       super(context, R.style.CairnDialogTheme);
       this.drawer = drawer;
+    }
+
+    /** Reserve the available height for lists whose length can change. */
+    Builder fullHeight() {
+      fullHeight = true;
+      return this;
+    }
+
+    /** Use the available width for complex controls or menus that open sub-drawers. */
+    Builder fullWidth() {
+      fullWidth = true;
+      return this;
     }
 
     @Override
@@ -91,14 +103,20 @@ final class CairnDialogs {
       holder[0] = dialog;
       Window window = dialog.getWindow();
       GradientDrawable surface = shape(SURFACE, 28);
-      if (drawer) surface.setCornerRadius(0);
+      if (drawer && fullHeight) surface.setCornerRadius(0);
       window.setBackgroundDrawable(drawer ? new ColorDrawable(Color.TRANSPARENT) : surface);
       window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
       window.setDimAmount(0.45f);
       window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
       if (drawer) {
         window.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        window.setLayout(-1, -1);
+        int width =
+            fullWidth
+                ? -1
+                : Math.min(
+                    dp(560), context.getResources().getDisplayMetrics().widthPixels - dp(32));
+        int height = fullHeight ? -1 : -2;
+        window.setLayout(width, height);
         // AlertController installs and sizes its panels during show(), so apply the shared
         // size after attachment as well. Callers can keep their own on-show callbacks.
         window
@@ -107,16 +125,18 @@ final class CairnDialogs {
                 new View.OnAttachStateChangeListener() {
                   @Override
                   public void onViewAttachedToWindow(View decor) {
-                    window.setLayout(-1, -1);
+                    window.setLayout(width, height);
                     FrameLayout content = window.findViewById(android.R.id.content);
                     SwipeDrawer swipe = new SwipeDrawer(context, dialog);
+                    swipe.setBackground(surface);
+                    swipe.setClipToOutline(true);
                     while (content.getChildCount() > 0) {
                       View child = content.getChildAt(0);
                       ViewGroup.LayoutParams params = child.getLayoutParams();
                       content.removeView(child);
                       swipe.addView(child, params);
                     }
-                    content.addView(swipe, new FrameLayout.LayoutParams(-1, -1));
+                    content.addView(swipe, new FrameLayout.LayoutParams(-1, height));
                     decor.removeOnAttachStateChangeListener(this);
                   }
 

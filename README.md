@@ -14,6 +14,7 @@ A native Android trekking app built around offline maps, a minimal map screen, a
 - One **Add files** action detects GPX, OruxMaps source XML, raster MBTiles, or BRouter regional RD5 data. Android Open with/Share is registered for GPX/XML, including multi-file sharing. XML currently recognizes public Plan IGN; other providers are reported as unsupported.
 - Route-specific offline map corridors, saved pack completion checks, pause/resume, update checks, and shared-tile-safe removal. Pack management lives under the map's layers icon. There is no Offline tab or duplicate preview/save-current-area button.
 - **Embedded BRouter 1.7.9**, walking profile and lookups. No companion app, external routing server or paid API. Routing data is downloaded/resumed inside Cairn or imported as RD5 files. Calculations are explicit, bounded and cancellable.
+- Drawers fit their content: variable lists use full height, and complex controls or menus with sub-drawers use full width. GPS settings use a 1–3600-second slider with a live value; toast messages and update feedback appear in the center.
 - GPS recording in a foreground service, local SQLite storage, adjustable 1–3600-second requests, and off-route alerts from those same fixes. Manual Locate can use network location outside a hike; during recording it only reuses the recording position and never starts additional requests.
 - No accounts, ads, analytics or cloud sync.
 
