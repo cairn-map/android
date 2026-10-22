@@ -40,6 +40,7 @@ async function reuseValidation({ github, owner, repo, source, runId,
   if (!sha(source) || (runId && !/^[1-9][0-9]*$/.test(String(runId))))
     return fallback('Invalid source SHA or PR validation run ID');
   const repository = { owner, repo };
+  let stage = 'merged commit';
   try {
     const { data: merged } = await github.rest.git.getCommit({ ...repository, commit_sha: source });
     // Only preserve PR validation across a genuine two-parent merge commit.
@@ -48,14 +49,17 @@ async function reuseValidation({ github, owner, repo, source, runId,
         || !sha(merged.parents[1].sha))
       return fallback('The release source is not a two-parent merge');
     const head = merged.parents[1].sha;
+    stage = 'configuration comparison';
     if (changed(merged.parents[0].sha, source))
       return fallback('CI or validation scripts changed in this merge');
+    stage = 'checks workflow';
     const { data: workflow } = await github.rest.actions.getWorkflow({ ...repository, workflow_id: 'checks.yml' });
     let resolvedId = String(runId || '');
     if (!resolvedId) {
       // Native auto-merge generates a main push without workflow_dispatch inputs.
       // Query the second parent (PR head), then validate the exact merge tree.
-      const { data } = await github.rest.actions.listWorkflowRunsForWorkflow({
+      stage = 'PR run discovery';
+      const { data } = await github.rest.actions.listWorkflowRuns({
         ...repository, workflow_id: workflow.id, event: 'pull_request',
         head_sha: head, per_page: 100
       });
@@ -68,35 +72,40 @@ async function reuseValidation({ github, owner, repo, source, runId,
         return fallback('No unique successful PR validation run matches the merged head');
       resolvedId = String(candidates[0].id);
     }
+    stage = 'PR run';
     const { data: run } = await github.rest.actions.getWorkflowRun({ ...repository, run_id: Number(resolvedId) });
     if (run.id !== Number(resolvedId) || run.workflow_id !== workflow.id || run.event !== 'pull_request'
         || run.status !== 'completed' || run.conclusion !== 'success'
         || run.repository?.full_name !== `${owner}/${repo}` || run.head_sha !== head
         || !Number.isInteger(run.run_attempt) || run.run_attempt < 1)
       return fallback('The latest PR check attempt does not validate this merged head');
+    stage = 'artifact listing';
     const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
       { ...repository, run_id: run.id });
     const matches = artifacts.filter(item => item.name === artifactName(run.run_attempt) && !item.expired);
     if (matches.length !== 1 || !Number.isInteger(matches[0].size_in_bytes)
         || matches[0].size_in_bytes < 1 || matches[0].size_in_bytes > 65536)
       return fallback('Current validation evidence is missing, expired or too large');
+    stage = 'proof download and parsing';
     const proof = await loadProof(github, repository, matches[0]);
     if (proof.schema !== 1 || proof.repository !== `${owner}/${repo}` || proof.runId !== run.id
         || proof.attempt !== run.run_attempt || proof.head !== run.head_sha
         || !sha(proof.commit) || !sha(proof.tree) || proof.tree !== merged.tree.sha
         || !sameRuntime(proof.runtime, environment))
       return fallback('Tested source or toolchain differs from the release');
+    stage = 'checked merge commit';
     const { data: tested } = await github.rest.git.getCommit({ ...repository, commit_sha: proof.commit });
     if (tested.tree.sha !== proof.tree || tested.parents.length !== 2
         || tested.parents[0].sha !== merged.parents[0].sha || tested.parents[1].sha !== run.head_sha)
       return fallback('The evidence does not describe the checked PR merge');
     // A rerun may have started while the evidence was being downloaded.
+    stage = 'latest PR run attempt';
     const { data: latest } = await github.rest.actions.getWorkflowRun({ ...repository, run_id: run.id });
     if (latest.run_attempt !== run.run_attempt || latest.status !== 'completed' || latest.conclusion !== 'success')
       return fallback('The PR check was rerun while verifying its evidence');
     return { reused: true, reason: `Reusing successful PR validation run ${run.id} for identical source and toolchain` };
   } catch {
-    return fallback('Validation evidence could not be verified');
+    return fallback(`Validation evidence could not be verified (${stage})`);
   }
 }
 

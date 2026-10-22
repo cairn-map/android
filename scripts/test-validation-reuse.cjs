@@ -24,8 +24,9 @@ async function scenario(change = () => {}) {
   const github = { paginate: async () => options.artifacts, rest: {
     actions: {
       getWorkflow: async () => ({ data: { id: 9 } }),
-      listWorkflowRunsForWorkflow: async () => {
+      listWorkflowRuns: async parameters => {
         options.discoveries++;
+        options.discoveryParameters = parameters;
         if (options.discoveryFailure) throw new Error('Cannot list workflow runs');
         return { data: { workflow_runs: options.runs } };
       },
@@ -56,6 +57,17 @@ test('native GitHub merge discovers and verifies the completed PR check', async 
   assert.equal(result.reused, true);
   assert.equal(result.options.discoveries, 1);
   assert.equal(result.options.loads, 1);
+  assert.deepEqual(result.options.discoveryParameters, {
+    owner: 'owner', repo: 'cairn', workflow_id: 9,
+    event: 'pull_request', head_sha: HEAD, per_page: 100
+  });
+});
+
+test('discovery errors identify the failed phase without exposing API error contents', async () => {
+  const result = await scenario(x => { x.runId = ''; x.discoveryFailure = true; });
+  assert.equal(result.reused, false);
+  assert.equal(result.options.loads, 0);
+  assert.equal(result.reason, 'Validation evidence could not be verified (PR run discovery)');
 });
 
 const cases = {

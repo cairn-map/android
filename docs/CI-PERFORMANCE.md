@@ -117,5 +117,15 @@ Gradle restore and build on that runner.
 Both builds restored the same 28 Gradle tasks from cache. The first result
 confirms removal of roughly 22 seconds of avoidable SDK/linter work, but does
 not establish an overall job speedup. This documentation-only follow-up also
-exercises validation reuse after the workflow changes, without changing CI or
-automation scripts again.
+exercised validation reuse after the workflow changes, without changing CI or
+automation scripts again. [PR #18](https://github.com/dayblox/cairn/pull/18)
+completed checks in 38 seconds, but its release still ran fallback validation.
+The live smoke test revealed that PR #11 called the nonexistent Octokit method
+`listWorkflowRunsForWorkflow`; the test mock repeated that invalid API name.
+Octokit's documented method is `github.rest.actions.listWorkflowRuns`.
+
+Correct the method and assert the discovery parameters (workflow, PR event and
+merged head) in regression coverage. API or artifact failures should identify
+their verification phase while retaining the full-validation fallback. This
+fix changes automation scripts, so it also needs full post-merge validation and
+a later documentation-only smoke test before claiming working native reuse.
