@@ -99,11 +99,21 @@ jobs:
         run: |
           TAG="v$VERSION"
           SOURCE_COMMIT="$(git rev-parse HEAD)"
+          # GitHub generates a per-release changelog of merged PRs/commits since
+          # the previous release. Generate it again for interrupted draft retries.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" -f target_commitish="$SOURCE_COMMIT" \
+            --jq '.body' > dist/release-notes.md
+          if [ ! -s dist/release-notes.md ]; then
+            echo 'GitHub returned empty release notes; refusing to publish.'
+            exit 1
+          fi
           if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$DRAFT" != true ]; then
               echo 'Refusing to replace an already published release.'
               exit 1
             fi
+            gh release edit "$TAG" --notes-file dist/release-notes.md
           else
             gh release create "$TAG" --draft --target "$SOURCE_COMMIT" --title "Cairn $VERSION" --notes-file dist/release-notes.md
           fi

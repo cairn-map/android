@@ -45,6 +45,12 @@ The shared Android toolchain action caches the pinned SDK platform/build tools s
 
 The release workflow reads the latest public `update.json`, advances the Android version code and patch version, and passes those values to Gradle. An explicitly newer source version is preserved. Rerunning an already published source commit is a no-op. The workflow verifies the actual APK identity, version and pinned signing certificate, creates a draft release at the source commit, uploads APK/manifest/checksums together, then publishes it as latest. Published versions are never overwritten; a failed draft can be retried.
 
+### Changelog in GitHub Releases
+
+Each new GitHub Release shows **GitHub-generated release notes**, listing changes since the previous release (including merged pull request titles and contributors), rather than repeating app-installation instructions. The publishing job generates the changelog for the specific source commit before creating its draft, and refreshes the notes when recovering an existing draft. Failure to generate non-empty notes blocks publication. Write clear, user-facing PR titles because they become release-note entries.
+
+Installation and in-app update instructions live in this document and the README, not in GitHub Release descriptions. Previously published release descriptions are left unchanged.
+
 ### Measuring PR-to-release time
 
 Before these optimizations, [PR #4](https://github.com/dayblox/cairn/pull/4) to [Cairn 0.5.1](https://github.com/dayblox/cairn/releases/tag/v0.5.1) took **2 minutes 36 seconds**, including runner queues: PR checks took 72 seconds, automatic merge took 11 seconds, and the release job took 64 seconds. Repeated validation accounted for 38 seconds of the release; signed building/verification and publishing took about 8 seconds combined.
