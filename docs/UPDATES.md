@@ -18,6 +18,8 @@ The first automatically built release after 0.5.0 uses a replacement signing key
 
 Agents must push their changes and file a PR against `main`, as required by `AGENTS.md`. **Android checks** runs the debug build, tests and lint; the job's GitHub status context is `checks`. The `main` ruleset requires this status to pass and the branch to be up to date before merging. Open a non-draft PR and explicitly enable GitHub's **native auto-merge** using **merge commits only** (for example, `gh pr merge --auto --merge`). In repository **Settings → General → Pull Requests**, keep **Allow merge commits** and **Allow auto-merge** checked, and uncheck **Allow squash merging** and **Allow rebase merging**; this also makes ChatGPT's automatic merge-method selection deterministic. Draft PRs, failed checks, unresolved review conversations and outdated heads must not auto-merge. Native auto-merge is not enabled globally for every PR merely by switching on the repository setting.
 
+The owner has given every current and future agent standing authorization to enable native auto-merge for every ready-for-review PR in this repository, including the eventual merge into `main` and its normal release workflow. The authorization is recorded in [`AGENTS.md`](../AGENTS.md); no additional per-PR confirmation is required unless the user explicitly requests an exception. Auto-merge can be queued while CI is pending, but GitHub must enforce all required checks and branch protections before merging.
+
 A native GitHub merge pushes a commit to `main`, triggering the existing **Publish signed Cairn update** workflow normally. No privileged `workflow_run` merge Action or manual workflow dispatch is needed. GitHub's **Automatically delete head branches** setting handles cleanup. The release workflow discovers the successful PR run from a native two-parent merge's second parent. It requires an identical checked merge tree, base commit, and runtime before reusing the proof. Single-parent squash, rebase, or direct pushes cannot reuse PR proof and must undergo full validation. When proof is missing, stale, ambiguous, or invalid, it safely performs full validation; signing and APK verification always run.
 
 ### Solo-maintainer native auto-merge configuration
@@ -43,7 +45,7 @@ python3 scripts/configure_native_automerge.py
 
 The helper preserves the existing `main` ruleset's other protections while enforcing strict `checks`, resolved conversations, zero review approvals, no code-owner gate, merge commits only, and no bypass. It requires GitHub repository administration permission. Its dry run is read-only.
 
-For security-sensitive changes to `.github`, release/signing scripts, or build infrastructure, the solo maintainer should inspect the full PR diff before enabling auto-merge. For changes that merit an explicit release decision, leave auto-merge disabled and merge normally after required checks pass. This manual step is a process safeguard, not a GitHub-enforced independent review. Routine PRs can continue using native auto-merge after successful CI.
+Agents must inspect the full PR diff before enabling auto-merge, with particular care for security-sensitive changes to `.github`, release/signing scripts, or build infrastructure. The standing authorization applies to these PRs as well. Leave auto-merge disabled when the user explicitly requests manual review or merging for that PR. This exception does not change GitHub's required checks or branch protections.
 
 ### Validation reuse and caching
 
