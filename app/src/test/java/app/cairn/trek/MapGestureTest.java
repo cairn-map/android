@@ -54,6 +54,75 @@ public class MapGestureTest {
     }
   }
 
+  @Test
+  @Config(sdk = {28, 35})
+  public void longQuickZoomKeepsUpdatingOnEveryMoveBeyondTheLongPressTimeout() {
+    double[] start = map.camera();
+    for (int direction : new int[] {-1, 1}) {
+      map.restoreCamera(start);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      doublePress();
+      float y = 300 + direction * 40;
+      touch(MotionEvent.ACTION_MOVE, 200, y, 16);
+      Point anchor = underSecondTap();
+      double distance = 160 * map.getResources().getDisplayMetrics().density;
+      int duration = ViewConfiguration.getLongPressTimeout() * 3;
+      for (int elapsed = 0; elapsed < duration; elapsed += 16) {
+        double before = map.camera()[2];
+        y += direction * 2;
+        touch(MotionEvent.ACTION_MOVE, 200, y, 16);
+        assertEquals(
+            "Zoom froze after " + elapsed + " ms",
+            direction * 2 / distance,
+            map.camera()[2] - before,
+            1e-6);
+      }
+      assertEquals(anchor.lat, underSecondTap().lat, 1e-5);
+      assertEquals(anchor.lon, underSecondTap().lon, 1e-5);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+      double held = map.camera()[2];
+      touch(MotionEvent.ACTION_UP, 200, y);
+      coast(1000);
+      assertEquals("Release must not apply a deferred zoom", held, map.camera()[2], 1e-10);
+    }
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void quickZoomCanStartAfterHoldingTheSecondPressPastTheLongPressTimeout() {
+    int[] planningPoints = {0};
+    map.onLongPress = point -> planningPoints[0]++;
+    doublePress();
+    Shadows.shadowOf(Looper.getMainLooper())
+        .idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() * 2L));
+    double held = map.camera()[2];
+    touch(MotionEvent.ACTION_MOVE, 200, 400);
+    assertTrue("A held double-tap must still respond before release", map.camera()[2] > held);
+    double moved = map.camera()[2];
+    touch(MotionEvent.ACTION_MOVE, 200, 440);
+    assertTrue(map.camera()[2] > moved);
+    assertEquals(0, planningPoints[0]);
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void ordinaryLongPressStillAddsAPlanningPointAfterQuickZoomEndsOrCancels() {
+    int[] planningPoints = {0};
+    map.onLongPress = point -> planningPoints[0]++;
+    for (int ending : new int[] {MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL}) {
+      doublePress();
+      touch(MotionEvent.ACTION_MOVE, 200, 400);
+      touch(ending, 200, 400);
+      coast(1000);
+      touch(MotionEvent.ACTION_DOWN, 200, 300);
+      Shadows.shadowOf(Looper.getMainLooper())
+          .idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() * 2L));
+      touch(MotionEvent.ACTION_UP, 200, 300);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    }
+    assertEquals(2, planningPoints[0]);
+  }
+
   private void twoFingers(int action, float firstX, float secondX) {
     MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[2];
     MotionEvent.PointerCoords[] coordinates = new MotionEvent.PointerCoords[2];
