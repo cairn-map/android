@@ -110,6 +110,90 @@ public class MapRenderingTest {
   }
 
   @Test
+  public void tilesStartLoadingBeforePanOrZoomMomentumFinishes() throws Exception {
+    for (boolean zooming : new boolean[] {false, true}) {
+      TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+      CountDownLatch requested = new CountDownLatch(1);
+      view.source(
+          new EmptySource() {
+            public Bitmap tile(int z, int x, int y) {
+              requested.countDown();
+              return null;
+            }
+          });
+      try {
+        view.layout(0, 0, 786, 1200);
+        if (zooming) {
+          java.lang.reflect.Method motion =
+              TrekMapView.class.getDeclaredMethod(
+                  "startZoomFling", double.class, float.class, float.class);
+          motion.setAccessible(true);
+          assertEquals(true, motion.invoke(view, 2.0, 393f, 600f));
+        } else {
+          java.lang.reflect.Method motion =
+              TrekMapView.class.getDeclaredMethod("startPanFling", float.class, float.class);
+          motion.setAccessible(true);
+          motion.invoke(view, 6000f, 1000f);
+        }
+        draw(view);
+        assertTrue(
+            "Loading must start while the map is coasting", requested.await(3, TimeUnit.SECONDS));
+      } finally {
+        view.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void smallDragsRetainUsefulInflightTilesInsteadOfCancelingEveryMove() throws Exception {
+    TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+    CountDownLatch requested = new CountDownLatch(1), release = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicInteger cancellations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicReference<java.util.function.BooleanSupplier> first =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    view.source(
+        new EmptySource() {
+          public Bitmap tile(int z, int x, int y, java.util.function.BooleanSupplier obsolete) {
+            if (first.compareAndSet(null, obsolete)) requested.countDown();
+            try {
+              release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+              Thread.currentThread().interrupt();
+            }
+            return null;
+          }
+
+          public void cancelRequests() {
+            cancellations.incrementAndGet();
+            release.countDown();
+          }
+        });
+    try {
+      draw(view);
+      assertTrue(requested.await(3, TimeUnit.SECONDS));
+      for (int i = 0; i < 3; i++) {
+        MotionEvent event =
+            MotionEvent.obtain(
+                0,
+                20L * i,
+                i == 0 ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_MOVE,
+                393 + i * 20,
+                600,
+                0);
+        view.onTouchEvent(event);
+        event.recycle();
+        draw(view);
+      }
+      assertEquals(0, cancellations.get());
+      assertFalse("The center tile is still useful after a small drag", first.get().getAsBoolean());
+    } finally {
+      release.countDown();
+      view.dispose();
+    }
+  }
+
+  @Test
   public void sourceChangesDropOldQueuedTilesBeforeCancelingTheActiveRequest() throws Exception {
     assertQueuedTilesCanceled(true);
   }
@@ -129,7 +213,8 @@ public class MapRenderingTest {
             if (firstStarted.getCount() > 0) {
               firstStarted.countDown();
               try {
-                assertTrue("The first request was not canceled", release.await(5, TimeUnit.SECONDS));
+                assertTrue(
+                    "The first request was not canceled", release.await(5, TimeUnit.SECONDS));
               } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
               }
@@ -150,7 +235,8 @@ public class MapRenderingTest {
         });
     try {
       draw(view);
-      assertTrue("Four visible tiles must load concurrently", firstStarted.await(3, TimeUnit.SECONDS));
+      assertTrue(
+          "Four visible tiles must load concurrently", firstStarted.await(3, TimeUnit.SECONDS));
       if (replaceSource)
         view.source(
             new EmptySource() {
@@ -181,7 +267,8 @@ public class MapRenderingTest {
       List<TilePlanner.Tile> expected =
           TileViewport.ordered(z, Geo.x(7.2, z), Geo.y(46.1, z), 786, 1200, 512);
       assertEquals(expected.get(0), requests.get(oldRequests));
-      for (int i = oldRequests; i < requests.size(); i++) assertTrue(expected.contains(requests.get(i)));
+      for (int i = oldRequests; i < requests.size(); i++)
+        assertTrue(expected.contains(requests.get(i)));
     } finally {
       release.countDown();
       view.dispose();

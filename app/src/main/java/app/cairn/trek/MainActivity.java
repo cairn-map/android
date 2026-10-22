@@ -272,6 +272,13 @@ public final class MainActivity extends Activity {
     if (map.getParent() != null) ((ViewGroup) map.getParent()).removeView(map);
     FrameLayout frame = new FrameLayout(this);
     frame.addView(map, new FrameLayout.LayoutParams(-1, -1));
+    FrameLayout.LayoutParams creditParams =
+        new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.TOP);
+    creditParams.setMargins(dp(4), dp(4), 0, 0);
+    ImageButton credits =
+        iconButton(MapIcon.INFO, "Map attribution and licences", this::showAttribution);
+    credits.setBackground(null);
+    frame.addView(credits, creditParams);
     pages.addView(frame, new LinearLayout.LayoutParams(-1, -1));
 
     boolean compactPlanning = planning && getResources().getConfiguration().screenHeightDp < 600;
@@ -328,8 +335,9 @@ public final class MainActivity extends Activity {
     updateStatus.setMaxWidth(
         Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(48)));
     updateStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    FrameLayout.LayoutParams updateParams = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
-    updateParams.setMargins(dp(24), dp(24), dp(24), dp(24));
+    FrameLayout.LayoutParams updateParams =
+        new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+    updateParams.setMargins(dp(24), dp(12), dp(24), dp(24));
     frame.addView(updateStatus, updateParams);
     appUpdates.listen(
         (message, busy) -> {
@@ -556,21 +564,7 @@ public final class MainActivity extends Activity {
         label("BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL).", 12, MUTED, false));
     TextView licences = label("Licences & attribution", 12, ACCENT, true);
     licences.setPadding(0, dp(16), 0, dp(16));
-    licences.setOnClickListener(
-        v -> {
-          try (InputStream input = getAssets().open("routing/LICENSE-BROUTER.txt")) {
-            message(
-                new String(MapCatalog.bytes(input), java.nio.charset.StandardCharsets.UTF_8)
-                    + "\n"
-                    + "Routing data: © OpenStreetMap contributors, Open Database Licence (ODbL)."
-                    + " https://www.openstreetmap.org/copyright\n"
-                    + "Plan IGN: © IGN, Licence Ouverte 2.0.\n"
-                    + "Source and update information: https://www.data.gouv.fr/datasets/plan-ign\n"
-                    + "Licence: https://github.com/etalab/licence-ouverte/blob/master/LO.md");
-          } catch (IOException error) {
-            message(error.getMessage());
-          }
-        });
+    licences.setOnClickListener(v -> showAttribution());
     content.addView(licences);
     TextView ignCredit = label("", 12, MUTED, false);
     ignCredit.setText(
@@ -1226,17 +1220,18 @@ public final class MainActivity extends Activity {
     TextView interval = label("", 20, ACCENT, true);
     content.addView(interval);
     SeekBar seconds = new SeekBar(this);
-    seconds.setMin(1);
-    seconds.setMax(3600);
-    seconds.setKeyProgressIncrement(1);
-    seconds.setProgress((int) (store.intervalMillis() / 1000));
+    seconds.setMax(GpsInterval.STEPS);
+    seconds.setKeyProgressIncrement(GpsInterval.STEPS / 100);
+    seconds.setProgress(GpsInterval.progress((int) (store.intervalMillis() / 1000)));
     seconds.setContentDescription("Seconds between requested GPS updates");
-    interval.setText(getString(R.string.gps_interval, seconds.getProgress()));
+    interval.setText(getString(R.string.gps_interval, GpsInterval.seconds(seconds.getProgress())));
     seconds.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
           @Override
           public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-            interval.setText(getString(R.string.gps_interval, progress));
+            int value = GpsInterval.seconds(progress);
+            interval.setText(getString(R.string.gps_interval, value));
+            bar.setContentDescription(value + " seconds between requested GPS updates");
           }
 
           @Override
@@ -1290,7 +1285,7 @@ public final class MainActivity extends Activity {
                       store
                           .prefs
                           .edit()
-                          .putInt("intervalSeconds", seconds.getProgress())
+                          .putInt("intervalSeconds", GpsInterval.seconds(seconds.getProgress()))
                           .putBoolean("offRoute", alerts.isChecked())
                           .apply();
                       updateService();
@@ -1795,6 +1790,7 @@ public final class MainActivity extends Activity {
       return;
     }
     cancelSearch();
+    placeSearch.near(map.center());
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(8));
     EditText query = new EditText(this);
@@ -1805,9 +1801,17 @@ public final class MainActivity extends Activity {
         android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_NORMAL);
     query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
     content.addView(query);
-    TextView feedback =
-        label("Online search · uses your phone’s geocoding service", 12, MUTED, false);
+    TextView feedback = label("Online search · mountains, towns and addresses", 12, MUTED, false);
     content.addView(feedback);
+    TextView searchCredit = label("", 12, MUTED, false);
+    searchCredit.setText(
+        android.text.Html.fromHtml(
+            "Photon · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>"
+                + " · device geocoder fallback",
+            android.text.Html.FROM_HTML_MODE_LEGACY));
+    searchCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    searchCredit.setLinkTextColor(ACCENT);
+    content.addView(searchCredit);
     LinearLayout results = column();
     ScrollView scroll = new ScrollView(this);
     scroll.addView(results);
@@ -1910,7 +1914,7 @@ public final class MainActivity extends Activity {
     if (searchDialog != null) searchDialog.dismiss();
   }
 
-  @SuppressWarnings("deprecation") // Custom foreground toasts still support centered placement.
+  @SuppressWarnings("deprecation") // Foreground custom toasts support explicit placement.
   private void showToast(String text, int duration) {
     if (destroyed || isFinishing()) return;
     if (currentToast != null) currentToast.cancel();
@@ -1923,8 +1927,38 @@ public final class MainActivity extends Activity {
     currentToast = new Toast(this);
     currentToast.setView(notice);
     currentToast.setDuration(duration);
-    currentToast.setGravity(Gravity.CENTER, 0, 0);
+    currentToast.setGravity(
+        Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, root.getPaddingTop() + dp(12));
     currentToast.show();
+  }
+
+  private void showAttribution() {
+    try (InputStream input = getAssets().open("routing/LICENSE-BROUTER.txt")) {
+      String text =
+          "Plan IGN: IGN, Licence Ouverte 2.0.\n"
+              + "Source and update information: https://www.data.gouv.fr/datasets/plan-ign\n"
+              + "Licence: https://github.com/etalab/licence-ouverte/blob/master/LO.md\n\n"
+              + "Routing and place search: © OpenStreetMap contributors (ODbL).\n"
+              + "https://www.openstreetmap.org/copyright\n"
+              + "Place search: Photon, provided by komoot; device geocoder fallback.\n\n";
+      if (map.tileSource() instanceof OfflineMap)
+        text += "Imported map: " + map.tileSource().attribution() + "\n\n";
+      android.text.SpannableString links =
+          new android.text.SpannableString(
+              text + new String(MapCatalog.bytes(input), java.nio.charset.StandardCharsets.UTF_8));
+      android.text.util.Linkify.addLinks(links, android.text.util.Linkify.WEB_URLS);
+      AlertDialog dialog =
+          CairnDialogs.dialog(this)
+              .setTitle("Licences & attribution")
+              .setMessage(links)
+              .setPositiveButton("OK", null)
+              .show();
+      TextView body = dialog.findViewById(android.R.id.message);
+      if (body != null)
+        body.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    } catch (IOException error) {
+      message(error.getMessage());
+    }
   }
 
   private void message(String text) {

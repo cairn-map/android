@@ -41,7 +41,9 @@ public final class TrekMapView extends View {
           0,
           TimeUnit.MILLISECONDS,
           new LinkedBlockingQueue<>());
-  private final Set<String> pending = new HashSet<>(), missing = new HashSet<>();
+  private final Map<String, TileRequest> pending = new HashMap<>();
+  private final Set<String> missing = new HashSet<>();
+  private Set<String> viewport = Collections.emptySet();
   private final LruCache<String, Bitmap> cache =
       new LruCache<String, Bitmap>(12 * 1024 * 1024) {
         @Override
@@ -104,7 +106,7 @@ public final class TrekMapView extends View {
                 if (doubleTap || multiplePointers || scales.isInProgress()) return true;
                 pinched = false;
                 panBy(dx, dy);
-                refreshTiles(false);
+                invalidate();
                 lastPanMove = now.getEventTime();
                 return true;
               }
@@ -148,7 +150,7 @@ public final class TrekMapView extends View {
                     if (quickZooming) {
                       dragQuickZoom(e);
                       quickZooming = false;
-                      if (!flingQuickZoom(e.getEventTime())) refreshTiles(false);
+                      if (!flingQuickZoom(e.getEventTime())) invalidate();
                     } else if (tapCandidate) {
                       animateZoom(1, quickFocusX, quickFocusY);
                     }
@@ -184,7 +186,7 @@ public final class TrekMapView extends View {
                 twoFingerTap = false;
                 pinched = false;
                 pinchVelocity = pinchDirection = 0;
-                refreshTiles(false);
+                invalidate();
                 return true;
               }
 
@@ -212,7 +214,7 @@ public final class TrekMapView extends View {
 
               @Override
               public void onScaleEnd(ScaleGestureDetector d) {
-                refreshTiles(false);
+                invalidate();
               }
             });
     // Handle one-finger zoom in log zoom units; retain the platform detector for pinches.
@@ -230,7 +232,7 @@ public final class TrekMapView extends View {
       tapCandidate = false;
       // Apply the initial movement threshold once; reversals must have no dead zone.
       quickLastY = quickFocusY + Math.copySign(slop, dy);
-      refreshTiles(false);
+      invalidate();
     }
     float delta = y - quickLastY;
     if (delta == 0) return;
@@ -288,7 +290,7 @@ public final class TrekMapView extends View {
         Integer.MAX_VALUE,
         Integer.MIN_VALUE,
         Integer.MAX_VALUE);
-    refreshTiles(false);
+    invalidate();
     postInvalidateOnAnimation();
   }
 
@@ -309,7 +311,7 @@ public final class TrekMapView extends View {
     tapZoomStarted = android.os.SystemClock.uptimeMillis();
     tapZoomStart = camera()[2];
     tapZoomTarget = Math.max(minZoom(), Math.min(maxZoom(), tapZoomStart + delta));
-    refreshTiles(false);
+    invalidate();
     postInvalidateOnAnimation();
   }
 
@@ -320,7 +322,7 @@ public final class TrekMapView extends View {
       panBy(x - panX, y - panY);
       panX = x;
       panY = y;
-      if (panScroller.isFinished()) refreshTiles(false);
+      if (panScroller.isFinished()) invalidate();
       else postInvalidateOnAnimation();
     }
     if (tapZoom) {
@@ -332,7 +334,7 @@ public final class TrekMapView extends View {
       if (progress < 1) postInvalidateOnAnimation();
       else {
         tapZoom = false;
-        refreshTiles(false);
+        invalidate();
       }
       return;
     }
@@ -347,7 +349,7 @@ public final class TrekMapView extends View {
         || target <= minZoom()
         || target >= maxZoom()) {
       zoomFling = false;
-      refreshTiles(false);
+      invalidate();
     } else postInvalidateOnAnimation();
   }
 
@@ -535,7 +537,7 @@ public final class TrekMapView extends View {
       boolean wasMoving = zoomFling || tapZoom || !panScroller.isFinished();
       stopMotion();
       multiplePointers = false;
-      if (wasMoving) refreshTiles(false);
+      if (wasMoving) invalidate();
       zoomVelocity = VelocityTracker.obtain();
       zoomVelocity.clear();
       tapCandidate = true;
@@ -570,7 +572,7 @@ public final class TrekMapView extends View {
       quickZoomEligible = false;
       if (quickZooming) {
         quickZooming = false;
-        refreshTiles(false);
+        invalidate();
       }
     }
     // Move the pinch anchor along with the fingers, including two-finger drags
@@ -626,7 +628,7 @@ public final class TrekMapView extends View {
     if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
       tapCandidate = false;
       stopMotion();
-      refreshTiles(false);
+      invalidate();
     }
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
@@ -713,15 +715,27 @@ public final class TrekMapView extends View {
         destination.set(left, top, left + tileSize, top + tileSize);
         c.drawRect(destination, paint);
       }
-    if (source != null
-        && panScroller.isFinished()
-        && !scales.isInProgress()
-        && !quickZooming
-        && !zoomFling
-        && !tapZoom) {
+    if (source != null && active) {
+      List<TilePlanner.Tile> visible =
+          TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize);
+      Set<String> keys = new HashSet<>();
+      for (TilePlanner.Tile tile : visible) keys.add(tile.z + "/" + tile.x + "/" + tile.y);
+      if (!keys.equals(viewport)) {
+        viewport = keys;
+        missing.retainAll(keys);
+        // Keep useful in-flight transfers; drop obsolete work and reorder queued tiles
+        // around the current center. No gesture or momentum settling delay.
+        for (TileRequest task : new ArrayList<>(pending.values())) {
+          if (!keys.contains(task.key)) {
+            task.cancelled = true;
+            executor.remove(task);
+            pending.remove(task.key);
+          } else if (executor.remove(task)) pending.remove(task.key);
+        }
+        source.cancelObsoleteRequests();
+      }
       boolean complete = true;
-      for (TilePlanner.Tile tile :
-          TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize)) {
+      for (TilePlanner.Tile tile : visible) {
         String key = tile.z + "/" + tile.x + "/" + tile.y;
         if (cache.get(key) == null) {
           complete = false;
@@ -793,11 +807,10 @@ public final class TrekMapView extends View {
     }
     paint.setTextAlign(Paint.Align.LEFT);
     paint.setTextSize(dp(10));
-    if (source != null) {
+    if (source != null && !(source instanceof IgnMap)) {
       String text =
           android.text.Html.fromHtml(source.attribution(), android.text.Html.FROM_HTML_MODE_LEGACY)
               .toString();
-      if (!route.isEmpty() || !otherRoutes.isEmpty()) text += " · routing © OSM";
       if (text.length() > 100) text = text.substring(0, 100) + "…";
       float width = paint.measureText(text) + dp(16);
       paint.setColor(AppPalette.SURFACE);
@@ -880,36 +893,55 @@ public final class TrekMapView extends View {
   }
 
   private void request(String key, int z, int x, int y) {
-    if (pending.contains(key) || missing.contains(key) || !active) return;
-    pending.add(key);
-    TileSource current = source;
-    int gen = generation;
-    executor.execute(
-        () -> {
-          if (gen != generation || !active) return;
-          Bitmap result = null;
-          try {
-            result = current.tile(z, x, y, () -> gen != generation || !active);
-          } catch (RuntimeException ignored) {
-          }
-          Bitmap value = result;
-          main.post(
-              () -> {
-                if (gen != generation || !active) {
-                  if (value != null) value.recycle();
-                  return;
-                }
-                pending.remove(key);
-                if (value != null) {
-                  cache.put(key, value);
-                  cacheChanged = true;
-                } else {
-                  if (missing.size() > 5000) missing.clear();
-                  missing.add(key);
-                }
-                invalidate();
-              });
-        });
+    if (pending.containsKey(key) || missing.contains(key) || !active) return;
+    TileRequest task = new TileRequest(key, z, x, y);
+    pending.put(key, task);
+    executor.execute(task);
+  }
+
+  private final class TileRequest implements Runnable {
+    final String key;
+    final int z, x, y, gen = generation;
+    final TileSource current = source;
+    volatile boolean cancelled;
+
+    TileRequest(String key, int z, int x, int y) {
+      this.key = key;
+      this.z = z;
+      this.x = x;
+      this.y = y;
+    }
+
+    boolean obsolete() {
+      return cancelled || gen != generation || !active;
+    }
+
+    @Override
+    public void run() {
+      if (obsolete()) return;
+      Bitmap result = null;
+      try {
+        result = current.tile(z, x, y, this::obsolete);
+      } catch (RuntimeException ignored) {
+      }
+      Bitmap value = result;
+      main.post(
+          () -> {
+            if (obsolete()) {
+              if (value != null) value.recycle();
+              return;
+            }
+            pending.remove(key, this);
+            if (value != null) {
+              cache.put(key, value);
+              cacheChanged = true;
+            } else {
+              if (missing.size() > 5000) missing.clear();
+              missing.add(key);
+            }
+            invalidate();
+          });
+    }
   }
 
   private void line(Canvas c, List<Point> points, int color, float width) {

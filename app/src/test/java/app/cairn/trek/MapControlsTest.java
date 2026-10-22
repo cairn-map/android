@@ -44,6 +44,8 @@ public class MapControlsTest {
   }
 
   private View find(View view, String text) {
+    if (text.contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription()))
+      return view;
     if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
     if (view instanceof ViewGroup) {
       ViewGroup group = (ViewGroup) view;
@@ -84,12 +86,12 @@ public class MapControlsTest {
       SeekBar slider = findType(content, SeekBar.class);
       assertNotNull(slider);
       assertNull(findType(content, EditText.class));
-      assertEquals(137, slider.getProgress());
-      assertEquals(1, slider.getMin());
-      assertEquals(3600, slider.getMax());
+      assertEquals(GpsInterval.progress(137), slider.getProgress());
+      assertEquals(0, slider.getMin());
+      assertEquals(GpsInterval.STEPS, slider.getMax());
       assertTrue(dialog.getWindow().getAttributes().width > 0);
       assertEquals(-2, dialog.getWindow().getAttributes().height);
-      slider.setProgress(3600);
+      slider.setProgress(GpsInterval.STEPS);
       assertNotNull(find(content, activity.getString(R.string.gps_interval, 3600)));
       assertEquals(137000, store.intervalMillis());
       dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
@@ -99,7 +101,7 @@ public class MapControlsTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         slider = findType(dialog.getWindow().getDecorView(), SeekBar.class);
-        slider.setProgress(seconds);
+        slider.setProgress(GpsInterval.progress(seconds));
         findType(dialog.getWindow().getDecorView(), Switch.class).setChecked(false);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         assertFalse(dialog.isShowing());
@@ -112,7 +114,7 @@ public class MapControlsTest {
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   @Config(sdk = 35, qualifiers = "w393dp-h851dp-xhdpi")
-  public void updateFeedbackIsCenteredAndGpsSettingsWrapTheirContent() throws Exception {
+  public void updateFeedbackIsTopCenteredAndGpsSettingsWrapTheirContent() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -120,10 +122,10 @@ public class MapControlsTest {
       feedback.setText("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
       feedback.setVisibility(View.VISIBLE);
       View root = activity.findViewById(android.R.id.content);
-      savePreview(root, 786, 1550, "centered-update-feedback");
+      savePreview(root, 786, 1550, "top-centered-update-feedback");
       View parent = (View) feedback.getParent();
       assertEquals(parent.getWidth(), feedback.getLeft() + feedback.getRight(), 1);
-      assertEquals(parent.getHeight(), feedback.getTop() + feedback.getBottom(), 1);
+      assertTrue(feedback.getTop() < parent.getHeight() / 4);
       assertEquals(Gravity.CENTER, feedback.getGravity());
       java.lang.reflect.Method settings = MainActivity.class.getDeclaredMethod("batterySettings");
       settings.setAccessible(true);
@@ -145,7 +147,7 @@ public class MapControlsTest {
 
   @Test
   @Config(sdk = {28, 35})
-  public void locationToastsAreCenteredReplacedAndCanceledOnPause() throws Exception {
+  public void locationToastsAreTopCenteredReplacedAndCanceledOnPause() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -154,7 +156,7 @@ public class MapControlsTest {
       locate.setAccessible(true);
       locate.invoke(activity);
       Toast first = (Toast) field(activity, "currentToast");
-      assertEquals(Gravity.CENTER, first.getGravity());
+      assertEquals(Gravity.TOP | Gravity.CENTER_HORIZONTAL, first.getGravity());
       assertEquals(Gravity.CENTER, ((TextView) first.getView()).getGravity());
       assertEquals(
           "Waiting for your next scheduled GPS fix", ((TextView) first.getView()).getText());
@@ -164,9 +166,9 @@ public class MapControlsTest {
       Toast second = (Toast) field(activity, "currentToast");
       assertNotSame(first, second);
       assertTrue(Shadows.shadowOf(first).isCancelled());
-      assertEquals(Gravity.CENTER, second.getGravity());
+      assertEquals(Gravity.TOP | Gravity.CENTER_HORIZONTAL, second.getGravity());
       assertEquals(0, second.getXOffset());
-      assertEquals(0, second.getYOffset());
+      assertTrue(second.getYOffset() > 0);
       controller.pause();
       assertTrue(Shadows.shadowOf(second).isCancelled());
     } finally {
@@ -249,6 +251,27 @@ public class MapControlsTest {
       assertEquals("Map", field(activity, "currentPage"));
       assertFalse(path.isSelected());
       assertArrayEquals(camera, map.camera(), 1e-10);
+    }
+  }
+
+  @Test
+  public void mapInfoOpensSourceUpdateAndLicenceLinks() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      View info = find(activity.getWindow().getDecorView(), "Map attribution and licences");
+      assertNotNull(info);
+      info.performClick();
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      TextView body = dialog.findViewById(android.R.id.message);
+      assertTrue(body.getText().toString().contains("https://www.data.gouv.fr/datasets/plan-ign"));
+      assertTrue(body.getText().toString().contains("OpenStreetMap contributors"));
+      assertTrue(body.getText() instanceof android.text.Spanned);
+      assertTrue(
+          ((android.text.Spanned) body.getText())
+                  .getSpans(0, body.length(), android.text.style.URLSpan.class)
+                  .length
+              >= 3);
     }
   }
 

@@ -149,4 +149,68 @@ public class IgnClientTest {
     assertEquals(10_000, IgnClient.retryDelayMillis("invalid", 1));
     assertEquals(5000, IgnClient.retryDelayMillis(null, 0));
   }
+
+  @Test
+  public void viewportCancellationDisconnectsObsoleteTransfersAndKeepsUsefulOnes()
+      throws Exception {
+    CountDownLatch started = new CountDownLatch(2);
+    CountDownLatch[] release = {new CountDownLatch(1), new CountDownLatch(1)};
+    java.util.concurrent.atomic.AtomicBoolean obsolete =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    byte[] bytes = png();
+    IgnClient client =
+        new IgnClient(
+            url -> {
+              int index = url.getQuery().endsWith("TILECOL=0") ? 0 : 1;
+              return new HttpURLConnection(url) {
+                public int getResponseCode() throws IOException {
+                  started.countDown();
+                  try {
+                    if (!release[index].await(3, TimeUnit.SECONDS))
+                      throw new IOException("Timed out");
+                  } catch (InterruptedException error) {
+                    throw new InterruptedIOException();
+                  }
+                  return 200;
+                }
+
+                public String getContentType() {
+                  return "image/png";
+                }
+
+                public InputStream getInputStream() {
+                  return new ByteArrayInputStream(bytes);
+                }
+
+                public void disconnect() {
+                  release[index].countDown();
+                }
+
+                public void connect() {}
+
+                public boolean usingProxy() {
+                  return false;
+                }
+              };
+            });
+    ExecutorService workers = Executors.newFixedThreadPool(2);
+    try {
+      Future<IgnClient.Result> old =
+          workers.submit(
+              () -> client.fetch(new TilePlanner.Tile(10, 0, 512), null, null, obsolete::get));
+      Future<IgnClient.Result> useful =
+          workers.submit(
+              () -> client.fetch(new TilePlanner.Tile(10, 1, 512), null, null, () -> false));
+      assertTrue(started.await(3, TimeUnit.SECONDS));
+      obsolete.set(true);
+      client.cancelObsolete();
+      assertThrows(ExecutionException.class, () -> old.get(3, TimeUnit.SECONDS));
+      assertFalse(useful.isDone());
+      release[1].countDown();
+      assertArrayEquals(bytes, useful.get(3, TimeUnit.SECONDS).bytes);
+    } finally {
+      client.cancel();
+      workers.shutdownNow();
+    }
+  }
 }

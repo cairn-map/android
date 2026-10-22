@@ -12,7 +12,8 @@ final class MapIcon extends Drawable {
       SEARCH = 4,
       PATH = 5,
       UPDATE = 6,
-      CLOSE = 7;
+      CLOSE = 7,
+      INFO = 8;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -48,7 +49,16 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == CLOSE) {
+    if (kind == INFO) {
+      paint.setStyle(Paint.Style.FILL);
+      paint.setColor(background);
+      canvas.drawCircle(12, 12, 10, paint);
+      paint.setColor(foreground);
+      paint.setStyle(Paint.Style.STROKE);
+      canvas.drawCircle(12, 12, 9, paint);
+      canvas.drawPoint(12, 7, paint);
+      canvas.drawLine(12, 11, 12, 17, paint);
+    } else if (kind == CLOSE) {
       canvas.drawLine(6, 6, 18, 18, paint);
       canvas.drawLine(18, 6, 6, 18, paint);
     } else if (kind == UPDATE) {

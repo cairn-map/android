@@ -77,7 +77,9 @@ public class PlaceSearchTest {
     SearchGeocoder.error = null;
     SearchGeocoder.query = null;
     SearchGeocoder.entered = SearchGeocoder.release = null;
-    search = new PlaceSearch(RuntimeEnvironment.getApplication());
+    search =
+        new PlaceSearch(
+            RuntimeEnvironment.getApplication(), (query, center) -> Collections.emptyList());
   }
 
   @After
@@ -138,6 +140,11 @@ public class PlaceSearchTest {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
+      Field searchField = MainActivity.class.getDeclaredField("placeSearch");
+      searchField.setAccessible(true);
+      ((PlaceSearch) searchField.get(activity)).close();
+      searchField.set(
+          activity, new PlaceSearch(activity, (queryText, center) -> Collections.emptyList()));
       find(activity.getWindow().getDecorView(), "Search places").performClick();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
@@ -204,11 +211,47 @@ public class PlaceSearchTest {
   }
 
   @Test
-  public void missingBackendIsExplainedWithoutStartingARequest() {
+  public void partialMountainNamesWorkWithoutADeviceGeocoder() throws Exception {
     SearchGeocoder.present = false;
-    search.search("Chamonix", callback);
-    assertEquals(1, failed);
-    assertTrue(reason.contains("this device"));
+    search.close();
+    Point focus = new Point(45.1, 6.5);
+    search =
+        new PlaceSearch(
+            RuntimeEnvironment.getApplication(),
+            (query, center) -> {
+              assertEquals("Thabor", query);
+              assertSame(focus, center);
+              return PhotonClient.parse(
+                  """
+{"features":[{"properties":{"name":"Mont Thabor","osm_value":"peak","country":"France"},
+"geometry":{"type":"Point","coordinates":[6.563,45.115]}}]}
+""");
+            });
+    search.near(focus);
+    search.search("Thabor", callback);
+    drain();
+    assertEquals(1, found);
+    assertEquals(0, failed);
+    assertTrue(PlaceSearch.label(results.get(0)).startsWith("Mont Thabor"));
+    assertEquals(45.115, results.get(0).getLatitude(), 1e-6);
+    assertNull(SearchGeocoder.query);
+  }
+
+  @Test
+  public void primaryNetworkFailureFallsBackToTheDeviceGeocoder() throws Exception {
+    search.close();
+    search =
+        new PlaceSearch(
+            RuntimeEnvironment.getApplication(),
+            (query, center) -> {
+              throw new IOException("Offline");
+            });
+    SearchGeocoder.answer = Collections.singletonList(place("Mont Thabor", 45.115, 6.563));
+    search.search("Thabor", callback);
+    drain();
+    assertEquals(1, found);
+    assertEquals(0, failed);
+    assertEquals("Mont Thabor", PlaceSearch.label(results.get(0)));
   }
 
   @Test
@@ -273,6 +316,11 @@ public class PlaceSearchTest {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
+      Field searchField = MainActivity.class.getDeclaredField("placeSearch");
+      searchField.setAccessible(true);
+      ((PlaceSearch) searchField.get(activity)).close();
+      searchField.set(
+          activity, new PlaceSearch(activity, (queryText, center) -> Collections.emptyList()));
       View searchButton = find(activity.getWindow().getDecorView(), "Search places");
       assertNotNull(searchButton);
       searchButton.performClick();
@@ -300,6 +348,11 @@ public class PlaceSearchTest {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
+      Field searchField = MainActivity.class.getDeclaredField("placeSearch");
+      searchField.setAccessible(true);
+      ((PlaceSearch) searchField.get(activity)).close();
+      searchField.set(
+          activity, new PlaceSearch(activity, (queryText, center) -> Collections.emptyList()));
       find(activity.getWindow().getDecorView(), "Search places").performClick();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();

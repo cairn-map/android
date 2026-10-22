@@ -83,6 +83,11 @@ public final class IgnMap implements TileSource, AutoCloseable {
     client.cancel();
   }
 
+  @Override
+  public void cancelObsoleteRequests() {
+    client.cancelObsolete();
+  }
+
   /** Preserve usable geographic context when zoomed beyond saved detail. */
   private Bitmap enlargedParent(TilePlanner.Tile tile) {
     for (int delta = 1; delta <= 4 && tile.z - delta >= 0; delta++) {
