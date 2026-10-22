@@ -1,3 +1,13 @@
+# Toast position above drawers with display cutouts — 22 October 2026
+
+Gradle 8.11.1 `assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **216 tests**, zero failures/errors/skips. Lint reported zero errors and five warnings in unchanged map/swipe code. The shared automation selector reports `required=false` for these app/test/documentation changes.
+
+The remaining shift came from applying the top safe-area inset twice. Android's `WindowLayout.computeFrames()` still clips a floating application window to the display-cutout safe rectangle with `FLAG_LAYOUT_IN_SCREEN` and `fitInsetsTypes(0)`. The banner then added the activity's full top inset inside that already-shifted window. A new regression using Android 35's actual window-frame calculation failed before the fix: a 56 px inset placed the banner at 124 px instead of 68 px.
+
+The overlay now lets WindowManager fit system bars and cutouts and uses only a 12 dp internal top margin. Its keyboard adjustment is explicitly disabled. The activity-decor path retains its own inset. Screen-coordinate checks include ordinary status bars, a top camera cutout, keyboard visibility, resized task bounds and a nonzero task origin. Existing checks retain application-token, nested-drawer, queue, progress, expiration and cleanup coverage on Android 28 and 35.
+
+These are framework/JVM checks, including the platform window-layout algorithm; no emulator or physical-device UI trial was performed.
+
 # Route selection, compact drawer corners and toast crashes — 22 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **215 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/documentation changes.
