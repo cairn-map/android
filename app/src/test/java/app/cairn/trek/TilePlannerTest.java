@@ -50,6 +50,42 @@ public class TilePlannerTest {
   }
 
   @Test
+  public void corridorWidthAndRouteShapeChangeDetailedCoverage() {
+    List<Point> route = List.of(new Point(45.90, 6.80), new Point(46.00, 6.95));
+    TilePlanner.Plan narrow = TilePlanner.corridor(route, 100, 17);
+    TilePlanner.Plan wide = TilePlanner.corridor(route, 2000, 17);
+    Point besideRoute = new Point(45.96, 6.875);
+    assertFalse(contains(narrow, besideRoute, 17));
+    assertTrue(contains(wide, besideRoute, 17));
+    assertTrue(wide.tiles.size() > narrow.tiles.size() * 3);
+    // The corners of the route's bounding square are outside the corridor.
+    assertFalse(contains(wide, new Point(45.90, 6.95), 17));
+    assertFalse(contains(wide, new Point(46.00, 6.80), 17));
+    assertTrue(new HashSet<>(wide.tiles).containsAll(narrow.tiles));
+  }
+
+  @Test
+  public void aSinglePointDoesNotIncludeTilesOutsideTheBufferedFootprint() {
+    int z = 17;
+    Point center = new Point(Geo.lat(50000.5, z), Geo.lon(68000.5, z));
+    TilePlanner.Plan plan = TilePlanner.corridor(List.of(center), 100, z);
+    // At this latitude 100 m fits inside the central tile. The old half-diagonal
+    // padding also selected the adjacent tiles although the buffer never touched them.
+    long detailed = plan.tiles.stream().filter(tile -> tile.z == z).count();
+    assertEquals(1, detailed);
+  }
+
+  @Test
+  public void corridorCrossesTheDateLineWithoutSavingTheLongWayAround() {
+    TilePlanner.Plan plan =
+        TilePlanner.corridor(List.of(new Point(0, 179.99), new Point(0, -179.99)), 200, 17);
+    assertTrue(contains(plan, new Point(0, 179.995), 17));
+    assertTrue(contains(plan, new Point(0, -179.995), 17));
+    assertFalse(contains(plan, new Point(0, 0), 17));
+    assertTrue(plan.tiles.size() < 250);
+  }
+
+  @Test
   public void dateLineWrapDoesNotDownloadTheRestOfTheWorld() {
     TilePlanner.Plan plan = TilePlanner.area(179.99, -0.01, -179.99, 0.01, 15);
     assertTrue(contains(plan, new Point(0, 179.995), 15));

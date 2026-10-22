@@ -4,9 +4,11 @@ import static org.junit.Assert.*;
 
 import android.app.*;
 import android.content.*;
+import android.os.Looper;
 import android.view.*;
 import android.widget.*;
 import java.util.*;
+import java.util.concurrent.*;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import org.robolectric.*;
@@ -52,7 +54,8 @@ public class OfflineWorkflowTest {
   }
 
   @Test
-  public void parallelBatchesContainDistinctPendingTilesAndResumeOnlyUncommittedTiles() throws Exception {
+  public void parallelBatchesContainDistinctPendingTilesAndResumeOnlyUncommittedTiles()
+      throws Exception {
     String id = store.create("Parallel", TilePlanner.area(6.86, 45.92, 6.88, 45.94, 17));
     List<TilePlanner.Tile> batch = store.next(id, 4);
     assertEquals(4, batch.size());
@@ -82,6 +85,70 @@ public class OfflineWorkflowTest {
     assertEquals("paused", store.packs().get(0).state);
     assertNotEquals(first, store.next(id));
     assertFalse(store.finish(id));
+  }
+
+  @Test
+  public void downloadsStartAtSelectedDetailAndLeaveOverviewTilesUntilLast() {
+    TilePlanner.Plan plan =
+        TilePlanner.corridor(List.of(new Point(45.92, 6.86), new Point(45.94, 6.88)), 100, 17);
+    String id = store.create("Narrow corridor", plan);
+    List<TilePlanner.Tile> ordered = store.next(id, TilePlanner.MAX_TILES);
+    assertEquals(plan.tiles.size(), ordered.size());
+    assertEquals(17, ordered.get(0).z);
+    assertEquals(TilePlanner.MIN_ZOOM, ordered.get(ordered.size() - 1).z);
+    for (int i = 1; i < ordered.size(); i++) assertTrue(ordered.get(i - 1).z >= ordered.get(i).z);
+    assertEquals(ordered.size(), new HashSet<>(ordered).size());
+  }
+
+  @Test
+  public void routeMenuSavesTheChosenCorridorWidthInsteadOfTheMapViewport() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    List<Point> route = List.of(new Point(45.90, 6.80), new Point(46.00, 6.95));
+    try (Store routes = new Store(context)) {
+      routes.saveRoute(route, "Width check");
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      java.lang.reflect.Field mapsField = MainActivity.class.getDeclaredField("mapStore");
+      mapsField.setAccessible(true);
+      PlanIgnStore savedMaps = (PlanIgnStore) mapsField.get(activity);
+      for (String width : new String[] {"0.2", "2.0"}) {
+        drain(activity);
+        View root = activity.getWindow().getDecorView();
+        find(root, "Routes").performClick();
+        find(root, "Width check · selected").performClick();
+        AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        actions.getListView().performItemClick(null, 2, 2);
+        drain(activity);
+        AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        ((EditText) find(form.getWindow().getDecorView(), "1.0")).setText(width);
+        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        drain(activity);
+        AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        String message =
+            ((TextView) estimate.findViewById(android.R.id.message)).getText().toString();
+        assertTrue(message.contains("Corridor: " + width + " km on each side"));
+        estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        drain(activity);
+        PlanIgnStore.Pack pack = savedMaps.packs().get(0);
+        TilePlanner.Plan expected =
+            TilePlanner.corridor(route, Double.parseDouble(width) * 1000, 17);
+        assertEquals(expected.tiles.size(), pack.total);
+        assertEquals(route.get(0).lat, pack.center.lat, 0);
+        assertEquals(
+            new HashSet<>(expected.tiles),
+            new HashSet<>(savedMaps.next(pack.id, TilePlanner.MAX_TILES)));
+      }
+    }
+  }
+
+  private void drain(MainActivity activity) throws Exception {
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    java.lang.reflect.Field field = MainActivity.class.getDeclaredField("io");
+    field.setAccessible(true);
+    ((ExecutorService) field.get(activity)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
   }
 
   @Test

@@ -1047,11 +1047,18 @@ public final class MainActivity extends Activity {
                                     String estimate =
                                         String.format(
                                             Locale.getDefault(),
-                                            "%,d tiles · roughly %.0f MB\n"
-                                                + "%.0f MB available on this phone.\n\n"
+                                            (corridor
+                                                ? "Corridor: %1$.1f km on each side · detail zoom %2$d\n\n"
+                                                : "Map area · detail zoom %2$d\n\n")
+                                                + "%3$,d tiles · roughly %4$.0f MB\n"
+                                                + "%5$.0f MB available on this phone.\n\n"
+                                                + "Detailed tiles download first; overview tiles"
+                                                + " cover larger areas at lower zoom levels.\n\n"
                                                 + "Downloads can be paused and resumed. Actual size"
                                                 + " varies; maximum detail needs much more"
                                                 + " storage.",
+                                            radius / 1000,
+                                            zoom,
                                             plan.tiles.size(),
                                             plan.estimatedBytes() / 1e6,
                                             available / 1e6);

@@ -169,7 +169,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     try (Cursor c =
         getReadableDatabase()
             .rawQuery(
-                "SELECT z,x,y FROM pack_tiles WHERE pack=? AND done=0 ORDER BY z,y,x LIMIT ?",
+                "SELECT z,x,y FROM pack_tiles WHERE pack=? AND done=0 ORDER BY z DESC,y,x LIMIT ?",
                 new String[] {id, "" + limit})) {
       while (c.moveToNext())
         tiles.add(new TilePlanner.Tile(c.getInt(0), c.getInt(1), c.getInt(2)));

@@ -7,12 +7,19 @@ import java.util.function.BooleanSupplier;
 /** Public Plan IGN only; no credentials or paid map layers. Usable in JVM integration checks. */
 public final class IgnClient {
   public static final String LAYER = "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2";
-  private static long nextRequestNanos;
+  public static final int PARALLELISM = 32;
+  private static final java.util.concurrent.Semaphore slots =
+      new java.util.concurrent.Semaphore(PARALLELISM, true);
+  private static volatile long retryAfterNanos;
   private final java.util.Set<HttpURLConnection> active =
       java.util.concurrent.ConcurrentHashMap.newKeySet();
   private final java.util.concurrent.atomic.AtomicInteger generation =
       new java.util.concurrent.atomic.AtomicInteger();
-  interface Connections { HttpURLConnection open(URL url) throws IOException; }
+
+  interface Connections {
+    HttpURLConnection open(URL url) throws IOException;
+  }
+
   private final Connections connections;
 
   public IgnClient() {
@@ -63,19 +70,11 @@ public final class IgnClient {
     }
   }
 
-  private static void throttle(BooleanSupplier cancelled) throws IOException {
+  private static void awaitServer(BooleanSupplier cancelled) throws IOException {
     while (true) {
       check(cancelled);
-      long delay;
-      synchronized (IgnClient.class) {
-        long now = System.nanoTime();
-        if (now >= nextRequestNanos) {
-          nextRequestNanos = now + 350_000_000L;
-          return;
-        }
-        delay = Math.max(1, (nextRequestNanos - now + 999999) / 1_000_000);
-      }
-      // Obsolete views do not reserve future slots and delay the current camera.
+      long delay = (retryAfterNanos - System.nanoTime() + 999999) / 1_000_000;
+      if (delay <= 0) return;
       waitFor(delay, cancelled);
     }
   }
@@ -85,9 +84,30 @@ public final class IgnClient {
       throws IOException {
     int epoch = generation.get();
     BooleanSupplier stop = () -> cancelled.getAsBoolean() || epoch != generation.get();
+    boolean acquired = false;
+    try {
+      while (!acquired) {
+        check(stop);
+        awaitServer(stop);
+        try {
+          acquired = slots.tryAcquire(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException error) {
+          Thread.currentThread().interrupt();
+          throw new InterruptedIOException("Download paused");
+        }
+      }
+      return fetchWithSlot(tile, etag, modified, stop);
+    } finally {
+      if (acquired) slots.release();
+    }
+  }
+
+  private Result fetchWithSlot(
+      TilePlanner.Tile tile, String etag, String modified, BooleanSupplier stop)
+      throws IOException {
     for (int attempt = 0; attempt < 3; attempt++) {
       check(stop);
-      throttle(stop);
+      awaitServer(stop);
       HttpURLConnection connection = connections.open(new URL(url(tile)));
       active.add(connection);
       connection.setConnectTimeout(10000);
@@ -102,11 +122,13 @@ public final class IgnClient {
         check(stop);
         int code = connection.getResponseCode();
         if (code == 429 || code == 503) {
+          long retry = retryDelayMillis(connection.getHeaderField("Retry-After"), attempt);
+          synchronized (IgnClient.class) {
+            retryAfterNanos = Math.max(retryAfterNanos, System.nanoTime() + retry * 1_000_000L);
+          }
           if (attempt == 2)
             throw new IOException("IGN is busy. Your download is saved; resume it later.");
-          int retry = connection.getHeaderFieldInt("Retry-After", 5 * (attempt + 1));
           connection.disconnect();
-          waitFor(Math.max(5, Math.min(60, retry)) * 1000L, stop);
           continue;
         }
         if (code == 304) return new Result(null, etag, modified);
@@ -139,6 +161,30 @@ public final class IgnClient {
       }
     }
     throw new IOException("Could not download map tile");
+  }
+
+  static long retryDelayMillis(String header, int attempt) {
+    if (header != null) {
+      try {
+        return Math.max(
+            1000, Math.min(86_400_000, Math.multiplyExact(Long.parseLong(header.trim()), 1000)));
+      } catch (NumberFormatException | ArithmeticException ignored) {
+        try {
+          return Math.max(
+              1000,
+              Math.min(
+                  86_400_000,
+                  java.time.ZonedDateTime.parse(
+                              header, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+                          .toInstant()
+                          .toEpochMilli()
+                      - System.currentTimeMillis()));
+        } catch (java.time.DateTimeException ignoredDate) {
+          // Missing or malformed Retry-After uses a bounded exponential fallback.
+        }
+      }
+    }
+    return 5000L << attempt;
   }
 
   public static void validatePng(byte[] bytes) throws IOException {

@@ -305,14 +305,58 @@ public class MapGestureTest {
     coast(64);
     double later = map.camera()[2];
     assertTrue(early - released > later - early);
-    coast(1000);
+    coast(2400);
     double settled = map.camera()[2];
     assertTrue(settled > released);
-    assertTrue(settled - released < 1);
+    assertTrue("A brisk flick should carry more than one extra zoom level", settled - released > 1);
+    assertTrue("Even the fastest flick remains controlled", settled - released < 3);
     coast(1000);
     assertEquals(settled, map.camera()[2], 1e-10);
     assertEquals(anchor.lat, underSecondTap().lat, 1e-5);
     assertEquals(anchor.lon, underSecondTap().lon, 1e-5);
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void aFastFlickCoastsFartherThanASlowDragInEitherDirection() {
+    double[] start = {45.9, 6.8, 10};
+    for (int direction : new int[] {-1, 1}) {
+      double[] travel = new double[2];
+      for (int speed = 0; speed < 2; speed++) {
+        map.restoreCamera(start);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        doublePress();
+        for (int i = 1; i <= 6; i++)
+          touch(MotionEvent.ACTION_MOVE, 200, 300 + direction * i * 20, speed == 0 ? 60 : 10);
+        touch(MotionEvent.ACTION_UP, 200, 300 + direction * 120, 0);
+        double released = map.camera()[2];
+        coast(2400);
+        travel[speed] = direction * (map.camera()[2] - released);
+      }
+      assertTrue(travel[0] > 0);
+      assertTrue("Momentum must respond to release speed", travel[1] > travel[0] * 2);
+      assertTrue(travel[1] > 1);
+    }
+  }
+
+  @Test
+  public void zoomCoastCoversTheSameDistanceAtDifferentFrameRates() {
+    double[] levels = new double[2];
+    for (int run = 0; run < 2; run++) {
+      map.restoreCamera(new double[] {45.9, 6.8, 10});
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      doublePress();
+      touch(MotionEvent.ACTION_MOVE, 200, 400);
+      touch(MotionEvent.ACTION_MOVE, 200, 480);
+      touch(MotionEvent.ACTION_UP, 200, 480, 0);
+      int interval = run == 0 ? 16 : 64;
+      for (int elapsed = 0; elapsed < 640; elapsed += interval) {
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(interval));
+        map.computeScroll();
+      }
+      levels[run] = map.camera()[2];
+    }
+    assertEquals(levels[0], levels[1], 1e-9);
   }
 
   @Test
