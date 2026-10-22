@@ -61,7 +61,7 @@ def main():
     (args.output / 'SHA256SUMS').write_text(manifest['sha256'] + '  ' + name + '\n')
     (args.output / 'release-notes.md').write_text(
         f'Cairn {version}\n\n'
-        'Install this APK for the first release, then use Routes → Check for updates for future versions. '
+        'Install this APK for the first release, then use Routes → App updates → Check for future versions. '
         'Checks and downloads happen only when requested. Android asks you to confirm installation.\n\n'
         'If Android reports a signing-key conflict with an older build, a one-time fresh install '
         'is required. Uninstalling removes local app data. Subsequent releases reuse the release key.\n')

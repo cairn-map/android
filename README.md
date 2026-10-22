@@ -33,7 +33,7 @@ Raster MBTiles accepts PNG/JPEG tiles in TMS or declared XYZ order. Vector MBTil
 
 ## Updates on your phone
 
-Open **Routes → Check for updates**. If a newer release is available, tap **Download update**, then **Install downloaded update** and confirm in Android. Android may first ask you to allow Cairn to install apps; return and tap Install again after granting that permission. No GitHub account or token is needed. Checks only happen when requested and downloads are never automatic. See [update behavior and release publishing](docs/UPDATES.md).
+Open **Routes → App updates → Check**. If a newer release is available, tap **Download update**, then **Install downloaded update** and confirm in Android. Android may first ask you to allow Cairn to install apps; return and tap Install again after granting that permission. No GitHub account or token is needed. Checks only happen when requested and downloads are never automatic. See [update behavior and release publishing](docs/UPDATES.md).
 
 ## Offline routing and storage
 

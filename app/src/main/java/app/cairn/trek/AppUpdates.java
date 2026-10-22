@@ -35,22 +35,35 @@ final class AppUpdates {
     this.activity = activity;
     content = new LinearLayout(activity);
     content.setOrientation(LinearLayout.VERTICAL);
-    checkButton = button("Check for updates", this::checkForUpdate);
-    content.addView(checkButton);
-    status = text("", 14, MUTED, false);
-    status.setVisibility(View.GONE);
-    status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    content.addView(status);
-    downloadButton = button("Download update", this::download);
-    installButton = button("Install downloaded update", this::install);
+    TextView heading = text("APP UPDATES", 11, MUTED, true);
+    heading.setPadding(0, 0, 0, dp(6));
+    content.addView(heading);
+
+    checkButton = button("Check", this::checkForUpdate);
+    checkButton.setContentDescription("Check for updates");
+    downloadButton = button("Download", this::download);
+    downloadButton.setContentDescription("Download update");
+    installButton = button("Install", this::install);
+    installButton.setContentDescription("Install downloaded update");
     cancelButton = button("Cancel", () -> cancel("Canceled. Nothing will restart automatically."));
-    discardButton = button("Discard downloaded update", () -> {
+    discardButton = button("Discard", () -> {
       UpdateFiles.clear(activity);
       showStatus("Downloaded update removed.");
       refresh();
     });
-    for (Button button : new Button[] {downloadButton, installButton, cancelButton, discardButton})
-      content.addView(button);
+    discardButton.setContentDescription("Discard downloaded update");
+
+    // Replace the Check button with the next available actions in this compact row.
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    for (Button button : new Button[] {checkButton, downloadButton, installButton, cancelButton, discardButton})
+      actions.addView(button);
+    content.addView(actions);
+
+    status = text("", 14, MUTED, false);
+    status.setVisibility(View.GONE);
+    status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+    content.addView(status);
     refresh();
   }
 
@@ -241,14 +254,13 @@ final class AppUpdates {
       // Preserve staged data when installed package state cannot be read.
     }
     status.setVisibility(status.length() == 0 ? View.GONE : View.VISIBLE);
-    checkButton.setEnabled(!busy);
-    downloadButton.setVisibility(offered == null ? View.GONE : View.VISIBLE);
-    downloadButton.setEnabled(!busy);
+    // Present a single contextual action group instead of stacking every possible button.
+    // Check -> Download -> Install/Discard, with Cancel replacing them during work.
     boolean ready = UpdateFiles.ready(activity);
-    installButton.setVisibility(ready ? View.VISIBLE : View.GONE);
-    installButton.setEnabled(!busy);
-    discardButton.setVisibility(ready ? View.VISIBLE : View.GONE);
-    discardButton.setEnabled(!busy);
+    checkButton.setVisibility(!busy && !ready && offered == null ? View.VISIBLE : View.GONE);
+    downloadButton.setVisibility(!busy && !ready && offered != null ? View.VISIBLE : View.GONE);
+    installButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
+    discardButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
     cancelButton.setVisibility(busy ? View.VISIBLE : View.GONE);
   }
 
@@ -267,8 +279,12 @@ final class AppUpdates {
     view.setText(title);
     view.setAllCaps(false);
     view.setTextColor(ACCENT);
-    view.setTextSize(15);
-    view.setMinHeight(dp(52));
+    view.setTextSize(13);
+    view.setMinWidth(0);
+    view.setMinimumWidth(0);
+    view.setMinHeight(dp(44));
+    view.setPadding(dp(4), 0, dp(4), 0);
+    view.setSingleLine(true);
     view.setStateListAnimator(null);
     GradientDrawable fill = new GradientDrawable();
     fill.setColor(SURFACE);
@@ -279,8 +295,9 @@ final class AppUpdates {
     mask.setCornerRadius(dp(16));
     view.setBackground(new RippleDrawable(ColorStateList.valueOf(RIPPLE), fill, mask));
     view.setOnClickListener(v -> action.run());
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.bottomMargin = dp(10);
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
+    params.rightMargin = dp(4);
+    params.bottomMargin = dp(6);
     view.setLayoutParams(params);
     return view;
   }
