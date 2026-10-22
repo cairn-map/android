@@ -57,14 +57,17 @@ public final class TrekMapView extends View {
   private final OverScroller panScroller;
   private int panX, panY;
   private long lastPanMove;
-  private boolean multiplePointers;
+  private boolean multiplePointers, releasingPointers;
+  private float multiVelocityX, multiVelocityY;
+  private long multiEventTime, lastMultiPanMove;
+  private float firstFingerX, firstFingerY, secondFingerX, secondFingerY;
   private float pinchX, pinchY;
   private boolean pinched;
   private double pinchVelocity, pinchDirection;
   private long lastPinchMove;
   private float pinchFocusX, pinchFocusY;
   private boolean twoFingerTap;
-  private float twoFingerX, twoFingerY, twoFingerSpan;
+  private float twoFingerX, twoFingerY;
   // One zoom level per 160 dp, independent of distance from the second tap or event rate.
   private final float quickZoomDistance;
   private VelocityTracker zoomVelocity;
@@ -98,7 +101,7 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onScroll(MotionEvent first, MotionEvent now, float dx, float dy) {
-                if (doubleTap || now.getPointerCount() > 1 || scales.isInProgress()) return true;
+                if (doubleTap || multiplePointers || scales.isInProgress()) return true;
                 pinched = false;
                 panBy(dx, dy);
                 refreshTiles(false);
@@ -112,19 +115,7 @@ public final class TrekMapView extends View {
                     || multiplePointers
                     || scales.isInProgress()
                     || last.getEventTime() - lastPanMove > 100) return true;
-                // Native spline deceleration respects density and the user's release speed.
-                panX = panY = 0;
-                panScroller.fling(
-                    0,
-                    0,
-                    Math.round(-vx),
-                    Math.round(-vy),
-                    Integer.MIN_VALUE,
-                    Integer.MAX_VALUE,
-                    Integer.MIN_VALUE,
-                    Integer.MAX_VALUE);
-                refreshTiles(false);
-                postInvalidateOnAnimation();
+                startPanFling(-vx, -vy);
                 return true;
               }
 
@@ -282,6 +273,35 @@ public final class TrekMapView extends View {
     return true;
   }
 
+  private void startPanFling(float vx, float vy) {
+    if (!Float.isFinite(vx) || !Float.isFinite(vy)) return;
+    ViewConfiguration config = ViewConfiguration.get(getContext());
+    if (Math.hypot(vx, vy) < config.getScaledMinimumFlingVelocity()) return;
+    int max = config.getScaledMaximumFlingVelocity();
+    panX = panY = 0;
+    panScroller.fling(
+        0,
+        0,
+        Math.round(Math.max(-max, Math.min(max, vx))),
+        Math.round(Math.max(-max, Math.min(max, vy))),
+        Integer.MIN_VALUE,
+        Integer.MAX_VALUE,
+        Integer.MIN_VALUE,
+        Integer.MAX_VALUE);
+    refreshTiles(false);
+    postInvalidateOnAnimation();
+  }
+
+  private void checkTwoFingerTap(MotionEvent event) {
+    if (!twoFingerTap) return;
+    int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+    // Track each contact: translation, rotation and changing span all cancel a tap.
+    if (event.getPointerCount() != 2
+        || Math.hypot(event.getX(0) - firstFingerX, event.getY(0) - firstFingerY) > slop
+        || Math.hypot(event.getX(1) - secondFingerX, event.getY(1) - secondFingerY) > slop)
+      twoFingerTap = false;
+  }
+
   private void animateZoom(int delta, float x, float y) {
     quickFocusX = x;
     quickFocusY = y;
@@ -338,6 +358,8 @@ public final class TrekMapView extends View {
     quickZooming = false;
     quickZoomEligible = false;
     twoFingerTap = false;
+    releasingPointers = false;
+    multiVelocityX = multiVelocityY = 0;
     pinched = false;
     pinchVelocity = pinchDirection = 0;
     doubleTap = false;
@@ -524,13 +546,26 @@ public final class TrekMapView extends View {
     if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
       pinched = false;
       pinchVelocity = pinchDirection = 0;
-      multiplePointers = true;
       pinchX = focus(e, true, -1);
       pinchY = focus(e, false, -1);
-      twoFingerTap = e.getPointerCount() == 2 && !doubleTap;
+      twoFingerTap = !multiplePointers && tapCandidate && e.getPointerCount() == 2 && !doubleTap;
       twoFingerX = pinchX;
       twoFingerY = pinchY;
-      twoFingerSpan = span(e);
+      firstFingerX = e.getX(0);
+      firstFingerY = e.getY(0);
+      secondFingerX = e.getX(1);
+      secondFingerY = e.getY(1);
+      multiplePointers = true;
+      releasingPointers = false;
+      multiVelocityX = multiVelocityY = 0;
+      multiEventTime = e.getEventTime();
+      lastMultiPanMove = 0;
+      // Cancel single-finger timers and callbacks for the rest of this contact sequence.
+      MotionEvent cancel = MotionEvent.obtain(e);
+      cancel.setAction(MotionEvent.ACTION_CANCEL);
+      gestures.onTouchEvent(cancel);
+      cancel.recycle();
+      doubleTap = false;
       tapCandidate = false;
       quickZoomEligible = false;
       if (quickZooming) {
@@ -540,36 +575,47 @@ public final class TrekMapView extends View {
     }
     // Move the pinch anchor along with the fingers, including two-finger drags
     // whose span never crosses ScaleGestureDetector's scaling threshold.
-    if (e.getActionMasked() == MotionEvent.ACTION_MOVE && e.getPointerCount() > 1) {
+    if (e.getActionMasked() == MotionEvent.ACTION_MOVE
+        && e.getPointerCount() > 1
+        && !releasingPointers) {
       float x = focus(e, true, -1), y = focus(e, false, -1);
-      if (Math.hypot(x - twoFingerX, y - twoFingerY)
-              > ViewConfiguration.get(getContext()).getScaledTouchSlop()
-          || Math.abs(span(e) - twoFingerSpan)
-              > ViewConfiguration.get(getContext()).getScaledTouchSlop()) twoFingerTap = false;
-      panBy(pinchX - x, pinchY - y);
+      checkTwoFingerTap(e);
+      float dx = pinchX - x, dy = pinchY - y;
+      long dt = e.getEventTime() - multiEventTime;
+      if (dt > 0) {
+        multiVelocityX = multiVelocityX * 0.25f + dx * 1000 / dt * 0.75f;
+        multiVelocityY = multiVelocityY * 0.25f + dy * 1000 / dt * 0.75f;
+        if (dx != 0 || dy != 0) lastMultiPanMove = e.getEventTime();
+      }
+      multiEventTime = e.getEventTime();
+      panBy(dx, dy);
       pinchX = x;
       pinchY = y;
     }
-    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
-      pinchX = focus(e, true, e.getActionIndex());
-      pinchY = focus(e, false, e.getActionIndex());
+    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_UP && !releasingPointers) {
+      checkTwoFingerTap(e);
+      if (e.getPointerCount() == 2) {
+        // Release momentum while the velocity still describes both fingers. The remaining
+        // contact belongs to this gesture, even if it sends MOVE events before lifting.
+        releasingPointers = true;
+        if (!twoFingerTap) {
+          if (pinched && e.getEventTime() - lastPinchMove <= 100)
+            startZoomFling(pinchVelocity, pinchFocusX, pinchFocusY);
+          if (lastMultiPanMove != 0 && e.getEventTime() - lastMultiPanMove <= 100)
+            startPanFling(multiVelocityX, multiVelocityY);
+        }
+      } else {
+        pinchX = focus(e, true, e.getActionIndex());
+        pinchY = focus(e, false, e.getActionIndex());
+        multiVelocityX = multiVelocityY = 0;
+        multiEventTime = e.getEventTime();
+      }
     }
-    if (e.getPointerCount() == 1
-        && multiplePointers
-        && Math.hypot(e.getX() - pinchX, e.getY() - pinchY)
-            > ViewConfiguration.get(getContext()).getScaledTouchSlop()) twoFingerTap = false;
     if (e.getActionMasked() == MotionEvent.ACTION_MOVE
         && Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
     scales.onTouchEvent(e);
-    gestures.onTouchEvent(e);
-    if (e.getActionMasked() == MotionEvent.ACTION_UP
-        && pinched
-        && e.getEventTime() - lastPinchMove <= 100
-        && pinchVelocity * pinchDirection > 0) {
-      startZoomFling(pinchVelocity, pinchFocusX, pinchFocusY);
-      pinched = false;
-    }
+    if (!multiplePointers) gestures.onTouchEvent(e);
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         && twoFingerTap
         && e.getEventTime() - e.getDownTime() <= ViewConfiguration.getDoubleTapTimeout()) {
@@ -602,10 +648,6 @@ public final class TrekMapView extends View {
       count++;
     }
     return sum / count;
-  }
-
-  private static float span(MotionEvent event) {
-    return (float) Math.hypot(event.getX(1) - event.getX(0), event.getY(1) - event.getY(0));
   }
 
   @Override
@@ -764,12 +806,13 @@ public final class TrekMapView extends View {
       c.drawText(text, dp(8), dp(20), paint);
     }
     // A ground-distance scale remains useful with both saved and enlarged tiles.
-    double pixelsPerMeter = (1 << zoom) * tileSize / (40075016.686 * Math.cos(Math.toRadians(lat)));
+    double pixelsPerMeter =
+        (1 << zoom) * scaledTileSize() / (40075016.686 * Math.cos(Math.toRadians(lat)));
     double desired = dp(96) / pixelsPerMeter, unit = Math.pow(10, Math.floor(Math.log10(desired)));
     double metres = desired / unit >= 5 ? 5 * unit : desired / unit >= 2 ? 2 * unit : unit;
     float scaleWidth = (float) (metres * pixelsPerMeter),
         right = dp(116),
-        bottom = getHeight() - dp(92) - bottomOverlay;
+        bottom = getHeight() - dp(20) - bottomOverlay;
     paint.setStyle(Paint.Style.FILL);
     paint.setColor(AppPalette.SURFACE);
     c.drawRect(right - scaleWidth - dp(8), bottom - dp(22), right + dp(6), bottom + dp(7), paint);

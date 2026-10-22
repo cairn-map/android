@@ -282,6 +282,65 @@ public class AppUpdateTest {
   }
 
   @Test
+  @LooperMode(LooperMode.Mode.PAUSED)
+  public void completedUpdateMessageExpiresAndDoesNotReturnWhenMapRebuilds() throws Exception {
+    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      AppUpdates updates =
+          updater(
+              activity,
+              client(new ArrayList<>(), new Response(json(metadata().put("versionCode", 1)))),
+              (file, manifest, stop) -> fail("No download for an older release"));
+      tapUpdate(activity);
+      drain(updates);
+      android.view.View status = (android.view.View) field(activity, "updateStatus");
+      assertEquals(android.view.View.VISIBLE, status.getVisibility());
+      Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(7));
+      assertEquals(android.view.View.GONE, status.getVisibility());
+      java.lang.reflect.Method show =
+          MainActivity.class.getDeclaredMethod("showPage", String.class);
+      show.setAccessible(true);
+      show.invoke(activity, "Map");
+      assertEquals(
+          android.view.View.GONE,
+          ((android.view.View) field(activity, "updateStatus")).getVisibility());
+    }
+  }
+
+  @Test
+  @LooperMode(LooperMode.Mode.PAUSED)
+  public void activeUpdateProgressRemainsVisibleUntilTheTransferFinishes() throws Exception {
+    java.util.concurrent.CountDownLatch verifying = new java.util.concurrent.CountDownLatch(1);
+    java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      AppUpdates updates =
+          updater(
+              activity,
+              client(new ArrayList<>(), new Response(json(metadata())), new Response(apkBytes)),
+              (file, manifest, stop) -> {
+                verifying.countDown();
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+              });
+      tapUpdate(activity);
+      assertTrue(verifying.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(7));
+      assertEquals(
+          android.view.View.VISIBLE,
+          ((android.view.View) field(activity, "updateStatus")).getVisibility());
+      release.countDown();
+      drain(updates);
+      Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(7));
+      assertEquals(
+          android.view.View.GONE,
+          ((android.view.View) field(activity, "updateStatus")).getVisibility());
+    } finally {
+      release.countDown();
+    }
+  }
+
+  @Test
   public void oneTapChecksDownloadsVerifiesAndLaunchesInstallerWithoutAnAppPopup()
       throws Exception {
     List<String> requests = new ArrayList<>();

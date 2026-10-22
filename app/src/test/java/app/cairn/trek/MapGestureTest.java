@@ -608,7 +608,7 @@ public class MapGestureTest {
   }
 
   @Test
-  public void twoFingerDragMovesTheMapWithoutChangingZoomOrFlingingOnPointerLift() {
+  public void twoFingerDragCoastsWithoutQueuingZoomOut() {
     touch(MotionEvent.ACTION_DOWN, 200, 300);
     twoFingers(
         MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 200, 400);
@@ -622,7 +622,8 @@ public class MapGestureTest {
     touch(MotionEvent.ACTION_UP, 280, 300);
     double[] released = map.camera();
     coast(2000);
-    assertArrayEquals(released, map.camera(), 1e-10);
+    assertTrue(map.camera()[1] < released[1]);
+    assertEquals(released[2], map.camera()[2], 1e-10);
   }
 
   @Test
@@ -697,6 +698,45 @@ public class MapGestureTest {
       assertArrayEquals(stopped, map.camera(), 1e-10);
       touch(MotionEvent.ACTION_CANCEL, 300, 300);
     }
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void staggeredReleaseKeepsPinchMomentumDespiteTrailingFingerMoves() {
+    for (int lifted : new int[] {0, 1}) {
+      map.restoreCamera(new double[] {45.9, 6.8, 10});
+      pinch(20, 1);
+      twoFingers(
+          MotionEvent.ACTION_POINTER_UP | (lifted << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+          0,
+          600,
+          0);
+      double released = map.camera()[2];
+      float remaining = lifted == 0 ? 600 : 0;
+      touch(MotionEvent.ACTION_MOVE, remaining + 40, 340, 160);
+      coast(80);
+      double coasting = map.camera()[2];
+      assertTrue(coasting > released);
+      touch(MotionEvent.ACTION_UP, remaining + 40, 340, 0);
+      coast(80);
+      assertTrue(map.camera()[2] > coasting);
+    }
+  }
+
+  @Test
+  public void heldTwoFingerPanDoesNotCoastOrZoomOut() {
+    touch(MotionEvent.ACTION_DOWN, 200, 300);
+    twoFingers(
+        MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 200, 400);
+    twoFingers(MotionEvent.ACTION_MOVE, 260, 460);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+    twoFingers(
+        MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 260, 460);
+    touch(MotionEvent.ACTION_MOVE, 280, 320);
+    touch(MotionEvent.ACTION_UP, 280, 320);
+    double[] released = map.camera();
+    coast(2000);
+    assertArrayEquals(released, map.camera(), 1e-10);
   }
 
   @Test

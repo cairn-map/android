@@ -11,7 +11,7 @@ import android.graphics.drawable.*;
 import android.view.*;
 import android.widget.*;
 
-/** Shared rounded dialogs and bottom drawers, using the platform's accessible controls. */
+/** Shared dialogs and full-screen drawers, using the platform's accessible controls. */
 final class CairnDialogs {
   static Builder dialog(Context context) {
     return new Builder(context, false);
@@ -59,27 +59,6 @@ final class CairnDialogs {
           grip.addView(handle, hp);
           header.addView(grip, new LinearLayout.LayoutParams(-1, dp(28)));
           grip.setContentDescription("Swipe down to close drawer");
-          grip.setOnTouchListener(
-              new View.OnTouchListener() {
-                float down;
-
-                @Override
-                public boolean onTouch(View view, MotionEvent event) {
-                  View decor = holder[0].getWindow().getDecorView();
-                  if (event.getActionMasked() == MotionEvent.ACTION_DOWN) down = event.getRawY();
-                  else if (event.getActionMasked() == MotionEvent.ACTION_MOVE)
-                    decor.setTranslationY(Math.max(0, event.getRawY() - down));
-                  else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                    if (decor.getTranslationY() > dp(72)) holder[0].cancel();
-                    else {
-                      decor.animate().translationY(0).setDuration(160).start();
-                      view.performClick();
-                    }
-                  } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL)
-                    decor.animate().translationY(0).setDuration(160).start();
-                  return true;
-                }
-              });
         }
         LinearLayout titleRow = new LinearLayout(context);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -112,15 +91,38 @@ final class CairnDialogs {
       holder[0] = dialog;
       Window window = dialog.getWindow();
       GradientDrawable surface = shape(SURFACE, 28);
-      if (drawer) surface.setCornerRadii(new float[] {dp(28), dp(28), dp(28), dp(28), 0, 0, 0, 0});
-      window.setBackgroundDrawable(surface);
+      if (drawer) surface.setCornerRadius(0);
+      window.setBackgroundDrawable(drawer ? new ColorDrawable(Color.TRANSPARENT) : surface);
       window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
       window.setDimAmount(0.45f);
       window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
       if (drawer) {
         window.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        window.setLayout(
-            Math.min(context.getResources().getDisplayMetrics().widthPixels, dp(600)), -2);
+        window.setLayout(-1, -1);
+        // AlertController installs and sizes its panels during show(), so apply the shared
+        // size after attachment as well. Callers can keep their own on-show callbacks.
+        window
+            .getDecorView()
+            .addOnAttachStateChangeListener(
+                new View.OnAttachStateChangeListener() {
+                  @Override
+                  public void onViewAttachedToWindow(View decor) {
+                    window.setLayout(-1, -1);
+                    FrameLayout content = window.findViewById(android.R.id.content);
+                    SwipeDrawer swipe = new SwipeDrawer(context, dialog);
+                    while (content.getChildCount() > 0) {
+                      View child = content.getChildAt(0);
+                      ViewGroup.LayoutParams params = child.getLayoutParams();
+                      content.removeView(child);
+                      swipe.addView(child, params);
+                    }
+                    content.addView(swipe, new FrameLayout.LayoutParams(-1, -1));
+                    decor.removeOnAttachStateChangeListener(this);
+                  }
+
+                  @Override
+                  public void onViewDetachedFromWindow(View decor) {}
+                });
         window.setWindowAnimations(R.style.CairnDrawerAnimation);
       }
       return dialog;
@@ -135,6 +137,138 @@ final class CairnDialogs {
       shape.setColor(color);
       shape.setCornerRadius(dp(radius));
       return shape;
+    }
+  }
+
+  /** Intercept downward drags only when the touched content is already at its top. */
+  private static final class SwipeDrawer extends FrameLayout {
+    private final AlertDialog dialog;
+    private final int slop;
+    private float downX, downY;
+    private boolean eligible, dragging;
+    private VelocityTracker velocity;
+
+    SwipeDrawer(Context context, AlertDialog dialog) {
+      super(context);
+      this.dialog = dialog;
+      setBackgroundColor(SURFACE);
+      slop = ViewConfiguration.get(context).getScaledTouchSlop();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+      if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+        animate().cancel();
+        downX = event.getRawX();
+        downY = event.getRawY();
+        dragging = false;
+        eligible = !canScrollUpAt(this, event.getX(), event.getY());
+        if (velocity != null) velocity.recycle();
+        velocity = VelocityTracker.obtain();
+      }
+      if (velocity != null) {
+        MotionEvent raw = MotionEvent.obtain(event);
+        raw.offsetLocation(event.getRawX() - event.getX(), event.getRawY() - event.getY());
+        velocity.addMovement(raw);
+        raw.recycle();
+      }
+      if (event.getPointerCount() > 1) eligible = false;
+      boolean handled = super.dispatchTouchEvent(event);
+      if (event.getActionMasked() == MotionEvent.ACTION_UP
+          || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+        if (velocity != null) velocity.recycle();
+        velocity = null;
+        dragging = false;
+      }
+      return handled;
+    }
+
+    @Override
+    public void requestDisallowInterceptTouchEvent(boolean disallow) {
+      // ScrollView may claim a sequence on DOWN while stopping an old fling. At its
+      // top, keep observing the direction so a downward swipe can still close it.
+      super.requestDisallowInterceptTouchEvent(disallow && !eligible);
+    }
+
+    private void beginDrag(MotionEvent event) {
+      float dy = event.getRawY() - downY;
+      if (event.getActionMasked() == MotionEvent.ACTION_MOVE
+          && eligible
+          && dy > slop
+          && dy > Math.abs(event.getRawX() - downX)
+          && !canScrollUpAt(this, event.getX(), event.getY())) {
+        dragging = true;
+        getParent().requestDisallowInterceptTouchEvent(true);
+      }
+      // The intercepting MOVE only cancels the child; onTouchEvent starts with the next
+      // event. Apply this first displacement here so even a quick swipe follows the finger.
+      if (dragging && event.getActionMasked() == MotionEvent.ACTION_MOVE)
+        setTranslationY(Math.max(0, dy));
+    }
+
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent event) {
+      beginDrag(event);
+      return dragging;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+      // Empty areas have no child touch target, so their MOVE events arrive here directly.
+      beginDrag(event);
+      if (!dragging) {
+        if (event.getActionMasked() == MotionEvent.ACTION_UP) performClick();
+        return true;
+      }
+      switch (event.getActionMasked()) {
+        case MotionEvent.ACTION_UP:
+          velocity.computeCurrentVelocity(1000);
+          float density = getResources().getDisplayMetrics().density;
+          if (eligible
+              && (getTranslationY() > 72 * density
+                  || getTranslationY() > slop && velocity.getYVelocity() > 1000 * density)) {
+            dialog.cancel();
+            break;
+          }
+        // Fall through to restore the drawer after a short drag.
+        case MotionEvent.ACTION_CANCEL:
+          animate().translationY(0).setDuration(160).start();
+          break;
+      }
+      return true;
+    }
+
+    @Override
+    public boolean performClick() {
+      return super.performClick();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+      animate().cancel();
+      setTranslationY(0);
+      if (velocity != null) velocity.recycle();
+      velocity = null;
+      super.onDetachedFromWindow();
+    }
+
+    private static boolean canScrollUpAt(View view, float x, float y) {
+      if (view.canScrollVertically(-1)) return true;
+      if (view instanceof ViewGroup) {
+        ViewGroup group = (ViewGroup) view;
+        for (int i = group.getChildCount() - 1; i >= 0; i--) {
+          View child = group.getChildAt(i);
+          float cx = x + view.getScrollX() - child.getLeft();
+          float cy = y + view.getScrollY() - child.getTop();
+          if (child.getVisibility() == VISIBLE
+              && cx >= 0
+              && cy >= 0
+              && cx < child.getWidth()
+              && cy < child.getHeight()
+              && canScrollUpAt(child, cx, cy)) return true;
+        }
+      }
+      return false;
     }
   }
 
