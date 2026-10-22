@@ -44,8 +44,8 @@ public class MapControlsTest {
   }
 
   private View find(View view, String text) {
-    if (text.contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription()))
-      return view;
+    if (text.contentEquals(
+        view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
     if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
     if (view instanceof ViewGroup) {
       ViewGroup group = (ViewGroup) view;
@@ -71,7 +71,7 @@ public class MapControlsTest {
 
   @Test
   @Config(sdk = {26, 35})
-  public void gpsSliderPreservesSavedValuesAndOnlyCommitsOnSave() throws Exception {
+  public void gpsSliderAndAlertsApplyImmediatelyAndSurviveDismissal() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -89,13 +89,15 @@ public class MapControlsTest {
       assertEquals(GpsInterval.progress(137), slider.getProgress());
       assertEquals(0, slider.getMin());
       assertEquals(GpsInterval.STEPS, slider.getMax());
-      assertTrue(dialog.getWindow().getAttributes().width > 0);
+      assertEquals(-1, dialog.getWindow().getAttributes().width);
       assertEquals(-2, dialog.getWindow().getAttributes().height);
       slider.setProgress(GpsInterval.STEPS);
       assertNotNull(find(content, activity.getString(R.string.gps_interval, 3600)));
-      assertEquals(137000, store.intervalMillis());
-      dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
-      assertEquals(137000, store.intervalMillis());
+      assertEquals(3600000, store.intervalMillis());
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+      dialog.cancel();
+      assertEquals(3600000, store.intervalMillis());
       for (int seconds : new int[] {1, 60, 300, 3600}) {
         settings.invoke(activity);
         Shadows.shadowOf(Looper.getMainLooper()).idle();
@@ -103,7 +105,7 @@ public class MapControlsTest {
         slider = findType(dialog.getWindow().getDecorView(), SeekBar.class);
         slider.setProgress(GpsInterval.progress(seconds));
         findType(dialog.getWindow().getDecorView(), Switch.class).setChecked(false);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        dialog.cancel();
         assertFalse(dialog.isShowing());
         assertEquals(seconds * 1000L, store.intervalMillis());
         assertFalse(store.prefs.getBoolean("offRoute", true));
@@ -121,7 +123,7 @@ public class MapControlsTest {
       TextView feedback = (TextView) field(activity, "updateStatus");
       feedback.setText("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
       feedback.setVisibility(View.VISIBLE);
-      View root = activity.findViewById(android.R.id.content);
+      View root = activity.getWindow().getDecorView();
       savePreview(root, 786, 1550, "top-centered-update-feedback");
       View parent = (View) feedback.getParent();
       assertEquals(parent.getWidth(), feedback.getLeft() + feedback.getRight(), 1);
@@ -140,14 +142,15 @@ public class MapControlsTest {
       assertTrue("GPS settings must fit their content", height < 1550);
       savePreview(decor, 722, height, "gps-slider-drawer");
       assertTrue(findType(decor, SeekBar.class).getHeight() >= 96);
-      assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).getBottom() <= height);
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
       dialog.dismiss();
     }
   }
 
   @Test
   @Config(sdk = {28, 35})
-  public void locationToastsAreTopCenteredReplacedAndCanceledOnPause() throws Exception {
+  public void locationFeedbackReplacesItsProgressAtTheSamePositionAndClearsOnPause()
+      throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -155,24 +158,69 @@ public class MapControlsTest {
       java.lang.reflect.Method locate = MainActivity.class.getDeclaredMethod("locate");
       locate.setAccessible(true);
       locate.invoke(activity);
-      Toast first = (Toast) field(activity, "currentToast");
-      assertEquals(Gravity.TOP | Gravity.CENTER_HORIZONTAL, first.getGravity());
-      assertEquals(Gravity.CENTER, ((TextView) first.getView()).getGravity());
-      assertEquals(
-          "Waiting for your next scheduled GPS fix", ((TextView) first.getView()).getText());
+      TextView banner = (TextView) field(activity, "updateStatus");
+      assertEquals("Waiting for your next scheduled GPS fix", banner.getText().toString());
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.position = new Point(45, 6, Double.NaN, System.currentTimeMillis(), 5, 0);
       locate.invoke(activity);
-      Toast second = (Toast) field(activity, "currentToast");
-      assertNotSame(first, second);
-      assertTrue(Shadows.shadowOf(first).isCancelled());
-      assertEquals(Gravity.TOP | Gravity.CENTER_HORIZONTAL, second.getGravity());
-      assertEquals(0, second.getXOffset());
-      assertTrue(second.getYOffset() > 0);
+      assertTrue(banner.getText().toString().startsWith("Position ±"));
+      assertEquals(
+          Gravity.TOP | Gravity.CENTER_HORIZONTAL,
+          ((FrameLayout.LayoutParams) banner.getLayoutParams()).gravity);
       controller.pause();
-      assertTrue(Shadows.shadowOf(second).isCancelled());
+      assertEquals(View.GONE, banner.getVisibility());
     } finally {
       TrackingService.running = false;
+    }
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(sdk = 35, qualifiers = "w393dp-h851dp-xhdpi")
+  public void searchUsesTheAvailableDrawerHeightWithCreditBelowTheResults() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      PlaceSearch original = (PlaceSearch) field(activity, "placeSearch");
+      original.close();
+      PlaceSearch search =
+          new PlaceSearch(
+              activity,
+              (query, center) ->
+                  PhotonClient.parse(
+                      """
+                      {"features":[
+                        {"properties":{"name":"Mont Thabor","osm_value":"peak","country":"France"},
+                         "geometry":{"type":"Point","coordinates":[6.563,45.115]}},
+                        {"properties":{"name":"Thabor","city":"Rennes","country":"France"},
+                         "geometry":{"type":"Point","coordinates":[-1.66,48.11]}}
+                      ]}
+                      """));
+      Field holder = MainActivity.class.getDeclaredField("placeSearch");
+      holder.setAccessible(true);
+      holder.set(activity, search);
+      find(activity.getWindow().getDecorView(), "Search places").performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View decor = dialog.getWindow().getDecorView();
+      EditText query = (EditText) find(decor, "Place name or address");
+      query.setText("Thabor");
+      query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+      Field worker = PlaceSearch.class.getDeclaredField("worker");
+      worker.setAccessible(true);
+      ((ExecutorService) worker.get(search)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertNotNull(find(decor, "Mont Thabor, Mountain, France"));
+      savePreview(decor, 786, 1400, "search-results-drawer");
+      ScrollView results =
+          (ScrollView) find(decor, "Mont Thabor, Mountain, France").getParent().getParent();
+      assertTrue("Search results should fill the available height", results.getHeight() > 400);
+      savePreview(decor, 786, 900, "search-results-resized-drawer");
+      assertTrue("Results should remain usable above the keyboard", results.getHeight() > 200);
+      TextView credit = (TextView) find(decor, "© OpenStreetMap");
+      assertTrue(credit.getTop() >= results.getBottom());
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
+      dialog.dismiss();
     }
   }
 
@@ -255,13 +303,14 @@ public class MapControlsTest {
   }
 
   @Test
-  public void mapInfoOpensSourceUpdateAndLicenceLinks() throws Exception {
+  public void drawerFooterOpensSourceUpdateAndLicenceLinksWithoutAMapControl() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
-      View info = find(activity.getWindow().getDecorView(), "Map attribution and licences");
-      assertNotNull(info);
-      info.performClick();
+      assertNull(find(activity.getWindow().getDecorView(), "Map attribution and licences"));
+      ((View) field(activity, "libraryButton")).performClick();
+      AlertDialog library = (AlertDialog) field(activity, "libraryDialog");
+      find(library.getWindow().getDecorView(), "Map sources and licences").performClick();
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       TextView body = dialog.findViewById(android.R.id.message);
       assertTrue(body.getText().toString().contains("https://www.data.gouv.fr/datasets/plan-ign"));
@@ -300,7 +349,7 @@ public class MapControlsTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       drain(activity);
-      View root = activity.findViewById(android.R.id.content);
+      View root = activity.getWindow().getDecorView();
       savePreview(root, 786, 1550, "map-right-controls");
       for (String name :
           new String[] {"previewButton", "libraryButton", "updateButton", "intervalChip"}) {
@@ -349,7 +398,7 @@ public class MapControlsTest {
           MainActivity.class.getDeclaredMethod("showPage", String.class);
       show.setAccessible(true);
       show.invoke(activity, "Map");
-      View root = activity.findViewById(android.R.id.content);
+      View root = activity.getWindow().getDecorView();
       root.measure(
           View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY));

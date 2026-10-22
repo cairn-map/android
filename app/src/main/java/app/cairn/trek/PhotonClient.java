@@ -32,7 +32,7 @@ final class PhotonClient implements PlaceSearch.Lookup {
         Uri.parse("https://photon.komoot.io/api/")
             .buildUpon()
             .appendQueryParameter("q", query)
-            .appendQueryParameter("limit", "20");
+            .appendQueryParameter("limit", "40");
     if (center != null) {
       url.appendQueryParameter("lat", Double.toString(center.lat))
           .appendQueryParameter("lon", Double.toString(center.lon))
@@ -98,7 +98,7 @@ final class PhotonClient implements PlaceSearch.Lookup {
       JSONArray features = new JSONObject(json).getJSONArray("features");
       List<Address> results = new ArrayList<>();
       Set<String> seen = new HashSet<>();
-      for (int i = 0; i < features.length() && results.size() < 20; i++) {
+      for (int i = 0; i < features.length() && results.size() < 40; i++) {
         JSONObject feature = features.optJSONObject(i);
         if (feature == null) continue;
         JSONObject geometry = feature.optJSONObject("geometry"),
@@ -115,6 +115,9 @@ final class PhotonClient implements PlaceSearch.Lookup {
         String name = p.optString("name", "").trim();
         if (name.isEmpty()) name = p.optString("street", "").trim();
         if (name.isEmpty()) continue;
+        String street = p.optString("street", "").trim();
+        String number = p.optString("housenumber", "").trim();
+        if (!number.isEmpty() && name.equals(street)) name = number + " " + street;
         String key =
             name.toLowerCase(Locale.ROOT)
                 + ":"
@@ -124,14 +127,26 @@ final class PhotonClient implements PlaceSearch.Lookup {
         if (!seen.add(key)) continue;
         Address place = new Address(Locale.getDefault());
         place.setFeatureName(name);
+        place.setLocality(p.optString("city", ""));
+        place.setAdminArea(p.optString("state", ""));
+        place.setCountryName(p.optString("country", ""));
+        place.setCountryCode(p.optString("countrycode", ""));
+        place.setPostalCode(p.optString("postcode", ""));
+        place.setThoroughfare(street);
+        place.setSubThoroughfare(number);
+        android.os.Bundle metadata = new android.os.Bundle();
+        metadata.putString("kind", p.optString("osm_value", ""));
+        place.setExtras(metadata);
         place.setLatitude(lat);
         place.setLongitude(lon);
         LinkedHashSet<String> label = new LinkedHashSet<>();
         label.add(name);
         if ("peak".equals(p.optString("osm_value"))) label.add("Mountain");
-        for (String field : new String[] {"city", "state", "country"}) {
+        String streetAddress = number.isEmpty() ? street : number + " " + street;
+        if (!streetAddress.isEmpty() && !name.equals(streetAddress)) label.add(streetAddress);
+        for (String field : new String[] {"postcode", "district", "city", "state", "country"}) {
           String part = p.optString(field, "").trim();
-          if (!part.isEmpty()) label.add(part);
+          if (!part.isEmpty() && !name.contains(part)) label.add(part);
         }
         place.setAddressLine(0, String.join(", ", label));
         results.add(place);

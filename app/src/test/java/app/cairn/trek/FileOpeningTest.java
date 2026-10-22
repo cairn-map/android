@@ -83,7 +83,13 @@ public class FileOpeningTest {
       TrekMapView map = map(controller.get().getWindow().getDecorView());
       assertTrue(map.tileSource() instanceof IgnMap);
       assertFalse(((IgnMap) map.tileSource()).online());
-      assertNotNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+      java.lang.reflect.Field feedback = MainActivity.class.getDeclaredField("updateStatus");
+      feedback.setAccessible(true);
+      assertTrue(
+          ((android.widget.TextView) feedback.get(controller.get()))
+              .getText()
+              .toString()
+              .contains("Plan IGN is ready"));
     }
   }
 

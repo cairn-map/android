@@ -52,7 +52,7 @@ public final class MainActivity extends Activity {
   private ManualLocation manualLocation;
   private PlaceSearch placeSearch;
   private AlertDialog searchDialog;
-  private Toast currentToast;
+  private AppFeedback feedback;
 
   private final BroadcastReceiver fixes =
       new BroadcastReceiver() {
@@ -109,6 +109,7 @@ public final class MainActivity extends Activity {
           return insets;
         });
     setContentView(root);
+    feedback = new AppFeedback(this);
     pages = column();
     root.addView(pages, new FrameLayout.LayoutParams(-1, -1));
     map = new TrekMapView(this);
@@ -170,7 +171,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onPause() {
     appUpdates.pause();
-    if (currentToast != null) currentToast.cancel();
+    feedback.clear();
     map.stopMotion();
     double[] camera = map.camera();
     store
@@ -246,7 +247,6 @@ public final class MainActivity extends Activity {
     AlertDialog popout =
         CairnDialogs.drawer(this)
             .fullHeight()
-            .fullWidth()
             .setTitle("Routes & Recordings")
             .setView(libraryBody)
             .create();
@@ -272,13 +272,6 @@ public final class MainActivity extends Activity {
     if (map.getParent() != null) ((ViewGroup) map.getParent()).removeView(map);
     FrameLayout frame = new FrameLayout(this);
     frame.addView(map, new FrameLayout.LayoutParams(-1, -1));
-    FrameLayout.LayoutParams creditParams =
-        new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.TOP);
-    creditParams.setMargins(dp(4), dp(4), 0, 0);
-    ImageButton credits =
-        iconButton(MapIcon.INFO, "Map attribution and licences", this::showAttribution);
-    credits.setBackground(null);
-    frame.addView(credits, creditParams);
     pages.addView(frame, new LinearLayout.LayoutParams(-1, -1));
 
     boolean compactPlanning = planning && getResources().getConfiguration().screenHeightDp < 600;
@@ -328,22 +321,11 @@ public final class MainActivity extends Activity {
     controlsParams.setMargins(0, dp(12), dp(12), dp(planning ? (compactPlanning ? 168 : 264) : 92));
     frame.addView(controlRail, controlsParams);
 
-    updateStatus = label("", 13, TEXT, false);
-    updateStatus.setPadding(dp(16), dp(12), dp(16), dp(12));
-    updateStatus.setGravity(Gravity.CENTER);
-    updateStatus.setBackground(surface(SURFACE, OUTLINE, 20));
-    updateStatus.setMaxWidth(
-        Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(48)));
-    updateStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    FrameLayout.LayoutParams updateParams =
-        new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-    updateParams.setMargins(dp(24), dp(12), dp(24), dp(24));
-    frame.addView(updateStatus, updateParams);
+    updateStatus = feedback.view();
     appUpdates.listen(
         (message, busy) -> {
           if (destroyed) return;
-          updateStatus.setText(message);
-          updateStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+          feedback.update(message, busy);
           updateButton.setEnabled(!busy);
           setIconActive(updateButton, busy);
           updateButton.setContentDescription(busy ? message : "Update Cairn");
@@ -384,7 +366,6 @@ public final class MainActivity extends Activity {
               false,
               () ->
                   CairnDialogs.drawer(this)
-                      .fullWidth()
                       .setItems(
                           new String[] {
                             "Add coordinates", "Download routing data", "Cancel planning"
@@ -559,25 +540,7 @@ public final class MainActivity extends Activity {
         content.addView(swipe, params);
       }
     }
-    content.addView(spacer(20));
-    content.addView(
-        label("BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL).", 12, MUTED, false));
-    TextView licences = label("Licences & attribution", 12, ACCENT, true);
-    licences.setPadding(0, dp(16), 0, dp(16));
-    licences.setOnClickListener(v -> showAttribution());
-    content.addView(licences);
-    TextView ignCredit = label("", 12, MUTED, false);
-    ignCredit.setText(
-        android.text.Html.fromHtml(
-            "Plan IGN · © IGN · <a"
-                + " href=\"https://github.com/etalab/licence-ouverte/blob/master/LO.md\">Licence"
-                + " Ouverte 2.0</a><br><a"
-                + " href=\"https://www.data.gouv.fr/datasets/plan-ign\">Source and update"
-                + " information</a>",
-            android.text.Html.FROM_HTML_MODE_LEGACY));
-    ignCredit.setLinkTextColor(ACCENT);
-    ignCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-    content.addView(ignCredit);
+    content.addView(attributionFooter());
   }
 
   private void removeTrek(String id) {
@@ -610,7 +573,6 @@ public final class MainActivity extends Activity {
 
   private void routeActions(Store.RouteEntry entry) {
     CairnDialogs.drawer(this)
-        .fullWidth()
         .setTitle(entry.title)
         .setItems(
             new String[] {
@@ -731,7 +693,6 @@ public final class MainActivity extends Activity {
               () -> {
                 if (mapDialog != null) mapDialog.dismiss();
                 CairnDialogs.drawer(this)
-                    .fullWidth()
                     .setTitle(pack.name)
                     .setItems(
                         new String[] {
@@ -828,16 +789,11 @@ public final class MainActivity extends Activity {
                   .show();
             }));
     content.addView(button("Routing data", false, this::routingDataMenu));
+    content.addView(attributionFooter());
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
     mapDialog =
-        CairnDialogs.drawer(this)
-            .fullHeight()
-            .fullWidth()
-            .setTitle("Saved maps")
-            .setView(scroll)
-            .setPositiveButton("Done", null)
-            .create();
+        CairnDialogs.drawer(this).fullHeight().setTitle("Saved maps").setView(scroll).create();
     mapDialog.show();
   }
 
@@ -878,12 +834,7 @@ public final class MainActivity extends Activity {
                 ? "none"
                 : String.join(", ", downloaded));
     AlertDialog.Builder builder =
-        CairnDialogs.drawer(this)
-            .fullHeight()
-            .fullWidth()
-            .setTitle("Offline routing data")
-            .setMessage(text)
-            .setNegativeButton("Close", null);
+        CairnDialogs.drawer(this).fullHeight().setTitle("Offline routing data").setMessage(text);
     if (RoutingDownloadService.running)
       builder.setPositiveButton(
           "Pause download",
@@ -913,7 +864,6 @@ public final class MainActivity extends Activity {
           for (int i = 0; i < items.size(); i++) labels[i] = items.get(i).label;
           CairnDialogs.drawer(this)
               .fullHeight()
-              .fullWidth()
               .setTitle("Routing regions")
               .setItems(
                   labels,
@@ -1056,7 +1006,6 @@ public final class MainActivity extends Activity {
             false));
     AlertDialog dialog =
         CairnDialogs.drawer(this)
-            .fullWidth()
             .setTitle(corridor ? "Save route corridor" : "Save map area")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1219,7 +1168,7 @@ public final class MainActivity extends Activity {
     content.addView(label("Seconds between requested GPS updates", 15, TEXT, true));
     TextView interval = label("", 20, ACCENT, true);
     content.addView(interval);
-    SeekBar seconds = new SeekBar(this);
+    GpsIntervalSlider seconds = new GpsIntervalSlider(this);
     seconds.setMax(GpsInterval.STEPS);
     seconds.setKeyProgressIncrement(GpsInterval.STEPS / 100);
     seconds.setProgress(GpsInterval.progress((int) (store.intervalMillis() / 1000)));
@@ -1232,21 +1181,20 @@ public final class MainActivity extends Activity {
             int value = GpsInterval.seconds(progress);
             interval.setText(getString(R.string.gps_interval, value));
             bar.setContentDescription(value + " seconds between requested GPS updates");
+            store.prefs.edit().putInt("intervalSeconds", value).apply();
+            refreshStatus();
+            if (!seconds.isTouchTracking()) updateService();
           }
 
           @Override
           public void onStartTrackingTouch(SeekBar bar) {}
 
           @Override
-          public void onStopTrackingTouch(SeekBar bar) {}
+          public void onStopTrackingTouch(SeekBar bar) {
+            updateService();
+          }
         });
-    content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(48)));
-    LinearLayout bounds = row();
-    bounds.addView(label("1 second", 12, MUTED, false), new LinearLayout.LayoutParams(0, -2, 1));
-    TextView maximum = label("1 hour", 12, MUTED, false);
-    maximum.setGravity(Gravity.END);
-    bounds.addView(maximum);
-    content.addView(bounds);
+    content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(88)));
     content.addView(
         label(
             "Longer intervals reduce requested fixes and make track detail and alerts less"
@@ -1259,6 +1207,11 @@ public final class MainActivity extends Activity {
     alerts.setText(R.string.off_route_alerts);
     alerts.setMinHeight(dp(56));
     alerts.setChecked(store.prefs.getBoolean("offRoute", true));
+    alerts.setOnCheckedChangeListener(
+        (button, checked) -> {
+          store.prefs.edit().putBoolean("offRoute", checked).apply();
+          updateService();
+        });
     content.addView(alerts);
     content.addView(
         label(
@@ -1269,30 +1222,7 @@ public final class MainActivity extends Activity {
             false));
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
-    AlertDialog dialog =
-        CairnDialogs.drawer(this)
-            .setTitle("Battery & GPS")
-            .setView(scroll)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save", null)
-            .create();
-    dialog.setOnShowListener(
-        d ->
-            dialog
-                .getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(
-                    v -> {
-                      store
-                          .prefs
-                          .edit()
-                          .putInt("intervalSeconds", GpsInterval.seconds(seconds.getProgress()))
-                          .putBoolean("offRoute", alerts.isChecked())
-                          .apply();
-                      updateService();
-                      refreshStatus();
-                      dialog.dismiss();
-                    }));
-    dialog.show();
+    CairnDialogs.drawer(this).setTitle("Battery & GPS").setView(scroll).show();
   }
 
   private void toggleRecording() {
@@ -1386,7 +1316,7 @@ public final class MainActivity extends Activity {
       if (map.position != null) {
         map.center(map.position);
         showLocationAccuracy(map.position, true);
-      } else showToast("Waiting for your next scheduled GPS fix", Toast.LENGTH_LONG);
+      } else feedback.show("Waiting for your next scheduled GPS fix", 6000, "location");
       return;
     }
     if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -1401,7 +1331,7 @@ public final class MainActivity extends Activity {
       return;
     }
     if (manualLocation == null) manualLocation = new ManualLocation(this);
-    showToast("Finding your position…", Toast.LENGTH_SHORT);
+    feedback.show("Finding your position…", 3500, "location");
     manualLocation.start(
         new ManualLocation.Callback() {
           @Override
@@ -1413,7 +1343,7 @@ public final class MainActivity extends Activity {
 
           @Override
           public void unavailable(String reason) {
-            message(reason);
+            feedback.show(reason, 6000, "location");
           }
         });
   }
@@ -1422,7 +1352,7 @@ public final class MainActivity extends Activity {
     long seconds = Math.max(0, (System.currentTimeMillis() - point.time) / 1000);
     String text = String.format(Locale.getDefault(), "Position ±%.0f m", point.accuracy);
     if (cached) text += " · " + seconds + "s ago";
-    showToast(text, Toast.LENGTH_LONG);
+    feedback.show(text, 6000, "location");
   }
 
   private void cancelLocate() {
@@ -1806,25 +1736,17 @@ public final class MainActivity extends Activity {
     TextView searchCredit = label("", 12, MUTED, false);
     searchCredit.setText(
         android.text.Html.fromHtml(
-            "Photon · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>"
-                + " · device geocoder fallback",
+            "<a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>",
             android.text.Html.FROM_HTML_MODE_LEGACY));
     searchCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     searchCredit.setLinkTextColor(ACCENT);
-    content.addView(searchCredit);
     LinearLayout results = column();
     ScrollView scroll = new ScrollView(this);
     scroll.addView(results);
-    content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(220)));
+    content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+    content.addView(searchCredit);
     AlertDialog dialog =
-        CairnDialogs.drawer(this)
-            .fullHeight()
-            .fullWidth()
-            .setTitle("Search places")
-            .setView(content)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Search", null)
-            .create();
+        CairnDialogs.drawer(this).fullHeight().setTitle("Search places").setView(content).create();
     searchDialog = dialog;
     dialog.setOnDismissListener(
         d -> {
@@ -1898,7 +1820,6 @@ public final class MainActivity extends Activity {
                 feedback.setText("Searching…");
                 placeSearch.search(text, callback);
               };
-          dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> submit.run());
           query.setOnEditorActionListener(
               (v, action, event) -> {
                 if (action != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
@@ -1914,22 +1835,18 @@ public final class MainActivity extends Activity {
     if (searchDialog != null) searchDialog.dismiss();
   }
 
-  @SuppressWarnings("deprecation") // Foreground custom toasts support explicit placement.
   private void showToast(String text, int duration) {
-    if (destroyed || isFinishing()) return;
-    if (currentToast != null) currentToast.cancel();
-    TextView notice = label(text, 14, TEXT, false);
-    notice.setGravity(Gravity.CENTER);
-    notice.setPadding(dp(24), dp(16), dp(24), dp(16));
-    notice.setMaxWidth(getResources().getDisplayMetrics().widthPixels - dp(48));
-    notice.setBackground(surface(SURFACE, OUTLINE, 24));
-    notice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    currentToast = new Toast(this);
-    currentToast.setView(notice);
-    currentToast.setDuration(duration);
-    currentToast.setGravity(
-        Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, root.getPaddingTop() + dp(12));
-    currentToast.show();
+    if (!destroyed && !isFinishing())
+      feedback.show(text, duration == Toast.LENGTH_SHORT ? 3500 : 6000);
+  }
+
+  private TextView attributionFooter() {
+    TextView footer = label("© IGN · © OpenStreetMap · Licences", 11, MUTED, false);
+    footer.setGravity(Gravity.CENTER);
+    footer.setPadding(0, dp(16), 0, dp(16));
+    footer.setOnClickListener(v -> showAttribution());
+    footer.setContentDescription("Map sources and licences");
+    return footer;
   }
 
   private void showAttribution() {
@@ -1962,11 +1879,7 @@ public final class MainActivity extends Activity {
   }
 
   private void message(String text) {
-    if (!destroyed && !isFinishing())
-      CairnDialogs.dialog(this)
-          .setMessage(text == null ? "Operation could not be completed" : text)
-          .setPositiveButton("OK", null)
-          .show();
+    showToast(text == null ? "Operation could not be completed" : text, Toast.LENGTH_LONG);
   }
 
   private LinearLayout column() {
@@ -2056,6 +1969,7 @@ public final class MainActivity extends Activity {
     destroyed = true;
     if (libraryDialog != null) libraryDialog.dismiss();
     appUpdates.close();
+    feedback.close();
     cancelSearch();
     placeSearch.close();
     main.removeCallbacksAndMessages(null);

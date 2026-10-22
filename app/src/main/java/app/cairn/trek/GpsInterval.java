@@ -3,6 +3,16 @@ package app.cairn.trek;
 /** Logarithmic slider positions, with enough resolution to round-trip every whole second. */
 final class GpsInterval {
   static final int STEPS = 30000;
+  static final int[] TICKS = {1, 5, 20, 60, 180, 600, 3600};
+
+  static int nearestTick(int position) {
+    int nearest = 0;
+    for (int seconds : TICKS) {
+      int tick = progress(seconds);
+      if (Math.abs(position - tick) < Math.abs(position - nearest)) nearest = tick;
+    }
+    return nearest;
+  }
 
   static int seconds(int progress) {
     return (int)

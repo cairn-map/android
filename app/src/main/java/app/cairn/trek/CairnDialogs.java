@@ -22,7 +22,7 @@ final class CairnDialogs {
   }
 
   static final class Builder extends AlertDialog.Builder {
-    private boolean drawer, fullHeight, fullWidth;
+    private boolean drawer, fullHeight;
     private CharSequence title;
 
     Builder(Context context, boolean drawer) {
@@ -33,12 +33,6 @@ final class CairnDialogs {
     /** Reserve the available height for lists whose length can change. */
     Builder fullHeight() {
       fullHeight = true;
-      return this;
-    }
-
-    /** Use the available width for complex controls or menus that open sub-drawers. */
-    Builder fullWidth() {
-      fullWidth = true;
       return this;
     }
 
@@ -110,11 +104,8 @@ final class CairnDialogs {
       window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
       if (drawer) {
         window.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        int width =
-            fullWidth
-                ? -1
-                : Math.min(
-                    dp(560), context.getResources().getDisplayMetrics().widthPixels - dp(32));
+        int width = WindowManager.LayoutParams.MATCH_PARENT;
+        window.getDecorView().setPadding(0, 0, 0, 0);
         int height = fullHeight ? -1 : -2;
         window.setLayout(width, height);
         // AlertController installs and sizes its panels during show(), so apply the shared
@@ -126,6 +117,12 @@ final class CairnDialogs {
                   @Override
                   public void onViewAttachedToWindow(View decor) {
                     window.setLayout(width, height);
+                    View custom = window.findViewById(android.R.id.custom);
+                    if (fullHeight && custom != null) {
+                      ViewGroup.LayoutParams params = custom.getLayoutParams();
+                      params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                      custom.setLayoutParams(params);
+                    }
                     FrameLayout content = window.findViewById(android.R.id.content);
                     SwipeDrawer swipe = new SwipeDrawer(context, dialog);
                     swipe.setBackground(surface);
@@ -133,6 +130,7 @@ final class CairnDialogs {
                     while (content.getChildCount() > 0) {
                       View child = content.getChildAt(0);
                       ViewGroup.LayoutParams params = child.getLayoutParams();
+                      if (fullHeight) params.height = ViewGroup.LayoutParams.MATCH_PARENT;
                       content.removeView(child);
                       swipe.addView(child, params);
                     }
@@ -145,6 +143,18 @@ final class CairnDialogs {
                 });
         window.setWindowAnimations(R.style.CairnDrawerAnimation);
       }
+      window
+          .getDecorView()
+          .addOnAttachStateChangeListener(
+              new View.OnAttachStateChangeListener() {
+                public void onViewAttachedToWindow(View view) {
+                  AppFeedback.opened(context, window);
+                }
+
+                public void onViewDetachedFromWindow(View view) {
+                  AppFeedback.closed(context, window);
+                }
+              });
       return dialog;
     }
 
@@ -205,8 +215,8 @@ final class CairnDialogs {
 
     @Override
     public void requestDisallowInterceptTouchEvent(boolean disallow) {
-      // ScrollView may claim a sequence on DOWN while stopping an old fling. At its
-      // top, keep observing the direction so a downward swipe can still close it.
+      // A slider is ineligible from DOWN and owns its entire gesture. At the top of a
+      // ScrollView, keep observing downward drags even if it is stopping an old fling.
       super.requestDisallowInterceptTouchEvent(disallow && !eligible);
     }
 
@@ -273,7 +283,7 @@ final class CairnDialogs {
     }
 
     private static boolean canScrollUpAt(View view, float x, float y) {
-      if (view.canScrollVertically(-1)) return true;
+      if (view instanceof AbsSeekBar || view.canScrollVertically(-1)) return true;
       if (view instanceof ViewGroup) {
         ViewGroup group = (ViewGroup) view;
         for (int i = group.getChildCount() - 1; i >= 0; i--) {

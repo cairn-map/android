@@ -60,12 +60,9 @@ public class CairnDialogsTest {
 
   @Test
   @Config(qualifiers = "w960dp-h1280dp")
-  public void compactDrawersAndFixedMenusWrapTheirContentOnTablets() {
+  public void allDrawersUseFullWidthWhileTheirHeightWrapsContent() {
     View swipe = show(CairnDialogs.drawer(activity).setTitle("GPS").setMessage("Settings"));
-    assertEquals(
-        560 * activity.getResources().getDisplayMetrics().density,
-        dialog.getWindow().getAttributes().width,
-        1);
+    assertEquals(-1, dialog.getWindow().getAttributes().width);
     assertEquals(-2, dialog.getWindow().getAttributes().height);
     assertTrue(swipe.getHeight() < 800);
     dialog.dismiss();
@@ -73,25 +70,24 @@ public class CairnDialogsTest {
         CairnDialogs.dialog(activity)
             .setTitle("Actions")
             .setItems(new String[] {"Show", "Export"}, (d, which) -> {}));
-    assertTrue(dialog.getWindow().getAttributes().width > 0);
+    assertEquals(-1, dialog.getWindow().getAttributes().width);
     assertEquals(-2, dialog.getWindow().getAttributes().height);
   }
 
   @Test
-  public void heightAndWidthAreIndependentAndCallerShowListenersStillRun() {
+  public void heightCanFillTheWindowAndCallerShowListenersStillRun() {
     show(CairnDialogs.drawer(activity).fullHeight().setTitle("Variable list"));
-    assertTrue(dialog.getWindow().getAttributes().width > 0);
+    assertEquals(-1, dialog.getWindow().getAttributes().width);
     assertEquals(-1, dialog.getWindow().getAttributes().height);
     dialog.dismiss();
     show(
         CairnDialogs.drawer(activity)
-            .fullWidth()
             .setTitle("Nested actions")
             .setItems(new String[] {"Rename", "Remove"}, (d, which) -> {}));
     assertEquals(-1, dialog.getWindow().getAttributes().width);
     assertEquals(-2, dialog.getWindow().getAttributes().height);
     dialog.dismiss();
-    show(CairnDialogs.drawer(activity).fullHeight().fullWidth().setTitle("Library"));
+    show(CairnDialogs.drawer(activity).fullHeight().setTitle("Library"));
     assertEquals(-1, dialog.getWindow().getAttributes().width);
     assertEquals(-1, dialog.getWindow().getAttributes().height);
   }
@@ -124,12 +120,7 @@ public class CairnDialogsTest {
     }
     scroll.addView(rows);
     View swipe =
-        show(
-            CairnDialogs.drawer(activity)
-                .fullHeight()
-                .fullWidth()
-                .setTitle("Routes")
-                .setView(scroll));
+        show(CairnDialogs.drawer(activity).fullHeight().setTitle("Routes").setView(scroll));
     scroll.getChildAt(0).performClick();
     int[] location = new int[2];
     rows.getChildAt(0).getLocationOnScreen(location);
@@ -151,6 +142,35 @@ public class CairnDialogsTest {
     touch(swipe, MotionEvent.ACTION_MOVE, x, y + 120);
     touch(swipe, MotionEvent.ACTION_UP, x, y + 120);
     assertFalse(dialog.isShowing());
+  }
+
+  @Test
+  public void sliderKeepsTheGestureBelowTheTrackAndTapsSnapWhileDragsStayPrecise() {
+    GpsIntervalSlider slider = new GpsIntervalSlider(activity);
+    slider.setMax(GpsInterval.STEPS);
+    LinearLayout content = new LinearLayout(activity);
+    content.addView(slider, new LinearLayout.LayoutParams(-1, 100));
+    ScrollView scroll = new ScrollView(activity);
+    scroll.addView(content);
+    View swipe = show(CairnDialogs.drawer(activity).setTitle("GPS").setView(scroll));
+    int[] location = new int[2], origin = new int[2];
+    slider.getLocationOnScreen(location);
+    swipe.getLocationOnScreen(origin);
+    float left = location[0] - origin[0] + slider.getPaddingLeft();
+    float width = slider.getWidth() - slider.getPaddingLeft() - slider.getPaddingRight();
+    float y = location[1] - origin[1] + slider.getHeight() - 4;
+    float x = left + width * GpsInterval.progress(20) / GpsInterval.STEPS;
+    touch(swipe, MotionEvent.ACTION_DOWN, x, y);
+    x = left + width * GpsInterval.progress(43) / GpsInterval.STEPS;
+    touch(swipe, MotionEvent.ACTION_MOVE, x, y + 120);
+    touch(swipe, MotionEvent.ACTION_UP, x, y + 120);
+    assertTrue(dialog.isShowing());
+    assertEquals(0, swipe.getTranslationY(), 0);
+    assertEquals(43, GpsInterval.seconds(slider.getProgress()));
+    x = left + width * GpsInterval.progress(70) / GpsInterval.STEPS;
+    touch(swipe, MotionEvent.ACTION_DOWN, x, y);
+    touch(swipe, MotionEvent.ACTION_UP, x, y);
+    assertEquals(60, GpsInterval.seconds(slider.getProgress()));
   }
 
   @Test
