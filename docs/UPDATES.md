@@ -20,22 +20,30 @@ Agents must push their changes and file a PR against `main`, as required by `AGE
 
 A native GitHub merge pushes a commit to `main`, triggering the existing **Publish signed Cairn update** workflow normally. No privileged `workflow_run` merge Action or manual workflow dispatch is needed. GitHub's **Automatically delete head branches** setting handles cleanup. The release workflow discovers the successful PR run from a native two-parent merge's second parent. It requires an identical checked merge tree, base commit, and runtime before reusing the proof. Single-parent squash, rebase, or direct pushes cannot reuse PR proof and must undergo full validation. When proof is missing, stale, ambiguous, or invalid, it safely performs full validation; signing and APK verification always run.
 
-### One-time native auto-merge configuration
+### Solo-maintainer native auto-merge configuration
 
-The administrator must maintain native auto-merge, branch cleanup, merge commits as the sole merge method, the strict required check, and code-owner review. The legacy auto-merge Action has already been removed. This repository includes a guarded, idempotent helper that preserves the existing `main` ruleset's other rules while enforcing the `checks` context, strict branch freshness, resolved conversations and no bypass role. It retains zero general approvals for routine PRs. Release-sensitive files listed in `.github/CODEOWNERS` require code-owner approval once the repository ruleset is updated. An author cannot approve their own PR; changes authored by @dayblox to those paths need another trusted maintainer. The existing deletion and non-fast-forward protection remains unchanged.
+Cairn currently has one maintainer, @dayblox. **Do not enable mandatory approving reviews or "Require review from Code Owners"**. GitHub does not allow PR authors to approve their own PRs; doing so would block routine owner-authored changes. No second account or fake approval is needed. The CODEOWNERS policy was removed for this reason. Use strict automated checks, merge commits only, mandatory resolved conversations and no bypass actors as the merge gate.
 
-Authenticate the GitHub CLI with repository administration permission, then run:
+To verify or update this directly on GitHub as @dayblox:
+
+1. Open **Settings → Rules → Rulesets → main** in this repository; make sure enforcement is **Active** and the target includes `main`.
+2. Under **Require a pull request before merging**, keep **Required approvals: 0**; turn **Require review from Code Owners**, **Require approval of the most recent reviewable push**, and **Dismiss stale pull request approvals** off. Keep **Require conversation resolution before merging** on. Select **merge commits only** for the allowed merge methods.
+3. Under **Require status checks to pass**, keep `checks` required and **Require branches to be up to date before merging** on.
+4. Keep **Block force pushes** and **Restrict deletions** enabled, with no bypass actors.
+5. Under **Settings → General → Pull Requests**, keep **Allow merge commits**, **Allow auto-merge** and **Automatically delete head branches** enabled. Disable squash and rebase merging.
+6. Save the ruleset if anything changed. You do not need to enable auto-merge on each PR from this settings page; use the PR-specific **Enable auto-merge** option after verifying the proposed changes.
+
+After the solo-maintainer fix PR merges, you can alternatively apply the same settings with GitHub CLI authenticated as @dayblox. From a local checkout:
 
 ```sh
+gh auth login
 python3 scripts/configure_native_automerge.py --dry-run
 python3 scripts/configure_native_automerge.py
 ```
 
-Verify [repository auto-merge and branch deletion](https://github.com/dayblox/cairn/settings) and the [`main` ruleset](https://github.com/dayblox/cairn/rules/25598518), which must require the `checks` job. Only then mark the migration PR ready and enable its native auto-merge. **Do not merge the migration PR before verifying these settings**, or future PRs could lose automatic merging or skip CI protection.
+The helper preserves the existing `main` ruleset's other protections while enforcing strict `checks`, resolved conversations, zero review approvals, no code-owner gate, merge commits only, and no bypass. It requires GitHub repository administration permission. Its dry run is read-only.
 
-Changes to `.github`, `scripts`, build and wrapper files, signing policy, or CODEOWNERS require an independent trusted code-owner review after the `main` ruleset has enabled `require_code_owner_review`. The CODEOWNERS file alone only requests reviews and does not enforce them. Since @dayblox cannot approve their own PR, add another trusted collaborator before merging owner-authored sensitive changes. The administrator can apply the reviewed rule using the helper above after this PR merges.
-
-For every subsequent PR, the agent creating it must enable native auto-merge itself. Failure to enable it means leaving the PR open and reporting the issue, not bypassing checks or force-merging.
+For security-sensitive changes to `.github`, release/signing scripts, or build infrastructure, the solo maintainer should inspect the full PR diff before enabling auto-merge. For changes that merit an explicit release decision, leave auto-merge disabled and merge normally after required checks pass. This manual step is a process safeguard, not a GitHub-enforced independent review. Routine PRs can continue using native auto-merge after successful CI.
 
 ### Validation reuse and caching
 
