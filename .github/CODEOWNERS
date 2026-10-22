@@ -1,0 +1,14 @@
+# Require a trusted code-owner review when changing the release/CI trust boundary.
+# This takes effect once main's ruleset enables require_code_owner_review.
+# @dayblox cannot approve a PR authored by @dayblox. Add another trusted
+# collaborator as an owner for owner-authored changes to these paths.
+/.github/ @dayblox
+/scripts/ @dayblox
+/app/build.gradle @dayblox
+/build.gradle @dayblox
+/settings.gradle @dayblox
+/gradle/ @dayblox
+/gradlew @dayblox
+/gradlew.bat @dayblox
+/release-signing.sha256 @dayblox
+/AGENTS.md @dayblox

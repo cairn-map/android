@@ -11,14 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/android-toolchain
       - name: Python automation tests
         timeout-minutes: 2
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Node automation tests
-        timeout-minutes: 2
-        run: node --test scripts/test-*.cjs
+        timeout-minutes: 4
+        run: |
+          # Separate suites to identify hangs and avoid process-concurrency stalls.
+          for suite in scripts/test-*.cjs; do
+            echo "::group::$suite"
+            timeout --signal=TERM --kill-after=10s 90s node --test "$suite"
+            echo "::endgroup::"
+          done
+      - name: Lint GitHub Actions workflows
+        timeout-minutes: 3
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Build, test and lint
         timeout-minutes: 10
         run: bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2 --build-cache --stacktrace
@@ -27,7 +36,7 @@ jobs:
           VALIDATED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/validation-proof.cjs validation.json
       - name: Save validation evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: validated-source-${{ github.run_attempt }}
           path: validation.json
