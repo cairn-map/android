@@ -45,6 +45,12 @@ jobs:
       - name: Select the next update version
         id: version
         run: python3 scripts/release-version.py --repository "$GITHUB_REPOSITORY" >> "$GITHUB_OUTPUT"
+      - name: Select automation tests
+        id: automation
+        if: steps.version.outputs.skip != 'true'
+        env:
+          AUTOMATION_BASE_SHA: ${{ github.event.before }}
+        run: python3 scripts/automation_changes.py "$AUTOMATION_BASE_SHA" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/android-toolchain
         if: steps.version.outputs.skip != 'true'
       - name: Verify reusable PR validation
@@ -64,11 +70,11 @@ jobs:
       - uses: ./.github/actions/android-test-runtime
         if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true'
       - name: Python automation tests (fallback)
-        if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true'
+        if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true' && steps.automation.outputs.required != 'false'
         timeout-minutes: 2
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Node automation tests (fallback)
-        if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true'
+        if: steps.version.outputs.skip != 'true' && steps.validation.outputs.reused != 'true' && steps.automation.outputs.required != 'false'
         timeout-minutes: 4
         run: |
           for suite in scripts/test-*.cjs; do

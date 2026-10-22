@@ -17,6 +17,9 @@ test('PR checks have a stable required status with build, test and lint', () => 
   assert.match(checks, /jobs:\s*\n\s*checks:/);
   assert.match(checks, /python3 -m unittest discover/);
   assert.match(checks, /node --test "\$suite"/);
+  for (const suite of ['Python', 'Node']) {
+    assert.match(checks, new RegExp(`${suite} automation tests\\n\\s+if: steps\\.automation\\.outputs\\.required != 'false'`));
+  }
   assert.match(checks, /assembleDebug testDebugUnitTest lintDebug/);
   assert.match(checks, /bash scripts\/lint-workflows\.sh/);
 });
@@ -28,6 +31,10 @@ test('native merge pushes to main and starts signed release normally', () => {
   assert.match(release, /Publish APK and update manifest together/);
   assert.match(release, /inputs\.validation_run_id/);
   assert.match(release, /--source-commit "\$SOURCE_COMMIT"/);
+  assert.match(release, /AUTOMATION_BASE_SHA: \$\{\{ github\.event\.before \}\}/);
+  for (const suite of ['Python', 'Node']) {
+    assert.match(release, new RegExp(`${suite} automation tests \\(fallback\\)\\n\\s+if: [^\\n]*steps\\.automation\\.outputs\\.required != 'false'`));
+  }
 });
 
 test('release notes are generated from GitHub changes and updated on draft retries', () => {
@@ -39,15 +46,4 @@ test('release notes are generated from GitHub changes and updated on draft retri
   assert.match(release, /gh release edit "\$TAG" --notes-file dist\/release-notes\.md/);
   assert.match(release, /if \[ ! -s dist\/release-notes\.md \]/);
   assert.doesNotMatch(prepare, /release-notes\.md|Install this APK/);
-});
-
-test('administrator configuration requires strict checks and enables native auto-merge', () => {
-  const settings = fs.readFileSync(path.join(root, 'scripts/configure_native_automerge.py'), 'utf8');
-  assert.match(settings, /REQUIRED_CHECK = "checks"/);
-  assert.match(settings, /strict_required_status_checks_policy/);
-  assert.match(settings, /"allow_auto_merge": True/);
-  assert.match(settings, /"delete_branch_on_merge": True/);
-  assert.match(settings, /RULESET_NAME = "main"/);
-  assert.match(settings, /"required_approving_review_count"\] = 0/);
-  assert.match(settings, /"require_code_owner_review"\] = False/);
 });

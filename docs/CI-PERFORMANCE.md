@@ -144,3 +144,18 @@ CI/script changes, different trees/base commits/toolchains, expired proof and
 reruns intentionally require fallback. Unexpected API/archive failures now
 identify the failed phase, such as `PR run discovery` or `proof download and
 parsing`, so investigate that phase instead of removing the guard.
+
+## Selective automation suites
+
+Python and Node suites now run only for automation/workflow, signing-policy or
+build-configuration changes. App code, Android tests/resources and ordinary
+documentation changes skip them in PR checks and release fallback. The shared
+selector compares complete Git trees (including deletions and renamed paths);
+release pushes compare against the push's `before` commit, covering every commit
+in a multi-commit push. Manual releases and unavailable history run both suites.
+
+The Android build, tests and lint still run on every PR and on release validation
+fallback. APK signing and verification always run. Keep Node suite timeouts for
+relevant changes; filtering limits exposure to the intermittent hang without
+claiming to fix it. The duplicate Node text checks for administrator settings were
+removed; Python tests already exercise the actual configuration helper behavior.
