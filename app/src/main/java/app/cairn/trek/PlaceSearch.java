@@ -65,7 +65,7 @@ final class PlaceSearch implements AutoCloseable {
         () -> {
           if (request != generation) return;
           cancel();
-          callback.unavailable("Search timed out. Check your internet connection and try again.");
+          callback.unavailable("Search timed out");
         },
         30000);
     pending =
@@ -97,8 +97,7 @@ final class PlaceSearch implements AutoCloseable {
                     () -> {
                       if (request != generation) return;
                       cancel();
-                      callback.unavailable(
-                          "Search unavailable. Check your internet connection and try again.");
+                      callback.unavailable("Search unavailable");
                     });
               }
             });

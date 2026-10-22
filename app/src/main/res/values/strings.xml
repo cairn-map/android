@@ -1,4 +1,5 @@
 <resources>
     <string name="gps_interval">GPS · %1$ds</string>
+    <string name="gps_interval_value">%1$d s</string>
     <string name="off_route_alerts">Off-route alerts</string>
 </resources>

@@ -43,6 +43,18 @@ public class PowerPolicyTest {
   }
 
   @Test
+  public void gpsDefaultsToTwentySecondsAndKeepsACustomInterval() {
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      store.prefs.edit().remove("intervalSeconds").commit();
+      assertEquals(20000L, store.intervalMillis());
+      store.prefs.edit().putInt("intervalSeconds", 137).commit();
+    }
+    try (Store reopened = new Store(RuntimeEnvironment.getApplication())) {
+      assertEquals(137000L, reopened.intervalMillis());
+    }
+  }
+
+  @Test
   public void locatingDuringAHikeNeverStartsExtraGpsOrNetworkRequestsEvenWhenTheFixIsOld()
       throws Exception {
     TrackingService.running = true;

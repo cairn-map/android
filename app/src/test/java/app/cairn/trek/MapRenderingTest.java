@@ -377,7 +377,7 @@ public class MapRenderingTest {
           View.MeasureSpec.makeMeasureSpec(786, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(1550, View.MeasureSpec.EXACTLY));
       root.layout(0, 0, 786, 1550);
-      TextView gps = find(root, "GPS · 60s"), hike = find(root, "Start hike");
+      TextView gps = find(root, "GPS · 20s"), hike = find(root, "Start hike");
       assertNotNull(gps);
       assertNotNull(hike);
       assertTrue(gps.getWidth() < 300);

@@ -210,6 +210,6 @@ public final class Store extends SQLiteOpenHelper {
   }
 
   public long intervalMillis() {
-    return Math.max(1, Math.min(3600, prefs.getInt("intervalSeconds", 60))) * 1000L;
+    return Math.max(1, Math.min(3600, prefs.getInt("intervalSeconds", 20))) * 1000L;
   }
 }

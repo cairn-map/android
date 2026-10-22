@@ -303,11 +303,15 @@ public final class MainActivity extends Activity {
     iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
     iconParams.topMargin = dp(8);
     controls.addView(updateButton, iconParams);
-    intervalChip = button("GPS · 60s", false, this::batterySettings);
+    intervalChip =
+        button(
+            getString(R.string.gps_interval, store.intervalMillis() / 1000),
+            false,
+            this::batterySettings);
     intervalChip.setTextSize(12);
     intervalChip.setSingleLine(true);
     intervalChip.setMinHeight(dp(48));
-    intervalChip.setContentDescription("GPS interval and battery settings");
+    intervalChip.setContentDescription("GPS settings");
     LinearLayout.LayoutParams gpsParams = new LinearLayout.LayoutParams(-2, dp(48));
     gpsParams.topMargin = dp(8);
     controls.addView(intervalChip, gpsParams);
@@ -1165,21 +1169,26 @@ public final class MainActivity extends Activity {
   private void batterySettings() {
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(12));
-    content.addView(label("Seconds between requested GPS updates", 15, TEXT, true));
+    LinearLayout intervalRow = row();
+    intervalRow.setGravity(Gravity.CENTER_VERTICAL);
+    intervalRow.addView(
+        label("Update interval", 15, TEXT, true), new LinearLayout.LayoutParams(0, -2, 1));
     TextView interval = label("", 20, ACCENT, true);
-    content.addView(interval);
+    intervalRow.addView(interval);
+    content.addView(intervalRow);
     GpsIntervalSlider seconds = new GpsIntervalSlider(this);
     seconds.setMax(GpsInterval.STEPS);
     seconds.setKeyProgressIncrement(GpsInterval.STEPS / 100);
     seconds.setProgress(GpsInterval.progress((int) (store.intervalMillis() / 1000)));
     seconds.setContentDescription("Seconds between requested GPS updates");
-    interval.setText(getString(R.string.gps_interval, GpsInterval.seconds(seconds.getProgress())));
+    interval.setText(
+        getString(R.string.gps_interval_value, GpsInterval.seconds(seconds.getProgress())));
     seconds.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
           @Override
           public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
             int value = GpsInterval.seconds(progress);
-            interval.setText(getString(R.string.gps_interval, value));
+            interval.setText(getString(R.string.gps_interval_value, value));
             bar.setContentDescription(value + " seconds between requested GPS updates");
             store.prefs.edit().putInt("intervalSeconds", value).apply();
             refreshStatus();
@@ -1195,14 +1204,6 @@ public final class MainActivity extends Activity {
           }
         });
     content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(64)));
-    content.addView(
-        label(
-            "Longer intervals reduce requested fixes and make track detail and alerts less"
-                + " frequent. Android controls actual delivery. This build does not promise that"
-                + " the GPS chip sleeps between fixes.",
-            13,
-            MUTED,
-            false));
     Switch alerts = new Switch(this);
     alerts.setText(R.string.off_route_alerts);
     alerts.setMinHeight(dp(56));
@@ -1213,16 +1214,9 @@ public final class MainActivity extends Activity {
           updateService();
         });
     content.addView(alerts);
-    content.addView(
-        label(
-            "Alerts need two clear off-route fixes. With a 5-minute interval they can take around"
-                + " 10 minutes or longer. Turn alerts are not implemented in this first build.",
-            13,
-            MUTED,
-            false));
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
-    CairnDialogs.drawer(this).setTitle("Battery & GPS").setView(scroll).show();
+    CairnDialogs.drawer(this).setTitle("GPS").setView(scroll).show();
   }
 
   private void toggleRecording() {
@@ -1714,9 +1708,7 @@ public final class MainActivity extends Activity {
 
   private void searchPlaces() {
     if (TrackingService.running) {
-      message(
-          "Finish recording before searching online. Offline maps and saved routes remain"
-              + " available.");
+      message("Search unavailable while recording");
       return;
     }
     cancelSearch();
@@ -1724,15 +1716,28 @@ public final class MainActivity extends Activity {
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(8));
     EditText query = new EditText(this);
-    query.setHint("Town, mountain, or address");
     query.setContentDescription("Place name or address");
     query.setSingleLine(true);
+    query.setTextSize(16);
+    query.setTextColor(TEXT);
+    query.setMinHeight(dp(52));
+    query.setPadding(dp(16), dp(12), dp(16), dp(12));
+    query.setBackground(surface(BACKGROUND, OUTLINE, 26));
+    MapIcon searchIcon = new MapIcon(MapIcon.SEARCH);
+    searchIcon.setBounds(0, 0, dp(22), dp(22));
+    query.setCompoundDrawablesRelative(searchIcon, null, null, null);
+    query.setCompoundDrawablePadding(dp(12));
     query.setInputType(
         android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_NORMAL);
     query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-    content.addView(query);
-    TextView feedback = label("Online search · mountains, towns and addresses", 12, MUTED, false);
-    content.addView(feedback);
+    TextView searchStatus = label("", 13, MUTED, false);
+    searchStatus.setVisibility(View.GONE);
+    content.addView(searchStatus);
+    java.util.function.Consumer<String> showSearchStatus =
+        text -> {
+          searchStatus.setText(text);
+          searchStatus.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        };
     TextView searchCredit = label("", 12, MUTED, false);
     searchCredit.setText(
         android.text.Html.fromHtml(
@@ -1746,7 +1751,7 @@ public final class MainActivity extends Activity {
     content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
     content.addView(searchCredit);
     AlertDialog dialog =
-        CairnDialogs.drawer(this).fullHeight().setTitle("Search places").setView(content).create();
+        CairnDialogs.drawer(this).fullHeight().setCustomTitle(query).setView(content).create();
     searchDialog = dialog;
     dialog.setOnDismissListener(
         d -> {
@@ -1759,10 +1764,7 @@ public final class MainActivity extends Activity {
           public void results(List<Address> places) {
             if (!dialog.isShowing() || destroyed || TrackingService.running) return;
             results.removeAllViews();
-            feedback.setText(
-                places.isEmpty()
-                    ? "No places found. Try a nearby town or a more specific name."
-                    : "Choose a place to show on the map");
+            showSearchStatus.accept(places.isEmpty() ? "No results" : "");
             for (Address place : places) {
               results.addView(
                   button(
@@ -1783,7 +1785,7 @@ public final class MainActivity extends Activity {
           @Override
           public void unavailable(String reason) {
             if (!dialog.isShowing() || destroyed || TrackingService.running) return;
-            feedback.setText(reason);
+            showSearchStatus.accept(reason);
           }
         };
     query.addTextChangedListener(
@@ -1792,10 +1794,8 @@ public final class MainActivity extends Activity {
 
           public void onTextChanged(CharSequence text, int start, int before, int count) {
             results.removeAllViews();
-            query.setError(null);
             String value = text.toString().trim();
-            feedback.setText(
-                value.length() < 2 ? "Type at least 2 characters to find places" : "Searching…");
+            showSearchStatus.accept(value.length() < 2 ? "" : "Searching…");
             placeSearch.suggest(value, callback);
           }
 
@@ -1803,6 +1803,8 @@ public final class MainActivity extends Activity {
         });
     dialog.setOnShowListener(
         d -> {
+          // AlertDialog only detects editors in its content, not in a custom title.
+          dialog.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
           query.requestFocus();
           dialog
               .getWindow()
@@ -1812,12 +1814,9 @@ public final class MainActivity extends Activity {
           Runnable submit =
               () -> {
                 String text = query.getText().toString().trim();
-                if (text.isEmpty()) {
-                  query.setError("Enter a place name");
-                  return;
-                }
+                if (text.isEmpty()) return;
                 results.removeAllViews();
-                feedback.setText("Searching…");
+                showSearchStatus.accept("Searching…");
                 placeSearch.search(text, callback);
               };
           query.setOnEditorActionListener(

@@ -92,7 +92,7 @@ public class MapControlsTest {
       assertEquals(-1, dialog.getWindow().getAttributes().width);
       assertEquals(-2, dialog.getWindow().getAttributes().height);
       slider.setProgress(GpsInterval.STEPS);
-      assertNotNull(find(content, activity.getString(R.string.gps_interval, 3600)));
+      assertNotNull(find(content, activity.getString(R.string.gps_interval_value, 3600)));
       assertEquals(3600000, store.intervalMillis());
       assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
       assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
@@ -204,6 +204,12 @@ public class MapControlsTest {
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       View decor = dialog.getWindow().getDecorView();
       EditText query = (EditText) find(decor, "Place name or address");
+      assertEquals("", query.getText().toString());
+      assertNull(query.getHint());
+      assertEquals(
+          0,
+          dialog.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+      savePreview(decor, 786, 1400, "empty-search-drawer");
       query.setText("Thabor");
       query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
       Field worker = PlaceSearch.class.getDeclaredField("worker");
