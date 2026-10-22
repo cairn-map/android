@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { reuseValidation, readProof } = require('./reuse-validation.cjs');
 const { createProof } = require('./validation-proof.cjs');
 
-const BASE = 'a'.repeat(40), HEAD = 'b'.repeat(40), MERGE = 'c'.repeat(40), TESTED = 'd'.repeat(40), TREE = 'e'.repeat(40), SQUASH = 'f'.repeat(40);
+const BASE = 'a'.repeat(40), HEAD = 'b'.repeat(40), MERGE = 'c'.repeat(40), TESTED = 'd'.repeat(40), TREE = 'e'.repeat(40);
 const environment = { platform: 'linux', arch: 'x64', image: 'ubuntu24', imageVersion: '20261018', java: 'java17' };
 
 async function scenario(change = () => {}) {
@@ -18,12 +18,10 @@ async function scenario(change = () => {}) {
   const merged = { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } };
   const tested = { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } };
   const artifact = { id: 456, name: 'validated-source-2', expired: false, size_in_bytes: 500 };
-  const options = { run, proof, merged, tested, artifacts: [artifact], runs: [run], pulls: [], changed: false,
+  const options = { run, proof, merged, tested, artifacts: [artifact], runs: [run], changed: false,
     source: MERGE, runId: '123', loads: 0, queries: 0, discoveries: 0, latest: null, failure: false };
   change(options);
-  const github = { paginate: async method =>
-    method === github.rest.repos.listPullRequestsAssociatedWithCommit ? options.pulls : options.artifacts, rest: {
-    repos: { listPullRequestsAssociatedWithCommit: () => {} },
+  const github = { paginate: async () => options.artifacts, rest: {
     actions: {
       getWorkflow: async () => ({ data: { id: 9 } }),
       listWorkflowRunsForWorkflow: async () => {
@@ -60,38 +58,6 @@ test('native GitHub merge discovers and verifies the completed PR check', async 
   assert.equal(result.options.loads, 1);
 });
 
-function makeSquash(options) {
-  options.source = SQUASH;
-  options.merged.parents = [{ sha: BASE }];
-  options.pulls = [{ merge_commit_sha: SQUASH, merged_at: '2026-10-22T01:00:00Z',
-    head: { sha: HEAD }, base: { ref: 'main', repo: { full_name: 'owner/cairn' } } }];
-  options.runId = '';
-}
-
-test('native squash merge reuses exact validated PR tree and base', async () => {
-  const result = await scenario(makeSquash);
-  assert.equal(result.reused, true);
-  assert.equal(result.options.discoveries, 1);
-  assert.equal(result.options.loads, 1);
-});
-
-for (const [name, mutate] of [
-  ['unassociated squash', x => { x.pulls = []; }],
-  ['ambiguous squash PRs', x => { x.pulls.push({ ...x.pulls[0] }); }],
-  ['unmerged squash PR', x => { x.pulls[0].merged_at = null; }],
-  ['wrong squash commit', x => { x.pulls[0].merge_commit_sha = MERGE; }],
-  ['wrong squash PR head', x => { x.pulls[0].head.sha = BASE; }],
-  ['wrong target branch', x => { x.pulls[0].base.ref = 'develop'; }],
-  ['wrong target repository', x => { x.pulls[0].base.repo.full_name = 'other/cairn'; }],
-  ['mismatched checked base', x => { x.tested.parents[0].sha = HEAD; }],
-  ['mismatched squash tree', x => { x.merged.tree.sha = HEAD; }]
-]) {
-  test(`squash falls back when ${name}`, async () => {
-    const result = await scenario(x => { makeSquash(x); mutate(x); });
-    assert.equal(result.reused, false);
-  });
-}
-
 const cases = {
   'no discoverable PR run': x => { x.runId = ''; x.runs = []; },
   'ambiguous PR runs': x => { x.runId = ''; x.runs.push({ ...x.run, id: 124 }); },
@@ -99,7 +65,8 @@ const cases = {
   'discovered PR check has wrong head': x => { x.runId = ''; x.runs[0] = { ...x.run, head_sha: BASE }; },
   'discovery API unavailable': x => { x.runId = ''; x.discoveryFailure = true; },
   'invalid run ID': x => { x.runId = '123; echo bad'; },
-  'unassociated direct push': x => { x.merged.parents.pop(); },
+  'squash, rebase or direct push (single parent)': x => { x.merged.parents.pop(); },
+  'invalid merge second parent': x => { x.merged.parents[1].sha = 'invalid'; },
   'CI configuration changed': x => { x.changed = true; },
   'main changed before merging': x => { x.merged.tree.sha = 'f'.repeat(40); },
   'failed check': x => { x.run.conclusion = 'failure'; },

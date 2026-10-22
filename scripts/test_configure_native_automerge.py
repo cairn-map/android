@@ -1,10 +1,19 @@
 import copy
 import unittest
 
-from configure_native_automerge import updated_ruleset
+from configure_native_automerge import MERGE_SETTINGS, updated_ruleset
 
 
 class NativeAutoMergeRulesetTest(unittest.TestCase):
+    def test_only_merge_commits_are_configured(self):
+        self.assertEqual(MERGE_SETTINGS, {
+            "allow_merge_commit": True,
+            "allow_squash_merge": False,
+            "allow_rebase_merge": False,
+            "allow_auto_merge": True,
+            "delete_branch_on_merge": True,
+        })
+
     def fixture(self):
         return {
             "name": "main-2",

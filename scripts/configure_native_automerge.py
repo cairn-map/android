@@ -9,6 +9,15 @@ import sys
 REPOSITORY = "dayblox/cairn"
 RULESET_NAME = "main-2"
 REQUIRED_CHECK = "checks"
+# Repository-wide: no squash/rebase, so native auto-merge always creates
+# a two-parent commit suitable for release validation reuse.
+MERGE_SETTINGS = {
+    "allow_merge_commit": True,
+    "allow_squash_merge": False,
+    "allow_rebase_merge": False,
+    "allow_auto_merge": True,
+    "delete_branch_on_merge": True,
+}
 
 
 def api(method, endpoint, payload=None):
@@ -70,15 +79,12 @@ def configure(repository, dry_run=False):
     print(f"Repository: {repository}")
     print(f"Ruleset: {RULESET_NAME} ({rule_id}); required: {REQUIRED_CHECK}; strict: yes")
     print("No ruleset bypass; resolved conversations required; zero mandatory approvals")
-    print("Enable native auto-merge and automatic branch deletion")
+    print("Allow merge commits ONLY; disable squash/rebase; keep auto-merge and branch deletion")
     if dry_run:
         print("Dry run: no settings changed")
         return
     api("PUT", f"repos/{repository}/rulesets/{rule_id}", updated)
-    api("PATCH", f"repos/{repository}", {
-        "allow_auto_merge": True,
-        "delete_branch_on_merge": True,
-    })
+    api("PATCH", f"repos/{repository}", MERGE_SETTINGS)
     rule = api("GET", f"repos/{repository}/rulesets/{rule_id}")
     after = api("GET", f"repos/{repository}")
     statuses = next(r["parameters"] for r in rule["rules"]
@@ -87,9 +93,9 @@ def configure(repository, dry_run=False):
     assert any(c["context"] == REQUIRED_CHECK
                for c in statuses["required_status_checks"])
     assert not rule["bypass_actors"]
-    if not after["allow_auto_merge"] or not after["delete_branch_on_merge"]:
-        raise RuntimeError("GitHub did not retain the auto-merge/branch-deletion settings")
-    print("Verified GitHub settings. Native auto-merge must also be enabled on each PR.")
+    if any(after.get(key) is not expected for key, expected in MERGE_SETTINGS.items()):
+        raise RuntimeError("GitHub did not retain merge-commit-only repository settings")
+    print("Verified merge-commit-only settings. Native auto-merge must also be enabled on each PR.")
 
 
 def main():

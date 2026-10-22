@@ -42,33 +42,19 @@ async function reuseValidation({ github, owner, repo, source, runId,
   const repository = { owner, repo };
   try {
     const { data: merged } = await github.rest.git.getCommit({ ...repository, commit_sha: source });
-    if (![1, 2].includes(merged.parents.length) || !sha(merged.parents[0].sha))
-      return fallback('Unsupported release commit parentage');
-    let head;
-    if (merged.parents.length === 2) {
-      if (!sha(merged.parents[1].sha))
-        return fallback('Invalid PR merge parent');
-      head = merged.parents[1].sha;
-    } else {
-      // GitHub native squash creates a single-parent commit. Require an
-      // actual merged PR linked to this exact resulting commit, never merely
-      // assume that a direct push with matching contents was validated.
-      const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit,
-        { ...repository, commit_sha: source, per_page: 100 });
-      const associated = pulls.filter(pr => pr.merge_commit_sha === source && pr.merged_at
-        && pr.base?.ref === 'main' && pr.base?.repo?.full_name === `${owner}/${repo}`
-        && sha(pr.head?.sha));
-      if (associated.length !== 1)
-        return fallback('No unique merged PR is associated with this squash commit');
-      head = associated[0].head.sha;
-    }
+    // Only preserve PR validation across a genuine two-parent merge commit.
+    // Single-parent squash/rebase/direct pushes use full validation.
+    if (merged.parents.length !== 2 || !sha(merged.parents[0].sha)
+        || !sha(merged.parents[1].sha))
+      return fallback('The release source is not a two-parent merge');
+    const head = merged.parents[1].sha;
     if (changed(merged.parents[0].sha, source))
       return fallback('CI or validation scripts changed in this merge');
     const { data: workflow } = await github.rest.actions.getWorkflow({ ...repository, workflow_id: 'checks.yml' });
     let resolvedId = String(runId || '');
     if (!resolvedId) {
       // Native auto-merge generates a main push without workflow_dispatch inputs.
-      // Query only the verified PR head, then validate the exact merge tree.
+      // Query the second parent (PR head), then validate the exact merge tree.
       const { data } = await github.rest.actions.listWorkflowRunsForWorkflow({
         ...repository, workflow_id: workflow.id, event: 'pull_request',
         head_sha: head, per_page: 100
