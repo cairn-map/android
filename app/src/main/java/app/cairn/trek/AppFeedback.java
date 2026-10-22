@@ -2,6 +2,7 @@ package app.cairn.trek;
 
 import android.app.Activity;
 import android.content.*;
+import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.view.*;
@@ -17,6 +18,8 @@ final class AppFeedback implements AutoCloseable {
   private final Handler main = new Handler(Looper.getMainLooper());
   private final List<Window> windows = new ArrayList<>();
   private final ArrayDeque<Notice> queue = new ArrayDeque<>();
+  private FrameLayout overlay;
+  private Window overlayHost;
   private Notice current;
   private String progress = "", lastUpdate = "";
   private final Runnable advance =
@@ -110,7 +113,25 @@ final class AppFeedback implements AutoCloseable {
 
   private void render() {
     Window window = windows.get(windows.size() - 1);
-    FrameLayout decor = (FrameLayout) window.getDecorView();
+    String text = current == null ? progress : current.text;
+    banner.setText(text);
+    banner.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+    // A content-sized drawer's decor starts at the drawer, not the screen. Attach a
+    // non-interactive panel to its window so feedback stays above it at screen top.
+    boolean overDialog = windows.size() > 1 && !text.isEmpty();
+    if (overlay != null && (!overDialog || overlayHost != window)) {
+      activity.getWindowManager().removeViewImmediate(overlay);
+      overlay = null;
+      overlayHost = null;
+    }
+    FrameLayout decor;
+    if (overDialog) {
+      if (overlay == null) {
+        overlay = new FrameLayout(activity);
+        overlayHost = window;
+      }
+      decor = overlay;
+    } else decor = (FrameLayout) activity.getWindow().getDecorView();
     if (banner.getParent() != decor) {
       if (banner.getParent() != null) ((ViewGroup) banner.getParent()).removeView(banner);
       FrameLayout.LayoutParams params =
@@ -118,14 +139,26 @@ final class AppFeedback implements AutoCloseable {
       params.setMargins(dp(24), dp(12), dp(24), 0);
       decor.addView(banner, params);
     }
-    WindowInsets insets = decor.getRootWindowInsets();
+    WindowInsets insets = activity.getWindow().getDecorView().getRootWindowInsets();
     ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) banner.getLayoutParams();
     params.topMargin = dp(12) + (insets == null ? 0 : insets.getSystemWindowInsetTop());
     banner.setLayoutParams(params);
-    String text = current == null ? progress : current.text;
-    banner.setText(text);
-    banner.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
     banner.bringToFront();
+    if (overDialog && overlay.getParent() == null) {
+      WindowManager.LayoutParams panel =
+          new WindowManager.LayoutParams(
+              -1,
+              -2,
+              WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+              WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                  | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                  | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+              PixelFormat.TRANSLUCENT);
+      panel.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+      panel.token = window.getDecorView().getWindowToken();
+      if (Build.VERSION.SDK_INT >= 30) panel.setFitInsetsTypes(0);
+      activity.getWindowManager().addView(overlay, panel);
+    }
   }
 
   private static AppFeedback owner(Context context) {

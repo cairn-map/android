@@ -91,7 +91,7 @@ final class GpsIntervalSlider extends SeekBar {
       if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) fraction = 1 - fraction;
       float x = getPaddingLeft() + fraction * width;
       canvas.drawLine(x, track + dp(9), x, track + dp(14), ink);
-      canvas.drawText(Integer.toString(seconds), x, getHeight() - dp(6), ink);
+      canvas.drawText(Integer.toString(seconds), x, track + dp(17) - ink.ascent(), ink);
     }
   }
 
