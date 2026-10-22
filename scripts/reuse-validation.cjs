@@ -29,7 +29,7 @@ async function readProof(github, repository, artifact) {
     fs.writeFileSync(archive, bytes, { mode: 0o600 });
     // Read only this bounded JSON entry. Never extract or execute artifact contents.
     return JSON.parse(execFileSync('unzip', ['-p', archive, 'validation.json'],
-      { encoding: 'utf8', maxBuffer: 16384, timeout: 5000 }));
+      { encoding: 'utf8', maxBuffer: 16384, timeout: 5000, killSignal: 'SIGKILL' }));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

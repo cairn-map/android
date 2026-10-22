@@ -118,7 +118,9 @@ test('reads only bounded JSON from the downloaded archive', async () => {
     const data = fs.readFileSync(path.join(directory, 'proof.zip'));
     const github = { rest: { actions: { downloadArtifact: async () => ({ data }) } } };
     assert.deepEqual(await readProof(github, { owner: 'owner', repo: 'cairn' }, { id: 456 }), { schema: 1 });
-    fs.writeFileSync(path.join(directory, 'validation.json'), 'x'.repeat(20000));
+    // Exceed the output cap by multiple pipe buffers; termination must not wait
+    // for unzip's graceful signal handler while its output pipe is blocked.
+    fs.writeFileSync(path.join(directory, 'validation.json'), 'x'.repeat(200000));
     execFileSync('zip', ['-q', 'proof.zip', 'validation.json'], { cwd: directory });
     github.rest.actions.downloadArtifact = async () => ({ data: fs.readFileSync(path.join(directory, 'proof.zip')) });
     await assert.rejects(readProof(github, { owner: 'owner', repo: 'cairn' }, { id: 456 }));
