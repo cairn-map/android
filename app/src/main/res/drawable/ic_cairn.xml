@@ -1,4 +1,14 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
-    <path android:fillColor="#235D4D" android:pathData="M0,0h48v48h-48z" />
-    <path android:strokeColor="#F8F7F2" android:strokeWidth="3" android:strokeLineJoin="round" android:fillColor="@android:color/transparent" android:pathData="M7,35L19,15L25,25L31,17L42,35Z" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Ascent: two folded facets form a mountain peak and navigation arrow.
+         The space around and beneath the peak stays transparent. -->
+    <path
+        android:fillColor="#006653"
+        android:pathData="M24,4L3,41L19,36.8L24,28.9L26.7,33.5Z" />
+    <path
+        android:fillColor="#00B894"
+        android:pathData="M24,4L45,41L30.5,39L26.7,33.5Z" />
 </vector>
