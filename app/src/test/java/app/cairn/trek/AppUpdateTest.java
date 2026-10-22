@@ -330,11 +330,29 @@ public class AppUpdateTest {
       assertEquals(android.view.View.GONE, cancel.getVisibility());
       assertTrue(check.getLayoutParams().height < 52 * activity.getResources().getDisplayMetrics().density);
 
+      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
+      refresh.setAccessible(true);
+      java.lang.reflect.Field offered = AppUpdates.class.getDeclaredField("offered");
+      offered.setAccessible(true);
+      offered.set(updates, new ReleaseClient.Release(manifest(), ""));
+      refresh.invoke(updates);
+      assertEquals(android.view.View.GONE, check.getVisibility());
+      assertEquals(android.view.View.VISIBLE, download.getVisibility());
+
+      File dir = UpdateFiles.directory(activity);
+      assertTrue(dir.isDirectory() || dir.mkdirs());
+      File part = new File(dir, "staged.apk");
+      Files.write(part.toPath(), apkBytes);
+      UpdateFiles.save(activity, part, manifest());
+      refresh.invoke(updates);
+      assertEquals(android.view.View.GONE, check.getVisibility());
+      assertEquals(android.view.View.GONE, download.getVisibility());
+      assertEquals(android.view.View.VISIBLE, install.getVisibility());
+      assertEquals(android.view.View.VISIBLE, discard.getVisibility());
+
       java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
       busy.setAccessible(true);
       busy.setBoolean(updates, true);
-      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
-      refresh.setAccessible(true);
       refresh.invoke(updates);
       assertEquals(android.view.View.GONE, check.getVisibility());
       assertEquals(android.view.View.GONE, download.getVisibility());
@@ -344,8 +362,13 @@ public class AppUpdateTest {
 
       busy.setBoolean(updates, false);
       refresh.invoke(updates);
-      assertEquals(android.view.View.VISIBLE, check.getVisibility());
+      assertEquals(android.view.View.VISIBLE, install.getVisibility());
+      assertEquals(android.view.View.VISIBLE, discard.getVisibility());
       assertEquals(android.view.View.GONE, cancel.getVisibility());
+      UpdateFiles.clear(activity);
+      offered.set(updates, null);
+      refresh.invoke(updates);
+      assertEquals(android.view.View.VISIBLE, check.getVisibility());
     }
   }
 
