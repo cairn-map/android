@@ -3,17 +3,18 @@ on:
   pull_request:
 permissions:
   contents: read
+  pull-requests: write
 concurrency:
   group: android-checks-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   checks:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Select automation tests
         id: automation
         env:
@@ -41,6 +42,43 @@ jobs:
       - name: Build, test and lint
         timeout-minutes: 10
         run: bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2 --build-cache --stacktrace
+      - name: Compare virtual power performance
+        id: performance
+        timeout-minutes: 10
+        env:
+          PERFORMANCE_PREVIOUS_SHA: ${{ github.event.pull_request.base.sha }}
+          PERFORMANCE_CURRENT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/virtual_power.py \
+            --previous "$PERFORMANCE_PREVIOUS_SHA" --current "$PERFORMANCE_CURRENT_SHA"
+      - name: Save virtual performance report
+        if: ${{ always() && steps.performance.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: virtual-performance-${{ github.run_attempt }}
+          path: build/reports/virtual-power/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Summarize virtual performance
+        if: ${{ always() && steps.performance.outcome != 'skipped' }}
+        run: |
+          if [[ -f build/reports/virtual-power/performance.md ]]; then
+            cat build/reports/virtual-power/performance.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Update PR performance comment
+        if: ${{ always() && steps.performance.outcome != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = 'build/reports/virtual-power/performance.md';
+            if (!fs.existsSync(path)) return;
+            const body = fs.readFileSync(path, 'utf8');
+            const params = {...context.repo, issue_number: context.issue.number};
+            const comments = await github.paginate(github.rest.issues.listComments, params);
+            const prior = comments.find(c => c.user.login === 'github-actions[bot]' && c.body.startsWith('<!-- cairn:virtual-power -->'));
+            if (prior) await github.rest.issues.updateComment({...context.repo, comment_id: prior.id, body});
+            else await github.rest.issues.createComment({...params, body});
       - name: Record the validated source and toolchain
         env:
           VALIDATED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

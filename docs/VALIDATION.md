@@ -1,16 +1,8 @@
-# Visible-only rendering and battery benchmark policy — 22 October 2026
+# Automated virtual performance — 22 October 2026
 
-`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **221 Android tests**, no failures/errors/skips. Lint has zero errors and three existing warnings in `SwipeToRemoveView`. The Python suite passes **30 tests** and the Node automation suite **39 tests**. Pinned actionlint 1.7.12 passes. The automation change selector requires both automation suites for this PR.
+This supersedes earlier physical-phone baseline plans: performance approval now uses GitHub Actions, virtual Android tests and native Canvas benchmarks only, per the owner's explicit instruction. No real-phone test or hardware baseline is required. See [virtual performance protocol](BATTERY-VALIDATION.md) for the baseline/previous/current matrix, budgets, runner-noise policy and automatic PR reports.
 
-New regressions exercise pause/window/ancestor visibility, tile queue/source cancellation, obsolete tile rejection, resuming the same viewport, canceling delayed long presses, and persisting every received fix while limiting recording notification updates to once a minute. Benchmark tests cover charge/suspend arithmetic, unsupported diagnostics, GPX terminal gaps/duplicates, complete matched matrices/repetitions, zero background work, frame budgets, baseline and previous-result regressions, invalid measurements, and fail-closed CLI behavior.
-
-| Performance | Baseline | Previous main (`df95c52`) | Current change |
-| --- | --- | --- | --- |
-| Device energy, screen on/off/check at 1/5/20/30/60/300s | unmeasured | unmeasured | unmeasured |
-| Hardware suspend, wake reasons, GNSS duty cycle | unmeasured | unmeasured | unmeasured |
-| Device frame p95 and track positional quality | unmeasured | unmeasured | unmeasured |
-
-No physical phone, live GPS, charge-counter trial or competitor run was available in this cloud workspace. This table must not be treated as passing battery evidence. The benchmark matrix, primary-source competitor research and objectives are in [BATTERY-VALIDATION.md](BATTERY-VALIDATION.md). Baseline/previous/current comparison is blocked until matched physical-device reports exist; auto-merge stays off under the new performance policy.
+The existing 221 Android tests, Python/Node automation and actionlint remain required. The benchmark runner separately injects the same harness into previous/current immutable Git trees and writes measured JSON and a comparison table. Those artifacts, rather than this historical log, establish the verdict for each exact PR head. Hardware mAh, endurance and suspend are not claimed.
 
 # Toast position above drawers with display cutouts — 22 October 2026
 
@@ -163,7 +155,7 @@ A bounded live HTTP range probe on the public graph endpoint read only 200 bytes
 - Large-font, TalkBack, landscape, and outdoor readability checks.
 - Long-running downloads, pause/resume, offline tile rendering, and download cancellation on an actual Android device. Desktop HTTP checks and simulated Android store tests cover parts of this flow, not the whole device workflow.
 
-Compilation, lint, simulated workflows, and the live client probe establish a useful starting point, not field reliability. The next validation step is to download a small Plan IGN area on a phone, verify it in airplane mode, record a short walk, and then run the battery trial described in BATTERY-VALIDATION.md.
+This historical validation record did not establish field reliability. Its proposed phone-trial follow-up has been superseded by the automated virtual performance policy at the top of this document. No physical-phone testing is required for PR approval.
 
 
 ## Map feedback, loading and place search (2026-10-22)

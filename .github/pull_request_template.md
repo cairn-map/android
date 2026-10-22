@@ -4,32 +4,24 @@ Describe the user-visible problem and resulting behavior.
 
 ## Validation
 
-Include Android build/tests/lint and applicable automation checks.
+Include Android build/tests/lint, applicable automation checks and the Actions run URL.
 
 ## Performance
 
-Every PR needs all three columns, in this description or a linked comment. Link the full
-`battery_benchmark.py compare` report and raw evidence. Use immutable revisions and matched
-device/OS/profile; include screen on/off/check and 1/5/20/30/60/300-second GPS intervals.
-Mark unavailable measurements **unmeasured**; passing unit tests cannot substitute for energy trials.
-A full phone run is not required for every PR: identify affected execution paths, remeasure affected
-scenarios when needed, and cite valid unchanged scenario evidence with its actual measured revision.
-Label reused results explicitly; do not present them as a new measurement of the PR.
+Link the Actions **Virtual performance** comment or artifact with baseline, previous main and
+current PR results. The required check runs the same virtual Android workload on both revisions.
+No physical-phone tests are required. Do not label software counts/CPU times as battery endurance.
 
-Impact review and measurement decision (fresh / reused, with evidence and reason):
-
-| Measurement | Baseline (revision) | Previous main (revision) | Current PR (revision) |
+| Measurement | Baseline budget | Previous main (SHA) | Current PR (SHA) |
 | --- | --- | --- | --- |
-| Discharge (mAh/h), per scenario | | | |
-| Screen-off suspend / between-fix suspend (%) | | | |
-| App wake locks / unrelated app wakeups | | | |
-| Offscreen / idle map frames | | | |
-| Visible frame p95 (ms) | | | |
-| Fix coverage / p95 and maximum gaps / positional quality | | | |
+| Screen on/off/check at 1/5/20/30/60/300-second GPS intervals | | | |
+| Hidden draw attempts / tile reads / pending recorder work | 0 | | |
+| Recording notification posts / saved fixes / GPS requests | see report | | |
+| Native Canvas CPU median, 1k and 10k route points | see report | | |
 
-Comparison verdict and evidence:
+Comparison verdict and Actions evidence:
 
-- [ ] Current results meet objectives and are no worse than baseline and previous main.
-- [ ] Required evidence is fresh or explicitly justified as valid reuse; no missing or inconclusive results.
+- [ ] Automated virtual comparison passes for the current head.
+- [ ] Current counts meet baseline/previous budgets; CPU timing meets its stated noise margin.
 
-**Keep auto-merge off if either box cannot be checked. Never reset a baseline to hide a regression.**
+**Keep auto-merge off on a failing, missing or stale virtual comparison.**
