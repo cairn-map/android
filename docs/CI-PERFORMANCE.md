@@ -129,3 +129,18 @@ merged head) in regression coverage. API or artifact failures should identify
 their verification phase while retaining the full-validation fallback. This
 fix changes automation scripts, so it also needs full post-merge validation and
 a later documentation-only smoke test before claiming working native reuse.
+
+## Checking subsequent releases
+
+After [PR #19](https://github.com/dayblox/cairn/pull/19), which passed required
+Android checks in 28 seconds, inspect a source-only release's **Verify reusable
+PR validation** step. Successful reuse must identify the PR run with
+`Reusing successful PR validation run`, while the Robolectric action and all
+three fallback test/build steps are skipped. The signed release build,
+certificate/version verification, and publication must still succeed.
+
+If reuse fails, read the reason before changing caching or validation rules.
+CI/script changes, different trees/base commits/toolchains, expired proof and
+reruns intentionally require fallback. Unexpected API/archive failures now
+identify the failed phase, such as `PR run discovery` or `proof download and
+parsing`, so investigate that phase instead of removing the guard.
