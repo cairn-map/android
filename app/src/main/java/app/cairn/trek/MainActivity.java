@@ -1194,7 +1194,7 @@ public final class MainActivity extends Activity {
             updateService();
           }
         });
-    content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(88)));
+    content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(64)));
     content.addView(
         label(
             "Longer intervals reduce requested fixes and make track detail and alerts less"
