@@ -1,3 +1,9 @@
+# Download and calculate from Route — 23 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **247 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/test/documentation changes.
+
+Planner regressions cover installed-data routing on Android 26/35, one confirmation for missing data, declining, download progress on Android 28/35, automatic calculation across the two real graph fixtures, frozen planning points, unrelated/duplicate completion events, failure/retry, cancellation, background completion, recreation, notification pause and recording restrictions. Service tests transfer a real RD5 fixture over local HTTP and verify correlated progress, validated installation and success/failure signals with simulated Android storage. The Android 35 native Canvas dialog preview at `app/build/test-previews/download-and-route.png` was visually inspected; both actions fit without truncation. Required PR CI supplies the baseline/previous/current virtual performance comparison for the committed head.
+
 # Automated virtual performance — 22 October 2026
 
 This supersedes earlier physical-phone baseline plans: performance approval now uses GitHub Actions, virtual Android tests and native Canvas benchmarks only, per the owner's explicit instruction. No real-phone test or hardware baseline is required. See [virtual performance protocol](BATTERY-VALIDATION.md) for the baseline/previous/current matrix, budgets, runner-noise policy and automatic PR reports.

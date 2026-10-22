@@ -38,6 +38,10 @@ public final class MainActivity extends Activity {
   private FrameLayout root;
   private LinearLayout pages;
   private TextView intervalChip, status, recordButton, planStatus;
+  private TextView planRouteButton;
+  private AlertDialog routingPrompt;
+  private List<Point> pendingRoute;
+  private String routingRequest, routingProgress;
   private final ExecutorService io = Executors.newSingleThreadExecutor();
   private final Handler main = new Handler(Looper.getMainLooper());
   private List<Point> route = new ArrayList<>(), track = new ArrayList<>();
@@ -60,6 +64,19 @@ public final class MainActivity extends Activity {
       new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
+          if (RoutingDownloadService.EVENT.equals(i.getAction())) {
+            if (pendingRoute == null
+                || !Objects.equals(routingRequest, i.getStringExtra("request"))) return;
+            routingProgress = i.getStringExtra("message");
+            if (i.getBooleanExtra("finished", false)) {
+              if (i.getBooleanExtra("success", false)) finishRoutingDownload();
+              else {
+                clearPendingRoute();
+                message(i.getStringExtra("message") + ". Tap Route to resume.");
+              }
+            } else refreshPlanning();
+            return;
+          }
           if (DownloadService.EVENT.equals(i.getAction())) {
             if (downloadStatus != null) downloadStatus.setText(i.getStringExtra("message"));
             boolean finished = i.getBooleanExtra("finished", false);
@@ -105,6 +122,15 @@ public final class MainActivity extends Activity {
     mapStore = new PlanIgnStore(this);
     ignMap = new IgnMap(this);
     router = new EmbeddedRouter(this);
+    if (state != null && state.getBoolean("planning")) {
+      planning = true;
+      double[] coordinates = state.getDoubleArray("planningPoints");
+      if (coordinates != null)
+        for (int i = 0; i + 1 < coordinates.length; i += 2)
+          waypoints.add(new Point(coordinates[i], coordinates[i + 1]));
+      routingRequest = state.getString("routingRequest");
+      if (routingRequest != null) pendingRoute = new ArrayList<>(waypoints);
+    }
     root = new FrameLayout(this);
     root.setBackgroundColor(BACKGROUND);
     root.setOnApplyWindowInsetsListener(
@@ -131,7 +157,7 @@ public final class MainActivity extends Activity {
           });
     map.onLongPress =
         p -> {
-          if (planning && !calculationRunning) {
+          if (planning && !routingBusy()) {
             waypoints.add(p);
             refreshPlanning();
           }
@@ -167,6 +193,7 @@ public final class MainActivity extends Activity {
     map.setRenderingEnabled(true);
     IntentFilter filter = new IntentFilter(TrackingService.EVENT);
     filter.addAction(DownloadService.EVENT);
+    filter.addAction(RoutingDownloadService.EVENT);
     int receiverFlags = Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_NOT_EXPORTED : 0;
     // The API-26 overload uses a signature permission on older systems and
     // adds the explicit non-exported flag on Android 13 and later.
@@ -177,6 +204,26 @@ public final class MainActivity extends Activity {
     reloadLibrary();
     refreshStatus();
     appUpdates.resume();
+    if (pendingRoute != null && !RoutingDownloadService.running) {
+      RoutingDownloadService.Outcome outcome = RoutingDownloadService.lastOutcome;
+      if (outcome != null && Objects.equals(routingRequest, outcome.request) && !outcome.success) {
+        clearPendingRoute();
+        message(outcome.message + ". Tap Route to resume.");
+      } else finishRoutingDownload();
+    }
+  }
+
+  @Override
+  protected void onSaveInstanceState(Bundle state) {
+    super.onSaveInstanceState(state);
+    state.putBoolean("planning", planning);
+    double[] coordinates = new double[waypoints.size() * 2];
+    for (int i = 0; i < waypoints.size(); i++) {
+      coordinates[i * 2] = waypoints.get(i).lat;
+      coordinates[i * 2 + 1] = waypoints.get(i).lon;
+    }
+    state.putDoubleArray("planningPoints", coordinates);
+    state.putString("routingRequest", routingRequest);
   }
 
   @Override
@@ -203,6 +250,7 @@ public final class MainActivity extends Activity {
     }
     cancelLocate();
     cancelSearch();
+    if (routingPrompt != null) routingPrompt.dismiss();
     router.cancel();
     setMapOnline(false);
     super.onPause();
@@ -366,20 +414,23 @@ public final class MainActivity extends Activity {
               "Undo",
               false,
               () -> {
-                if (!calculationRunning && !waypoints.isEmpty()) {
+                if (!routingBusy() && !waypoints.isEmpty()) {
                   waypoints.remove(waypoints.size() - 1);
                   refreshPlanning();
                 }
               }),
           new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
-      actions.addView(
+      planRouteButton =
           button(
-              calculationRunning ? "Cancel" : "Route",
+              routingBusy() ? "Cancel" : "Route",
               true,
               () -> {
-                if (calculationRunning) router.cancel();
+                if (pendingRoute != null) cancelRoutingDownload();
+                else if (calculationRunning) router.cancel();
                 else calculate();
-              }),
+              });
+      actions.addView(
+          planRouteButton,
           new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
       actions.addView(
           button(
@@ -400,6 +451,7 @@ public final class MainActivity extends Activity {
                               routingDataMenu();
                               return;
                             }
+                            cancelRoutingDownload();
                             router.cancel();
                             planning = false;
                             waypoints.clear();
@@ -498,6 +550,7 @@ public final class MainActivity extends Activity {
             "Create route",
             true,
             () -> {
+              cancelRoutingDownload();
               planning = true;
               waypoints.clear();
               map.waypoints = waypoints;
@@ -1281,6 +1334,7 @@ public final class MainActivity extends Activity {
     }
     cancelLocate();
     cancelSearch();
+    cancelRoutingDownload();
     router.cancel();
     dataGeneration++;
     track = new ArrayList<>();
@@ -1637,9 +1691,12 @@ public final class MainActivity extends Activity {
     map.invalidate();
     if (planStatus != null)
       planStatus.setText(
-          calculationRunning
-              ? "Calculating on this device…"
-              : waypoints.size() + " points · long press to add another");
+          pendingRoute != null
+              ? routingProgress == null ? "Downloading routing data…" : routingProgress
+              : calculationRunning
+                  ? "Calculating on this device…"
+                  : waypoints.size() + " points · long press to add another");
+    if (planRouteButton != null) planRouteButton.setText(routingBusy() ? "Cancel" : "Route");
   }
 
   private void addCoordinates() {
@@ -1663,7 +1720,7 @@ public final class MainActivity extends Activity {
                 .setOnClickListener(
                     v -> {
                       try {
-                        if (calculationRunning) return;
+                        if (routingBusy()) return;
                         String[] value = input.getText().toString().split(",");
                         if (value.length != 2) throw new IllegalArgumentException();
                         waypoints.add(
@@ -1680,15 +1737,105 @@ public final class MainActivity extends Activity {
   }
 
   private void calculate() {
-    if (calculationRunning) return;
+    if (routingBusy() || (routingPrompt != null && routingPrompt.isShowing())) return;
     if (waypoints.size() < 2) {
       message("Add at least two points to calculate a route.");
       return;
     }
+    List<Point> requested = new ArrayList<>(waypoints);
+    List<String> missing;
+    try {
+      missing = RoutingData.missing(this, requested);
+    } catch (IllegalArgumentException error) {
+      message(error.getMessage());
+      return;
+    }
+    if (missing.isEmpty()) {
+      calculate(requested);
+      return;
+    }
+    if (TrackingService.running) {
+      message("Finish the hike before downloading routing data, then tap Route again.");
+      return;
+    }
+    if (RoutingDownloadService.running) {
+      message("Routing data is downloading. Tap Route when it finishes.");
+      return;
+    }
+    routingPrompt =
+        CairnDialogs.dialog(this)
+            .setTitle("Download routing data?")
+            .setMessage(
+                "The offline trail network for this route isn't installed yet.\n\n"
+                    + missing.size()
+                    + (missing.size() == 1 ? " missing region." : " missing regions.")
+                    + " Regional downloads can be hundreds of MB; use Wi-Fi."
+                    + " Download size is shown during transfer.\n\n"
+                    + "Cairn will calculate your route when the data is ready.")
+            .setNegativeButton("Not now", null)
+            .setPositiveButton("Download & route", (d, w) -> downloadAndRoute(requested, missing))
+            .create();
+    routingPrompt.setOnDismissListener(d -> routingPrompt = null);
+    routingPrompt.show();
+  }
+
+  private boolean routingBusy() {
+    return calculationRunning || pendingRoute != null;
+  }
+
+  private void downloadAndRoute(List<Point> requested, List<String> missing) {
+    if (!resumed || !planning || TrackingService.running || RoutingDownloadService.running) {
+      message("Routing download unavailable. Tap Route to try again.");
+      return;
+    }
+    pendingRoute = requested;
+    routingRequest = UUID.randomUUID().toString();
+    routingProgress = null;
+    setMapOnline(false);
+    if (DownloadService.running)
+      startService(new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE));
+    refreshPlanning();
+    try {
+      startForegroundService(
+          new Intent(this, RoutingDownloadService.class)
+              .putStringArrayListExtra("regions", new ArrayList<>(missing))
+              .putExtra("request", routingRequest));
+    } catch (RuntimeException error) {
+      clearPendingRoute();
+      message("Could not start routing download: " + error.getMessage());
+    }
+  }
+
+  private void clearPendingRoute() {
+    pendingRoute = null;
+    routingRequest = null;
+    routingProgress = null;
+    refreshPlanning();
+  }
+
+  private void cancelRoutingDownload() {
+    if (pendingRoute == null) return;
+    clearPendingRoute();
+    startService(new Intent(this, RoutingDownloadService.class).setAction("pause"));
+  }
+
+  private void finishRoutingDownload() {
+    if (pendingRoute == null || !resumed || destroyed) return;
+    List<Point> requested = pendingRoute;
+    clearPendingRoute();
+    if (!planning) return;
+    if (!RoutingData.missing(this, requested).isEmpty()) {
+      message("Routing download paused. Tap Route to resume.");
+      return;
+    }
+    calculate(requested);
+  }
+
+  private void calculate(List<Point> requested) {
     calculationRunning = true;
     refreshPlanning();
     router.calculate(
-        new ArrayList<>(waypoints),
+        requested,
         (points, error) -> {
           if (destroyed) return;
           calculationRunning = false;

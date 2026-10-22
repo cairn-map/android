@@ -122,7 +122,15 @@ final class GraphDownloader {
           long now = (System.nanoTime() / 1000000);
           if (now - last > 2000) {
             last = now;
-            progress.accept(name + " · " + done * 100 / Math.max(1, expected) + "%");
+            progress.accept(
+                name
+                    + " · "
+                    + done * 100 / Math.max(1, expected)
+                    + "% · "
+                    + done / (1024 * 1024)
+                    + "/"
+                    + (expected + 1024 * 1024 - 1) / (1024 * 1024)
+                    + " MB");
           }
         }
       }

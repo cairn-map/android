@@ -11,10 +11,24 @@ import java.util.concurrent.*;
 
 /** Explicit graph preparation only; cancellable and resumable without keeping the app open. */
 public final class RoutingDownloadService extends Service {
+  static final String EVENT = "app.cairn.trek.ROUTING_DOWNLOAD";
   static volatile boolean running;
+  static volatile Outcome lastOutcome;
+
+  static final class Outcome {
+    final String request, message;
+    final boolean success;
+
+    Outcome(String request, String message, boolean success) {
+      this.request = request;
+      this.message = message;
+      this.success = success;
+    }
+  }
+
   private static volatile RoutingDownloadService activeInstance;
   private volatile boolean canceled;
-  private final GraphDownloader client = new GraphDownloader();
+  GraphDownloader client = new GraphDownloader();
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
   @Override
@@ -47,20 +61,27 @@ public final class RoutingDownloadService extends Service {
     running = true;
     activeInstance = this;
     canceled = false;
+    String request = intent.getStringExtra("request");
     startForeground(4, notification("Preparing routing data…"));
     worker.execute(
         () -> {
           String message = "Routing data ready offline";
+          boolean success = false;
           try {
-            for (String name : names) {
+            for (int index = 0; index < names.size(); index++) {
+              String name = names.get(index);
+              String regionProgress = "Routing data · " + (index + 1) + "/" + names.size();
               if (canceled || TrackingService.running) throw new InterruptedIOException("Paused");
               if (!new File(RoutingData.directory(this), name).isFile())
                 client.download(
                     RoutingData.directory(this),
                     name,
                     () -> canceled || TrackingService.running,
-                    text ->
-                        getSystemService(NotificationManager.class).notify(4, notification(text)),
+                    text -> {
+                      String progress = text.replace(name, regionProgress);
+                      getSystemService(NotificationManager.class).notify(4, notification(progress));
+                      sendProgress(request, progress, false, false);
+                    },
                     bytes -> {
                       android.os.storage.StorageManager storage =
                           getSystemService(android.os.storage.StorageManager.class);
@@ -69,6 +90,8 @@ public final class RoutingDownloadService extends Service {
                           < bytes) throw new IOException("Not enough free storage");
                     });
             }
+            if (canceled || TrackingService.running) throw new InterruptedIOException("Paused");
+            success = true;
           } catch (Exception e) {
             message =
                 canceled || TrackingService.running
@@ -76,22 +99,37 @@ public final class RoutingDownloadService extends Service {
                     : "Routing download paused: " + e.getMessage();
           }
           String outcome = message;
+          boolean completed = success;
           new Handler(Looper.getMainLooper())
               .post(
                   () -> {
+                    boolean ready = completed && !canceled && !TrackingService.running;
+                    String finalMessage = completed && !ready ? "Routing download paused" : outcome;
                     if (activeInstance == this) {
                       running = false;
                       activeInstance = null;
                     }
+                    lastOutcome = new Outcome(request, finalMessage, ready);
+                    sendProgress(request, finalMessage, true, ready);
                     sendBroadcast(
                         new Intent(DownloadService.EVENT)
                             .setPackage(getPackageName())
-                            .putExtra("message", outcome)
+                            .putExtra("message", finalMessage)
                             .putExtra("finished", true));
                     stopSelf();
                   });
         });
     return START_NOT_STICKY;
+  }
+
+  private void sendProgress(String request, String message, boolean finished, boolean success) {
+    sendBroadcast(
+        new Intent(EVENT)
+            .setPackage(getPackageName())
+            .putExtra("request", request)
+            .putExtra("message", message)
+            .putExtra("finished", finished)
+            .putExtra("success", success));
   }
 
   private Notification notification(String text) {
