@@ -6,7 +6,7 @@ import json
 import subprocess
 import sys
 
-REPOSITORY = "dayblox/cairn"
+REPOSITORY = "cairn-map/android"
 RULESET_NAME = "main"
 REQUIRED_CHECK = "checks"
 # Repository-wide: no squash/rebase, so native auto-merge always creates

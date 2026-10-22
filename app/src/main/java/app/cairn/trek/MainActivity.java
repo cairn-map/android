@@ -181,6 +181,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onPause() {
     appUpdates.pause();
+    map.stopMotion();
     double[] camera = map.camera();
     store
         .prefs
@@ -470,8 +471,10 @@ public final class MainActivity extends Activity {
     LinkedHashMap<String, String> treks = store.treks();
     if (treks.isEmpty())
       content.addView(label("Your recordings will appear here.", 14, MUTED, false));
-    for (Map.Entry<String, String> trek : treks.entrySet())
-      content.addView(
+    if (!treks.isEmpty())
+      content.addView(label("Swipe left on a hike to remove it · tap to export", 12, MUTED, false));
+    for (Map.Entry<String, String> trek : treks.entrySet()) {
+      TextView recording =
           button(
               trek.getValue() + "  ↗",
               false,
@@ -483,8 +486,23 @@ public final class MainActivity extends Activity {
                             () -> {
                               if (!destroyed) export(points, trek.getKey() + ".gpx");
                             });
-                      })));
+                      }));
+      if (TrackingService.running
+          && trek.getKey().equals(store.prefs.getString("currentTrek", ""))) {
+        content.addView(recording);
+      } else {
+        Runnable remove = () -> removeTrek(trek.getKey());
+        TextView removeButton = button("Remove", false, remove);
+        removeButton.setContentDescription("Remove " + trek.getValue());
+        SwipeToRemoveView swipe = new SwipeToRemoveView(this, recording, removeButton, remove);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(8);
+        content.addView(swipe, params);
+      }
+    }
     content.addView(spacer(20));
+    content.addView(appUpdates.view());
+    content.addView(spacer(32));
     content.addView(
         label(
             "BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL). Routing data and Plan IGN"
@@ -522,7 +540,34 @@ public final class MainActivity extends Activity {
     ignCredit.setLinkTextColor(ACCENT);
     ignCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     content.addView(ignCredit);
-    content.addView(appUpdates.view());
+  }
+
+  private void removeTrek(String id) {
+    io.execute(
+        () -> {
+          try {
+            boolean current = id.equals(store.prefs.getString("currentTrek", ""));
+            store.deleteTrek(id);
+            main.post(
+                () -> {
+                  if (destroyed) return;
+                  if (current && !store.prefs.contains("currentTrek")) {
+                    track = new ArrayList<>();
+                    map.track = track;
+                    map.invalidate();
+                  }
+                  loadPoints();
+                  if ("Routes".equals(currentPage)) showPage("Routes");
+                });
+          } catch (RuntimeException error) {
+            main.post(
+                () -> {
+                  if (destroyed) return;
+                  if ("Routes".equals(currentPage)) showPage("Routes");
+                  message(error.getMessage());
+                });
+          }
+        });
   }
 
   private void routeActions(Store.RouteEntry entry) {
@@ -1697,12 +1742,62 @@ public final class MainActivity extends Activity {
           placeSearch.cancel();
           if (searchDialog == dialog) searchDialog = null;
         });
+    PlaceSearch.Callback callback =
+        new PlaceSearch.Callback() {
+          @Override
+          public void results(List<Address> places) {
+            if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+            results.removeAllViews();
+            feedback.setText(
+                places.isEmpty()
+                    ? "No places found. Try a nearby town or a more specific name."
+                    : "Choose a place to show on the map");
+            for (Address place : places) {
+              results.addView(
+                  button(
+                      PlaceSearch.label(place),
+                      false,
+                      () -> {
+                        cancelLocate();
+                        double[] camera = map.camera();
+                        map.restoreCamera(
+                            new double[] {
+                              place.getLatitude(), place.getLongitude(), Math.max(13, camera[2])
+                            });
+                        dialog.dismiss();
+                      }));
+            }
+          }
+
+          @Override
+          public void unavailable(String reason) {
+            if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+            feedback.setText(reason);
+          }
+        };
+    query.addTextChangedListener(
+        new android.text.TextWatcher() {
+          public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+
+          public void onTextChanged(CharSequence text, int start, int before, int count) {
+            results.removeAllViews();
+            query.setError(null);
+            String value = text.toString().trim();
+            feedback.setText(
+                value.length() < 2 ? "Type at least 2 characters to find places" : "Searching…");
+            placeSearch.suggest(value, callback);
+          }
+
+          public void afterTextChanged(android.text.Editable text) {}
+        });
     dialog.setOnShowListener(
         d -> {
           query.requestFocus();
-          dialog.getWindow().setSoftInputMode(
-              WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
-                  | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+          dialog
+              .getWindow()
+              .setSoftInputMode(
+                  WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                      | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
           Runnable submit =
               () -> {
                 String text = query.getText().toString().trim();
@@ -1712,50 +1807,13 @@ public final class MainActivity extends Activity {
                 }
                 results.removeAllViews();
                 feedback.setText("Searching…");
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-                placeSearch.search(
-                    text,
-                    new PlaceSearch.Callback() {
-                      @Override
-                      public void results(List<Address> places) {
-                        if (!dialog.isShowing() || destroyed || TrackingService.running) return;
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
-                        feedback.setText(
-                            places.isEmpty()
-                                ? "No places found. Try a nearby town or a more specific name."
-                                : "Choose a place to show on the map");
-                        for (Address place : places) {
-                          results.addView(
-                              button(
-                                  PlaceSearch.label(place),
-                                  false,
-                                  () -> {
-                                    cancelLocate();
-                                    double[] camera = map.camera();
-                                    map.restoreCamera(
-                                        new double[] {
-                                          place.getLatitude(),
-                                          place.getLongitude(),
-                                          Math.max(13, camera[2])
-                                        });
-                                    dialog.dismiss();
-                                  }));
-                        }
-                      }
-
-                      @Override
-                      public void unavailable(String reason) {
-                        if (!dialog.isShowing() || destroyed || TrackingService.running) return;
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
-                        feedback.setText(reason);
-                      }
-                    });
+                placeSearch.search(text, callback);
               };
           dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> submit.run());
           query.setOnEditorActionListener(
               (v, action, event) -> {
                 if (action != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
-                if (dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled()) submit.run();
+                submit.run();
                 return true;
               });
         });

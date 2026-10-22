@@ -11,7 +11,7 @@ android {
         versionName '0.5.0'
         if (project.hasProperty('cairnVersionCode')) versionCode = project.property('cairnVersionCode').toInteger()
         if (project.hasProperty('cairnVersionName')) versionName = project.property('cairnVersionName')
-        buildConfigField 'String', 'UPDATE_REPOSITORY', '"dayblox/cairn"'
+        buildConfigField 'String', 'UPDATE_REPOSITORY', '"cairn-map/android"'
     }
     signingConfigs {
         release {
