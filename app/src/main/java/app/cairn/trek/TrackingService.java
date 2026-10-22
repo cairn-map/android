@@ -7,15 +7,18 @@ import android.content.pm.PackageManager;
 import android.location.*;
 import android.os.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class TrackingService extends Service implements LocationListener {
   public static final String EVENT = "app.cairn.trek.FIX", STOP = "stop", UPDATE = "update";
   public static volatile boolean running = false;
+  static final AtomicInteger fixObservers = new AtomicInteger();
   private Store store;
   private LocationManager manager;
   private HandlerThread worker;
   private String trekId;
   private List<Point> route = Collections.emptyList();
+  private RouteProximity proximity = new RouteProximity(Collections.emptyList());
   private int outsideFixes = 0;
   private boolean warned = false;
   private long requestedInterval = -1;
@@ -67,6 +70,7 @@ public final class TrackingService extends Service implements LocationListener {
                   store.prefs.getBoolean("follow", false)
                       ? store.read("route")
                       : Collections.emptyList();
+              proximity = new RouteProximity(route);
               outsideFixes = 0;
               warned = false;
               try {
@@ -138,7 +142,8 @@ public final class TrackingService extends Service implements LocationListener {
     }
     // NotificationManager wakes System UI too. Coalesce on received fixes, with no timer.
     long now = SystemClock.elapsedRealtime();
-    if (lastNotificationElapsed == Long.MIN_VALUE || now - lastNotificationElapsed >= 60_000L) {
+    long notificationInterval = fixObservers.get() > 0 ? 60_000L : 300_000L;
+    if (lastNotificationElapsed == Long.MIN_VALUE || now - lastNotificationElapsed >= notificationInterval) {
       lastNotificationElapsed = now;
       getSystemService(NotificationManager.class)
           .notify(
@@ -152,7 +157,7 @@ public final class TrackingService extends Service implements LocationListener {
                       + " m"));
     }
     if (store.prefs.getBoolean("offRoute", true) && route.size() > 1 && p.accuracy <= 50) {
-      double distance = Geo.routeDistance(p, route);
+      double distance = proximity.distance(p);
       if (distance > Math.max(50, p.accuracy * 2)) outsideFixes++;
       else outsideFixes = 0;
       if (distance < 25) warned = false;
@@ -181,7 +186,8 @@ public final class TrackingService extends Service implements LocationListener {
           vibrator.vibrate(VibrationEffect.createWaveform(new long[] {0, 180, 120, 180}, -1));
       }
     }
-    sendBroadcast(
+    // Hidden activities reload persisted fixes on resume; there is no receiver to wake now.
+    if (fixObservers.get() > 0) sendBroadcast(
         new Intent(EVENT)
             .setPackage(getPackageName())
             .putExtra("lat", p.lat)

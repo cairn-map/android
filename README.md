@@ -51,6 +51,8 @@ The indoor fallback adds only an explicitly requested, foreground locate operati
 
 The app holds no continuous wake lock, screen-on request, map animation loop or compass polling loop. Preparation traffic is off during a hike. Android and GNSS hardware still control actual delivery and receiver duty cycling. **No measured claim of best endurance or superiority to OruxMaps has been established.** Performance checks run entirely in Actions using virtual Android workloads and native Canvas CPU benchmarks; no physical-phone trials are required. See [virtual performance validation](docs/BATTERY-VALIDATION.md).
 
+Hidden recording persists every accepted fix without sending unused UI broadcasts; notification timestamps refresh on received fixes at most every five minutes while hidden. Route guidance skips provably distant route blocks, and map checks reuse projected paths instead of repeatedly projecting the accumulated track. The GPS drawer explains 20–30-second trekking, 5–10-second switchback and 60-second sparse-recording choices. The default remains 20 seconds. See the [multi-day efficiency audit and reproducible interval study](docs/MULTIDAY-GPS.md).
+
 If Android kills the recording process, committed points remain but recording does not automatically resume. Reopen Cairn, inspect/export the previous hike, and explicitly start a new recording. Turn alerts are not implemented; off-route alerts use existing fixes and can be delayed by long intervals.
 
 ## Build and validation
