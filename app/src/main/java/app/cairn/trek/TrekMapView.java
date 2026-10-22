@@ -59,6 +59,10 @@ public final class TrekMapView extends View {
   private long lastPanMove;
   private boolean multiplePointers;
   private float pinchX, pinchY;
+  private boolean pinched;
+  private double pinchVelocity, pinchDirection;
+  private long lastPinchMove;
+  private float pinchFocusX, pinchFocusY;
   private boolean twoFingerTap;
   private float twoFingerX, twoFingerY, twoFingerSpan;
   // One zoom level per 160 dp, independent of distance from the second tap or event rate.
@@ -95,6 +99,7 @@ public final class TrekMapView extends View {
               @Override
               public boolean onScroll(MotionEvent first, MotionEvent now, float dx, float dy) {
                 if (doubleTap || now.getPointerCount() > 1 || scales.isInProgress()) return true;
+                pinched = false;
                 panBy(dx, dy);
                 refreshTiles(false);
                 lastPanMove = now.getEventTime();
@@ -186,13 +191,31 @@ public final class TrekMapView extends View {
               public boolean onScaleBegin(ScaleGestureDetector d) {
                 tapCandidate = false;
                 twoFingerTap = false;
+                pinched = false;
+                pinchVelocity = pinchDirection = 0;
                 refreshTiles(false);
                 return true;
               }
 
               @Override
               public boolean onScale(ScaleGestureDetector d) {
+                double before = camera()[2];
                 scaleBy(d.getScaleFactor(), d.getFocusX(), d.getFocusY());
+                double delta = camera()[2] - before;
+                if (Math.abs(delta) > 0.00001 && d.getTimeDelta() > 0) {
+                  double direction = Math.signum(delta);
+                  double velocity = delta * 1000 / d.getTimeDelta();
+                  pinchVelocity =
+                      direction == pinchDirection
+                          ? pinchVelocity * 0.25 + velocity * 0.75
+                          : velocity;
+                  pinchVelocity = Math.max(-4, Math.min(4, pinchVelocity));
+                  pinchDirection = direction;
+                  lastPinchMove = d.getEventTime();
+                  pinchFocusX = d.getFocusX();
+                  pinchFocusY = d.getFocusY();
+                  pinched = true;
+                }
                 return true;
               }
 
@@ -240,10 +263,19 @@ public final class TrekMapView extends View {
         || velocity * quickDirection <= 0
         || Math.abs(velocity) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity())
       return false;
+    return startZoomFling(velocity / quickZoomDistance, quickFocusX, quickFocusY);
+  }
+
+  private boolean startZoomFling(double velocity, float focusX, float focusY) {
     double level = camera()[2];
-    if (velocity < 0 && level <= minZoom() || velocity > 0 && level >= maxZoom()) return false;
+    if (!Double.isFinite(velocity)
+        || Math.abs(velocity) < 0.12
+        || velocity < 0 && level <= minZoom()
+        || velocity > 0 && level >= maxZoom()) return false;
     flingStartLevel = level;
-    flingVelocity = velocity / quickZoomDistance;
+    flingVelocity = velocity;
+    quickFocusX = focusX;
+    quickFocusY = focusY;
     flingStarted = android.os.SystemClock.uptimeMillis();
     zoomFling = true;
     postInvalidateOnAnimation();
@@ -306,6 +338,8 @@ public final class TrekMapView extends View {
     quickZooming = false;
     quickZoomEligible = false;
     twoFingerTap = false;
+    pinched = false;
+    pinchVelocity = pinchDirection = 0;
     doubleTap = false;
     if (zoomVelocity != null) zoomVelocity.recycle();
     zoomVelocity = null;
@@ -488,6 +522,8 @@ public final class TrekMapView extends View {
     }
     if (zoomVelocity != null) zoomVelocity.addMovement(e);
     if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+      pinched = false;
+      pinchVelocity = pinchDirection = 0;
       multiplePointers = true;
       pinchX = focus(e, true, -1);
       pinchY = focus(e, false, -1);
@@ -527,6 +563,13 @@ public final class TrekMapView extends View {
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
     scales.onTouchEvent(e);
     gestures.onTouchEvent(e);
+    if (e.getActionMasked() == MotionEvent.ACTION_UP
+        && pinched
+        && e.getEventTime() - lastPinchMove <= 100
+        && pinchVelocity * pinchDirection > 0) {
+      startZoomFling(pinchVelocity, pinchFocusX, pinchFocusY);
+      pinched = false;
+    }
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         && twoFingerTap
         && e.getEventTime() - e.getDownTime() <= ViewConfiguration.getDoubleTapTimeout()) {

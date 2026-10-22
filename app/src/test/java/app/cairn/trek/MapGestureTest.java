@@ -130,6 +130,10 @@ public class MapGestureTest {
   }
 
   private void twoFingers(int action, float firstX, float secondX) {
+    twoFingers(action, firstX, secondX, 40);
+  }
+
+  private void twoFingers(int action, float firstX, float secondX, int interval) {
     MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[2];
     MotionEvent.PointerCoords[] coordinates = new MotionEvent.PointerCoords[2];
     for (int i = 0; i < 2; i++) {
@@ -160,7 +164,7 @@ public class MapGestureTest {
             0);
     map.onTouchEvent(event);
     event.recycle();
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(40));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(interval));
   }
 
   private Point underSecondTap() {
@@ -184,7 +188,7 @@ public class MapGestureTest {
   }
 
   @Test
-  public void addingASecondFingerSwitchesToPinchWithoutAnExtraZoomOrCoast() {
+  public void addingASecondFingerSwitchesToPinchAndUsesThePinchReleaseMomentum() {
     doublePress();
     double before = map.camera()[2];
     twoFingers(
@@ -197,7 +201,7 @@ public class MapGestureTest {
     double pinched = map.camera()[2];
     touch(MotionEvent.ACTION_UP, 100, 300);
     coast(1000);
-    assertEquals(pinched, map.camera()[2], 1e-10);
+    assertTrue(map.camera()[2] > pinched);
   }
 
   @Test
@@ -642,5 +646,87 @@ public class MapGestureTest {
     world = 256 * map.getResources().getDisplayMetrics().density * Math.pow(2, after[2]);
     assertEquals(anchorY, Geo.y(after[0], 0) + (300 - map.getHeight() / 2.0) / world, 1e-9);
     assertEquals(before[1], after[1], 1e-10);
+  }
+
+  private void pinch(int interval, int direction) {
+    touch(MotionEvent.ACTION_DOWN, 100, 300, interval);
+    twoFingers(
+        MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+        100,
+        500,
+        interval);
+    for (int i = 1; i <= 5; i++) {
+      float half = 200 + direction * i * 20;
+      twoFingers(MotionEvent.ACTION_MOVE, 300 - half, 300 + half, interval);
+    }
+  }
+
+  private void releasePinch(float half) {
+    twoFingers(
+        MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+        300 - half,
+        300 + half,
+        10);
+    touch(MotionEvent.ACTION_UP, 300 - half, 300, 0);
+  }
+
+  private Point pinchAnchor() {
+    double[] camera = map.camera();
+    double world = 256 * map.getResources().getDisplayMetrics().density * Math.pow(2, camera[2]);
+    return new Point(
+        Geo.lat(Geo.y(camera[0], 0) + (300 - map.getHeight() / 2.0) / world, 0), camera[1]);
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void pinchCoastsInEitherDirectionAroundItsAnchorAndStopsOnANewTouch() {
+    for (int direction : new int[] {-1, 1}) {
+      map.restoreCamera(new double[] {45.9, 6.8, 10});
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      pinch(20, direction);
+      Point anchor = pinchAnchor();
+      releasePinch(200 + direction * 100);
+      double released = map.camera()[2];
+      coast(80);
+      assertTrue(direction * (map.camera()[2] - released) > 0);
+      assertEquals(anchor.lat, pinchAnchor().lat, 1e-5);
+      assertEquals(anchor.lon, pinchAnchor().lon, 1e-5);
+      touch(MotionEvent.ACTION_DOWN, 300, 300, 0);
+      double[] stopped = map.camera();
+      coast(2000);
+      assertArrayEquals(stopped, map.camera(), 1e-10);
+      touch(MotionEvent.ACTION_CANCEL, 300, 300);
+    }
+  }
+
+  @Test
+  public void heldOrCancelledPinchHasNoMomentum() {
+    for (int end : new int[] {MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL}) {
+      pinch(20, 1);
+      double[] stopped = map.camera();
+      if (end == MotionEvent.ACTION_UP) {
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        releasePinch(300);
+      } else touch(end, 0, 300);
+      coast(2000);
+      assertArrayEquals(stopped, map.camera(), 1e-10);
+    }
+  }
+
+  @Test
+  public void reversedPinchCoastsInItsNewDirectionAndStaysWithinZoomLimits() {
+    pinch(20, 1);
+    twoFingers(MotionEvent.ACTION_MOVE, 20, 580, 20);
+    twoFingers(MotionEvent.ACTION_MOVE, 40, 560, 20);
+    releasePinch(260);
+    double released = map.camera()[2];
+    coast(2000);
+    assertTrue(map.camera()[2] < released);
+    map.restoreCamera(new double[] {45.9, 6.8, 18.9});
+    pinch(10, 1);
+    releasePinch(300);
+    coast(2000);
+    assertEquals(19, map.camera()[2], 1e-10);
+    for (double coordinate : map.camera()) assertTrue(Double.isFinite(coordinate));
   }
 }

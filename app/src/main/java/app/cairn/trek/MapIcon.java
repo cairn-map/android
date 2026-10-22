@@ -5,12 +5,36 @@ import android.graphics.drawable.Drawable;
 
 /** Small platform-only icons; no bitmap assets or icon-library dependency. */
 final class MapIcon extends Drawable {
-  static final int LOCATE = 0, ONLINE = 1, OFFLINE = 2, MAPS = 3, SEARCH = 4, PATH = 5;
+  static final int LOCATE = 0,
+      ONLINE = 1,
+      OFFLINE = 2,
+      MAPS = 3,
+      SEARCH = 4,
+      PATH = 5,
+      UPDATE = 6,
+      CLOSE = 7;
   private final int kind;
+  private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
   MapIcon(int kind) {
     this.kind = kind;
+  }
+
+  void colors(int foreground, int background) {
+    this.foreground = foreground;
+    this.background = background;
+    invalidateSelf();
+  }
+
+  @Override
+  public int getIntrinsicWidth() {
+    return 24;
+  }
+
+  @Override
+  public int getIntrinsicHeight() {
+    return 24;
   }
 
   @Override
@@ -19,12 +43,25 @@ final class MapIcon extends Drawable {
     Rect b = getBounds();
     canvas.translate(b.left, b.top);
     canvas.scale(b.width() / 24f, b.height() / 24f);
-    paint.setColor(AppPalette.ACCENT);
+    paint.setColor(foreground);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == PATH) {
+    if (kind == CLOSE) {
+      canvas.drawLine(6, 6, 18, 18, paint);
+      canvas.drawLine(18, 6, 6, 18, paint);
+    } else if (kind == UPDATE) {
+      canvas.drawLine(12, 3, 12, 15, paint);
+      canvas.drawLine(7, 10, 12, 15, paint);
+      canvas.drawLine(17, 10, 12, 15, paint);
+      Path tray = new Path();
+      tray.moveTo(4, 16);
+      tray.lineTo(4, 21);
+      tray.lineTo(20, 21);
+      tray.lineTo(20, 16);
+      canvas.drawPath(tray, paint);
+    } else if (kind == PATH) {
       canvas.drawCircle(5, 19, 2.5f, paint);
       canvas.drawCircle(19, 5, 2.5f, paint);
       Path path = new Path();
@@ -67,10 +104,10 @@ final class MapIcon extends Drawable {
       cloud.lineTo(6, 18);
       canvas.drawPath(cloud, paint);
       if (kind == OFFLINE) {
-        paint.setColor(AppPalette.SURFACE);
+        paint.setColor(background);
         paint.setStrokeWidth(4);
         canvas.drawLine(3, 3, 21, 21, paint);
-        paint.setColor(AppPalette.ACCENT);
+        paint.setColor(foreground);
         paint.setStrokeWidth(1.8f);
         canvas.drawLine(3, 3, 21, 21, paint);
       } else {

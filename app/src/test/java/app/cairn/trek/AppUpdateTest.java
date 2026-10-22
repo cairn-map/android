@@ -23,6 +23,7 @@ import org.robolectric.shadow.api.Shadow;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28)
 @SQLiteMode(SQLiteMode.Mode.LEGACY)
+@LooperMode(LooperMode.Mode.PAUSED)
 public class AppUpdateTest {
   @Rule public TemporaryFolder temporary = new TemporaryFolder();
   private final byte[] apkBytes = "complete signed APK fixture".getBytes(StandardCharsets.UTF_8);
@@ -30,6 +31,8 @@ public class AppUpdateTest {
   @Before public void reset() {
     TrackingService.running = false;
     UpdateFiles.clear(RuntimeEnvironment.getApplication());
+    org.robolectric.shadows.ShadowStatFs.registerStats(
+        UpdateFiles.directory(RuntimeEnvironment.getApplication()), 1000000, 1000000, 1000000);
   }
 
   private JSONObject metadata() throws Exception {
@@ -253,183 +256,202 @@ public class AppUpdateTest {
     return field.get(object);
   }
 
-  private android.view.View openLibrary(MainActivity activity) throws Exception {
-    ((android.view.View) field(activity, "libraryButton")).performClick();
+  private void drain(AppUpdates updates) throws Exception {
+    java.util.concurrent.ExecutorService worker =
+        (java.util.concurrent.ExecutorService) field(updates, "worker");
+    worker.submit(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
     Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-    return ((android.app.AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
   }
 
-  private android.widget.TextView button(android.view.View view, String title) {
-    if (view instanceof android.widget.TextView
-        && title.contentEquals(((android.widget.TextView) view).getText()))
-      return (android.widget.TextView) view;
-    if (view instanceof android.view.ViewGroup) {
-      android.view.ViewGroup group = (android.view.ViewGroup) view;
-      for (int i = 0; i < group.getChildCount(); i++) {
-        android.widget.TextView found = button(group.getChildAt(i), title);
-        if (found != null) return found;
+  private AppUpdates updater(
+      MainActivity activity, ReleaseClient client, AppUpdates.Verifier verifier) throws Exception {
+    ((AppUpdates) field(activity, "appUpdates")).close();
+    AppUpdates updates = new AppUpdates(activity, () -> client, verifier);
+    java.lang.reflect.Field holder = MainActivity.class.getDeclaredField("appUpdates");
+    holder.setAccessible(true);
+    holder.set(activity, updates);
+    java.lang.reflect.Method show = MainActivity.class.getDeclaredMethod("showPage", String.class);
+    show.setAccessible(true);
+    show.invoke(activity, "Map");
+    updates.resume();
+    return updates;
+  }
+
+  private void tapUpdate(MainActivity activity) throws Exception {
+    ((android.view.View) field(activity, "updateButton")).performClick();
+  }
+
+  @Test
+  public void oneTapChecksDownloadsVerifiesAndLaunchesInstallerWithoutAnAppPopup()
+      throws Exception {
+    List<String> requests = new ArrayList<>();
+    List<String> verified = new ArrayList<>();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      Shadows.shadowOf(activity.getPackageManager()).setCanRequestPackageInstalls(true);
+      AppUpdates updates =
+          updater(
+              activity,
+              client(requests, new Response(json(metadata())), new Response(apkBytes)),
+              (file, manifest, stop) -> {
+                assertArrayEquals(apkBytes, Files.readAllBytes(file.toPath()));
+                verified.add(manifest.versionName);
+              });
+      android.app.AlertDialog previous =
+          org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      tapUpdate(activity);
+      tapUpdate(activity); // A second tap cannot duplicate the transfer.
+      drain(updates);
+      assertEquals(2, requests.size());
+      assertEquals(Collections.singletonList("0.6.0"), verified);
+      assertTrue(UpdateFiles.ready(activity));
+      Intent install = Shadows.shadowOf(activity).getNextStartedActivity();
+      assertNotNull(install);
+      assertEquals(Intent.ACTION_VIEW, install.getAction());
+      assertEquals("application/vnd.android.package-archive", install.getType());
+      assertSame(previous, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+      assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
+    }
+  }
+
+  @Test
+  public void permissionGoesStraightToAndroidSettingsAndInstallationContinuesOnReturn()
+      throws Exception {
+    List<String> requests = new ArrayList<>();
+    java.util.concurrent.atomic.AtomicInteger verified =
+        new java.util.concurrent.atomic.AtomicInteger();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      Shadows.shadowOf(activity.getPackageManager()).setCanRequestPackageInstalls(false);
+      AppUpdates updates =
+          updater(
+              activity,
+              client(requests, new Response(json(metadata())), new Response(apkBytes)),
+              (file, manifest, stop) -> verified.incrementAndGet());
+      tapUpdate(activity);
+      drain(updates);
+      assertEquals(
+          android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+          Shadows.shadowOf(activity).getNextStartedActivity().getAction());
+      updates.pause();
+      Shadows.shadowOf(activity.getPackageManager()).setCanRequestPackageInstalls(true);
+      updates.resume();
+      drain(updates);
+      assertEquals(
+          Intent.ACTION_VIEW, Shadows.shadowOf(activity).getNextStartedActivity().getAction());
+      assertEquals(2, requests.size());
+      assertEquals(2, verified.get()); // Retained APK is reverified after leaving the app.
+    }
+  }
+
+  @Test
+  public void anUpToDateOrUnsupportedReleaseNeverDownloadsOrInstalls() throws Exception {
+    for (JSONObject meta :
+        Arrays.asList(
+            metadata()
+                .put("versionCode", 5)
+                .put("versionName", "0.5.0")
+                .put("apkName", "Cairn-0.5.0.apk"),
+            metadata().put("minSdk", 35))) {
+      List<String> requests = new ArrayList<>();
+      try (ActivityController<MainActivity> controller =
+          Robolectric.buildActivity(MainActivity.class).setup()) {
+        MainActivity activity = controller.get();
+        AppUpdates updates =
+            updater(
+                activity,
+                client(requests, new Response(json(meta))),
+                (file, manifest, stop) -> fail("No APK should reach verification"));
+        tapUpdate(activity);
+        drain(updates);
+        assertEquals(1, requests.size());
+        assertFalse(UpdateFiles.ready(activity));
+        assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
       }
     }
-    return null;
   }
 
-  @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
-  @Config(sdk = 28, qualifiers = "w393dp-h851dp-xhdpi")
-  public void routesShowsInlineUpdateControlsWithoutStartingWorkAndBlocksChecksWhileRecording()
-      throws Exception {
-    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+  @Test
+  public void failedVerificationCannotPublishOrInstallAnApk() throws Exception {
+    List<String> requests = new ArrayList<>();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
-      android.view.View root = activity.findViewById(android.R.id.content);
-      root = openLibrary(activity);
-      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
-      assertNull(field(updates, "client"));
-      assertNull(field(updates, "transfer"));
-      assertNotNull(button(root, "APP UPDATES"));
-      assertNotNull(button(root, "Check"));
+      AppUpdates updates =
+          updater(
+              activity,
+              client(requests, new Response(json(metadata())), new Response(apkBytes)),
+              (file, manifest, stop) -> {
+                throw new IOException("Signing key mismatch");
+              });
+      tapUpdate(activity);
+      drain(updates);
+      assertFalse(UpdateFiles.ready(activity));
       assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
-      root.measure(android.view.View.MeasureSpec.makeMeasureSpec(786, android.view.View.MeasureSpec.EXACTLY),
-          android.view.View.MeasureSpec.makeMeasureSpec(1550, android.view.View.MeasureSpec.EXACTLY));
-      root.layout(0, 0, 786, 1550);
-      android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(786, 1550, android.graphics.Bitmap.Config.ARGB_8888);
-      root.draw(new android.graphics.Canvas(bitmap));
-      File preview = new File("build/test-previews/routes-updates.png");
-      preview.getParentFile().mkdirs();
-      try (OutputStream output = new FileOutputStream(preview)) {
-        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
-      }
+      assertTrue(
+          ((android.widget.TextView) field(activity, "updateStatus"))
+              .getText()
+              .toString()
+              .contains("Signing key mismatch"));
+    }
+  }
+
+  @Test
+  public void leavingTheAppCancelsTheUpdateAndDoesNotRestartOnResume() throws Exception {
+    java.util.concurrent.CountDownLatch verifying = new java.util.concurrent.CountDownLatch(1);
+    java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+    List<String> requests = new ArrayList<>();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      AppUpdates updates =
+          updater(
+              activity,
+              client(requests, new Response(json(metadata())), new Response(apkBytes)),
+              (file, manifest, stop) -> {
+                verifying.countDown();
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+              });
+      tapUpdate(activity);
+      assertTrue(verifying.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      updates.pause();
+      release.countDown();
+      drain(updates);
+      updates.resume();
+      drain(updates);
+      assertFalse(UpdateFiles.ready(activity));
+      assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
+      assertEquals(2, requests.size());
+    } finally {
+      release.countDown();
+    }
+  }
+
+  @Test
+  public void recordingBlocksTheOneTapUpdateBeforeAnyNetworkWork() throws Exception {
+    List<String> requests = new ArrayList<>();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      AppUpdates updates =
+          updater(
+              activity,
+              client(requests),
+              (file, manifest, stop) -> fail("Recording must not start update verification"));
       TrackingService.running = true;
-      button(root, "Check").performClick();
-      assertNull(field(updates, "client"));
-      assertNull(field(updates, "transfer"));
-      assertEquals(android.view.View.VISIBLE, ((android.widget.TextView) field(updates, "status")).getVisibility());
-      TrackingService.running = false;
-      ((android.app.AlertDialog) field(activity, "libraryDialog")).getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
-      Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-      root = openLibrary(activity);
-      controller.pause().stop().start().resume();
-      assertSame(updates, field(activity, "appUpdates"));
-      assertNull(field(updates, "client"));
-      assertNull(field(updates, "transfer"));
+      tapUpdate(activity);
+      drain(updates);
+      assertTrue(requests.isEmpty());
+      assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
+      assertTrue(
+          ((android.widget.TextView) field(activity, "updateStatus"))
+              .getText()
+              .toString()
+              .contains("Finish your hike"));
     } finally {
       TrackingService.running = false;
-    }
-  }
-
-  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
-  public void updateButtonsShareCompactRowAndCancelReplacesActionsWhileBusy() throws Exception {
-    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
-      MainActivity activity = controller.get();
-      android.view.View root = activity.findViewById(android.R.id.content);
-      root = openLibrary(activity);
-      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
-
-      android.widget.Button check = (android.widget.Button) field(updates, "checkButton");
-      android.widget.Button download = (android.widget.Button) field(updates, "downloadButton");
-      android.widget.Button install = (android.widget.Button) field(updates, "installButton");
-      android.widget.Button discard = (android.widget.Button) field(updates, "discardButton");
-      android.widget.Button cancel = (android.widget.Button) field(updates, "cancelButton");
-      android.widget.LinearLayout actions = (android.widget.LinearLayout) check.getParent();
-      assertEquals(android.widget.LinearLayout.HORIZONTAL, actions.getOrientation());
-      for (android.widget.Button action : new android.widget.Button[] {download, install, discard, cancel})
-        assertSame(actions, action.getParent());
-      assertEquals("Check for updates", check.getContentDescription());
-      assertEquals("Install downloaded update", install.getContentDescription());
-      assertEquals(android.view.View.VISIBLE, check.getVisibility());
-      assertEquals(android.view.View.GONE, cancel.getVisibility());
-      assertTrue(check.getLayoutParams().height < 52 * activity.getResources().getDisplayMetrics().density);
-
-      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
-      refresh.setAccessible(true);
-      java.lang.reflect.Field offered = AppUpdates.class.getDeclaredField("offered");
-      offered.setAccessible(true);
-      offered.set(updates, new ReleaseClient.Release(manifest(), ""));
-      refresh.invoke(updates);
-      assertEquals(android.view.View.GONE, check.getVisibility());
-      assertEquals(android.view.View.VISIBLE, download.getVisibility());
-
-      File dir = UpdateFiles.directory(activity);
-      assertTrue(dir.isDirectory() || dir.mkdirs());
-      File part = new File(dir, "staged.apk");
-      Files.write(part.toPath(), apkBytes);
-      UpdateFiles.save(activity, part, manifest());
-      refresh.invoke(updates);
-      assertEquals(android.view.View.GONE, check.getVisibility());
-      assertEquals(android.view.View.GONE, download.getVisibility());
-      assertEquals(android.view.View.VISIBLE, install.getVisibility());
-      assertEquals(android.view.View.VISIBLE, discard.getVisibility());
-
-      java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
-      busy.setAccessible(true);
-      busy.setBoolean(updates, true);
-      refresh.invoke(updates);
-      assertEquals(android.view.View.GONE, check.getVisibility());
-      assertEquals(android.view.View.GONE, download.getVisibility());
-      assertEquals(android.view.View.GONE, install.getVisibility());
-      assertEquals(android.view.View.GONE, discard.getVisibility());
-      assertEquals(android.view.View.VISIBLE, cancel.getVisibility());
-
-      busy.setBoolean(updates, false);
-      refresh.invoke(updates);
-      assertEquals(android.view.View.VISIBLE, install.getVisibility());
-      assertEquals(android.view.View.VISIBLE, discard.getVisibility());
-      assertEquals(android.view.View.GONE, cancel.getVisibility());
-      UpdateFiles.clear(activity);
-      offered.set(updates, null);
-      refresh.invoke(updates);
-      assertEquals(android.view.View.VISIBLE, check.getVisibility());
-    }
-  }
-
-  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
-  public void licencesStayInPlaceAsUpdateMessagesAndActionsChange() throws Exception {
-    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
-      MainActivity activity = controller.get();
-      android.view.View root = activity.findViewById(android.R.id.content);
-      root = openLibrary(activity);
-      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
-      android.widget.TextView licences = button(root, "Licences & attribution");
-      android.widget.TextView status = (android.widget.TextView) field(updates, "status");
-      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
-      refresh.setAccessible(true);
-      int top = -1;
-      for (String message : new String[] {"", "Checking the latest public Cairn release…",
-          "Cairn 0.6.0 is available\n\n" + "Long release notes.\n".repeat(40),
-          "Downloading… 25%", "Canceled. Nothing will restart automatically."}) {
-        status.setText(message);
-        refresh.invoke(updates);
-        root.measure(android.view.View.MeasureSpec.makeMeasureSpec(786, android.view.View.MeasureSpec.EXACTLY),
-            android.view.View.MeasureSpec.makeMeasureSpec(1550, android.view.View.MeasureSpec.EXACTLY));
-        root.layout(0, 0, 786, 1550);
-        if (top < 0) top = licences.getTop();
-        assertEquals("Update text must not move licences", top, licences.getTop());
-        assertTrue(licences.getTop() < ((android.view.View) field(updates, "content")).getTop());
-      }
-    }
-  }
-
-  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
-  public void leavingRoutesCancelsUpdateWorkAndReturningDoesNotRestartIt() throws Exception {
-    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
-      MainActivity activity = controller.get();
-      android.view.View root = activity.findViewById(android.R.id.content);
-      root = openLibrary(activity);
-      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
-      java.util.concurrent.FutureTask<Void> transfer = new java.util.concurrent.FutureTask<>(() -> null);
-      java.lang.reflect.Field task = AppUpdates.class.getDeclaredField("transfer");
-      task.setAccessible(true);
-      task.set(updates, transfer);
-      java.lang.reflect.Field busy = AppUpdates.class.getDeclaredField("busy");
-      busy.setAccessible(true);
-      busy.setBoolean(updates, true);
-      ((android.app.AlertDialog) field(activity, "libraryDialog")).getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
-      Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-      assertTrue(transfer.isCancelled());
-      assertFalse(busy.getBoolean(updates));
-      assertEquals(false, field(updates, "active"));
-      root = openLibrary(activity);
-      assertTrue(transfer.isCancelled());
-      assertFalse(busy.getBoolean(updates));
-      assertNull(field(updates, "client"));
     }
   }
 }

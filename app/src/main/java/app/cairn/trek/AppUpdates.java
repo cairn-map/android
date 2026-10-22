@@ -1,91 +1,72 @@
 package app.cairn.trek;
 
-import static app.cairn.trek.AppPalette.*;
-
-import android.app.*;
+import android.app.Activity;
 import android.content.*;
-import android.content.res.ColorStateList;
-import android.graphics.Typeface;
-import android.graphics.drawable.*;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
-import android.view.*;
-import android.widget.*;
 import java.io.*;
-import java.util.Locale;
 import java.util.concurrent.*;
+import java.util.function.*;
 
-/** Inline, user-initiated updates. Leaving Routes cancels any network operation. */
+/** A user-triggered check, download, verification and installation, with inline progress. */
 final class AppUpdates {
+  interface Listener {
+    void changed(String status, boolean busy);
+  }
+
+  interface Verifier {
+    void verify(File apk, UpdateManifest manifest, BooleanSupplier stop) throws Exception;
+  }
+
   private final Activity activity;
-  private final LinearLayout content;
+  private final Supplier<ReleaseClient> clients;
+  private final Verifier verifier;
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
   private final Handler main = new Handler(Looper.getMainLooper());
   private ReleaseClient client;
   private Future<?> transfer;
-  private ReleaseClient.Release offered;
-  private TextView status;
-  private Button checkButton, downloadButton, installButton, cancelButton, discardButton;
+  private Listener listener;
   private volatile boolean active, canceled;
-  private boolean busy;
-  private int generation;
+  private boolean busy, waitingForPermission;
+  private volatile int generation;
+  private String status = "";
 
   AppUpdates(Activity activity) {
-    this.activity = activity;
-    content = new LinearLayout(activity);
-    content.setOrientation(LinearLayout.VERTICAL);
-    TextView heading = text("APP UPDATES", 11, MUTED, true);
-    heading.setPadding(0, 0, 0, dp(6));
-    content.addView(heading);
-
-    checkButton = button("Check", this::checkForUpdate);
-    checkButton.setContentDescription("Check for updates");
-    downloadButton = button("Download", this::download);
-    downloadButton.setContentDescription("Download update");
-    installButton = button("Install", this::install);
-    installButton.setContentDescription("Install downloaded update");
-    cancelButton = button("Cancel", () -> cancel("Canceled. Nothing will restart automatically."));
-    discardButton = button("Discard", () -> {
-      UpdateFiles.clear(activity);
-      showStatus("Downloaded update removed.");
-      refresh();
-    });
-    discardButton.setContentDescription("Discard downloaded update");
-
-    // Replace the Check button with the next available actions in this compact row.
-    LinearLayout actions = new LinearLayout(activity);
-    actions.setOrientation(LinearLayout.HORIZONTAL);
-    for (Button button : new Button[] {checkButton, downloadButton, installButton, cancelButton, discardButton})
-      actions.addView(button);
-    content.addView(actions);
-
-    status = text("", 14, MUTED, false);
-    status.setVisibility(View.GONE);
-    status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-    content.addView(status);
-    refresh();
+    this(
+        activity,
+        ReleaseClient::new,
+        (apk, manifest, stop) -> ApkVerifier.verify(activity, apk, manifest, stop));
   }
 
-  View view() {
-    if (content.getParent() != null) ((ViewGroup) content.getParent()).removeView(content);
-    resume();
-    return content;
+  AppUpdates(Activity activity, Supplier<ReleaseClient> clients, Verifier verifier) {
+    this.activity = activity;
+    this.clients = clients;
+    this.verifier = verifier;
+  }
+
+  void listen(Listener listener) {
+    this.listener = listener;
+    publish();
   }
 
   void resume() {
     active = true;
-    refresh(); // Local state only; never contacts the release server.
+    if (waitingForPermission) {
+      waitingForPermission = false;
+      if (activity.getPackageManager().canRequestPackageInstalls()) update();
+      else progress("Allow Cairn to install updates in Android settings, then tap Update again.");
+    }
   }
 
   void pause() {
     active = false;
-    if (busy) cancel("Update canceled. Tap a button to try again.");
+    if (busy) cancel();
   }
 
   void close() {
     pause();
-    if (client != null) client.cancel();
+    listener = null;
     worker.shutdownNow();
     main.removeCallbacksAndMessages(null);
   }
@@ -94,213 +75,154 @@ final class AppUpdates {
     return canceled || !active || TrackingService.running || Thread.currentThread().isInterrupted();
   }
 
-  private boolean recording() {
-    if (!TrackingService.running) return false;
-    showStatus("Finish your hike recording before checking, downloading or installing an update.");
-    return true;
-  }
-
-  private interface Work { Runnable run() throws Exception; }
-
-  private void start(String label, Work action) {
-    if (busy || recording()) return;
-    busy = true;
+  void update() {
+    if (!active || busy) return;
+    if (TrackingService.running) {
+      progress("Finish your hike recording before updating Cairn.");
+      return;
+    }
     canceled = false;
+    busy = true;
     int epoch = ++generation;
-    showStatus(label);
-    refresh();
-    transfer = worker.submit(() -> {
-      try {
-        if (stop()) throw new InterruptedIOException("Update canceled");
-        Runnable completed = action.run();
-        main.post(() -> {
-          if (!active || epoch != generation) return;
-          busy = false;
-          completed.run();
-          refresh();
+    ReleaseClient operation = clients.get();
+    client = operation;
+    BooleanSupplier stopped = () -> epoch != generation || stop();
+    progress("Checking for updates…");
+    transfer =
+        worker.submit(
+            () -> {
+              try {
+                long installed = ApkVerifier.installedVersion(activity);
+                UpdateFiles.discardInstalled(activity, installed);
+                if (stopped.getAsBoolean()) throw new InterruptedIOException("Update canceled");
+                UpdateManifest manifest;
+                if (UpdateFiles.ready(activity)) {
+                  manifest = UpdateFiles.read(activity);
+                } else {
+                  ReleaseClient.Release release = operation.latest(stopped);
+                  manifest = release.manifest;
+                  if (manifest.versionCode <= installed) {
+                    complete(epoch, "You’re up to date · Cairn " + BuildConfig.VERSION_NAME, false);
+                    return;
+                  }
+                  if (manifest.minSdk > Build.VERSION.SDK_INT)
+                    throw new IOException("This update requires a newer Android version");
+                  File directory = UpdateFiles.directory(activity);
+                  if (!directory.isDirectory() && !directory.mkdirs())
+                    throw new IOException("Cannot create update folder");
+                  if (new StatFs(directory.getPath()).getAvailableBytes()
+                      < manifest.size + 20L * 1024 * 1024)
+                    throw new IOException("Not enough space to download this update");
+                  UpdateFiles.clear(activity);
+                  File part = new File(directory, "update.apk.part");
+                  boolean saved = false;
+                  try {
+                    report(epoch, "Downloading Cairn " + manifest.versionName + "…");
+                    operation.download(
+                        release,
+                        part,
+                        stopped,
+                        percent -> report(epoch, "Downloading update · " + percent + "%"));
+                    report(epoch, "Verifying update…");
+                    verifier.verify(part, manifest, stopped);
+                    if (stopped.getAsBoolean()) throw new InterruptedIOException("Update canceled");
+                    UpdateFiles.save(activity, part, manifest);
+                    saved = true;
+                  } finally {
+                    part.delete();
+                    if (!saved) UpdateFiles.clear(activity);
+                  }
+                  complete(epoch, "Update verified · opening Android installer…", true);
+                  return;
+                }
+                // A canceled installer may leave a staged APK. Reverify it before every retry.
+                report(epoch, "Verifying downloaded update…");
+                try {
+                  verifier.verify(UpdateFiles.apk(activity), manifest, stopped);
+                } catch (Exception error) {
+                  if (!stopped.getAsBoolean()) UpdateFiles.clear(activity);
+                  throw error;
+                }
+                if (stopped.getAsBoolean()) throw new InterruptedIOException("Update canceled");
+                complete(epoch, "Update verified · opening Android installer…", true);
+              } catch (Exception error) {
+                complete(
+                    epoch,
+                    stopped.getAsBoolean()
+                        ? "Update canceled. Tap Update to retry."
+                        : "Could not update: " + error.getMessage(),
+                    false);
+              }
+            });
+  }
+
+  private void report(int epoch, String message) {
+    main.post(
+        () -> {
+          if (active && epoch == generation && !canceled) progress(message);
         });
-      } catch (Exception error) {
-        main.post(() -> {
-          if (!active || epoch != generation) return;
+  }
+
+  private void complete(int epoch, String message, boolean install) {
+    main.post(
+        () -> {
+          if (!active || epoch != generation || canceled) return;
           busy = false;
-          showStatus(stop() ? "Update canceled. Tap a button to try again."
-              : "Could not complete the update: " + error.getMessage());
-          refresh();
+          if (TrackingService.running) {
+            progress("Finish your hike recording before updating Cairn.");
+            return;
+          }
+          progress(message);
+          if (install) launchInstaller();
         });
-      }
-    });
-  }
-
-  private void checkForUpdate() {
-    if (busy || recording()) return;
-    offered = null;
-    client = new ReleaseClient();
-    start("Checking the latest public Cairn release…", () -> {
-      ReleaseClient.Release release = client.latest(this::stop);
-      long current = ApkVerifier.installedVersion(activity);
-      return () -> {
-        if (release.manifest.versionCode <= current) {
-          showStatus("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
-        } else if (release.manifest.minSdk > Build.VERSION.SDK_INT) {
-          showStatus("Cairn " + release.manifest.versionName + " requires a newer Android version.");
-        } else {
-          offered = release;
-          showStatus(String.format(Locale.getDefault(), "Cairn %s is available · %.1f MB\n\n%s",
-              release.manifest.versionName, release.manifest.size / 1e6, release.notes));
-        }
-      };
-    });
-  }
-
-  private void download() {
-    if (busy || offered == null || recording()) return;
-    ReleaseClient.Release release = offered;
-    client = new ReleaseClient();
-    int epoch = generation + 1;
-    start("Downloading Cairn " + release.manifest.versionName + "…", () -> {
-      File directory = UpdateFiles.directory(activity);
-      if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot create update folder");
-      if (new StatFs(directory.getPath()).getAvailableBytes() < release.manifest.size + 20L * 1024 * 1024)
-        throw new IOException("Not enough space to download this update");
-      UpdateFiles.clear(activity);
-      File part = new File(directory, "update.apk.part");
-      boolean saved = false;
-      try {
-        client.download(release, part, this::stop, percent -> main.post(() -> {
-          if (active && epoch == generation) showStatus("Downloading… " + percent + "%");
-        }));
-        ApkVerifier.verify(activity, part, release.manifest, this::stop);
-        if (stop()) throw new InterruptedIOException("Update canceled");
-        UpdateFiles.save(activity, part, release.manifest);
-        saved = true;
-        return () -> showStatus("Cairn " + release.manifest.versionName
-            + " is downloaded and verified. Tap Install downloaded update to continue.");
-      } finally {
-        part.delete();
-        if (!saved) UpdateFiles.clear(activity);
-      }
-    });
-  }
-
-  private void install() {
-    start("Verifying downloaded update…", () -> {
-      UpdateManifest update = UpdateFiles.read(activity);
-      ApkVerifier.verify(activity, UpdateFiles.apk(activity), update, this::stop);
-      return this::launchInstaller;
-    });
   }
 
   private void launchInstaller() {
-    if (recording()) return;
-    if (!activity.getPackageManager().canRequestPackageInstalls()) {
-      showStatus("Allow Cairn to install updates in Android settings, return here, then tap Install downloaded update again.");
-      new AlertDialog.Builder(activity)
-          .setTitle("Allow Cairn updates")
-          .setMessage("Android needs your permission to install updates from Cairn. This does not enable background checks.")
-          .setNegativeButton("Later", null)
-          .setPositiveButton("Open settings", (dialog, which) -> {
-            try {
-              activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                  Uri.parse("package:" + activity.getPackageName())));
-            } catch (ActivityNotFoundException error) {
-              showStatus("Open Android settings → Apps → Special app access → Install unknown apps → Cairn.");
-            }
-          }).show();
-      return;
-    }
+    if (!active || TrackingService.running) return;
     try {
-      activity.startActivity(installIntent(activity));
-      showStatus("Confirm the update in Android’s installer. If canceled, tap Install downloaded update to try again.");
+      if (!activity.getPackageManager().canRequestPackageInstalls()) {
+        waitingForPermission = true;
+        progress(
+            "Allow Cairn updates in Android settings. Installation will continue when you return.");
+        activity.startActivity(
+            new Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + activity.getPackageName())));
+      } else {
+        activity.startActivity(installIntent(activity));
+        progress("Confirm the update in Android’s installer.");
+      }
     } catch (ActivityNotFoundException | SecurityException error) {
-      showStatus("Android could not open the installer. Check permission to install updates.");
+      waitingForPermission = false;
+      progress("Android could not open update installation. Check install permission in Settings.");
     }
   }
 
   static Intent installIntent(Context context) {
     Uri uri = UpdateFileProvider.uri(context);
-    Intent intent = new Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, "application/vnd.android.package-archive")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    Intent intent =
+        new Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
     intent.setClipData(ClipData.newRawUri("Cairn update", uri));
     return intent;
   }
 
-  private void cancel(String message) {
+  private void cancel() {
     canceled = true;
     generation++;
     if (client != null) client.cancel();
     if (transfer != null) transfer.cancel(true);
     busy = false;
-    showStatus(message);
-    refresh();
+    progress("Update canceled. Tap Update to retry.");
   }
 
-  private void showStatus(String message) {
-    status.setText(message);
-    status.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+  private void progress(String message) {
+    status = message;
+    publish();
   }
 
-  private void refresh() {
-    // Called when Routes reopens, including after Android installs a new version.
-    // A canceled installation retains a newer staged APK for retry.
-    try {
-      long installed = ApkVerifier.installedVersion(activity);
-      if (UpdateFiles.discardInstalled(activity, installed)) {
-        offered = null;
-        showStatus("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
-      }
-      if (offered != null && offered.manifest.versionCode <= installed) offered = null;
-    } catch (IOException error) {
-      // Preserve staged data when installed package state cannot be read.
-    }
-    status.setVisibility(status.length() == 0 ? View.GONE : View.VISIBLE);
-    // Present a single contextual action group instead of stacking every possible button.
-    // Check -> Download -> Install/Discard, with Cancel replacing them during work.
-    boolean ready = UpdateFiles.ready(activity);
-    checkButton.setVisibility(!busy && !ready && offered == null ? View.VISIBLE : View.GONE);
-    downloadButton.setVisibility(!busy && !ready && offered != null ? View.VISIBLE : View.GONE);
-    installButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
-    discardButton.setVisibility(!busy && ready ? View.VISIBLE : View.GONE);
-    cancelButton.setVisibility(busy ? View.VISIBLE : View.GONE);
+  private void publish() {
+    if (listener != null) listener.changed(status, busy);
   }
-
-  private TextView text(String value, int size, int color, boolean bold) {
-    TextView view = new TextView(activity);
-    view.setText(value);
-    view.setTextSize(size);
-    view.setTextColor(color);
-    view.setTypeface(null, bold ? Typeface.BOLD : Typeface.NORMAL);
-    view.setPadding(0, 0, 0, dp(16));
-    return view;
-  }
-
-  private Button button(String title, Runnable action) {
-    Button view = new Button(activity);
-    view.setText(title);
-    view.setAllCaps(false);
-    view.setTextColor(ACCENT);
-    view.setTextSize(13);
-    view.setMinWidth(0);
-    view.setMinimumWidth(0);
-    view.setMinHeight(dp(44));
-    view.setPadding(dp(4), 0, dp(4), 0);
-    view.setSingleLine(true);
-    view.setStateListAnimator(null);
-    GradientDrawable fill = new GradientDrawable();
-    fill.setColor(SURFACE);
-    fill.setCornerRadius(dp(16));
-    fill.setStroke(dp(1), OUTLINE);
-    GradientDrawable mask = new GradientDrawable();
-    mask.setColor(TEXT);
-    mask.setCornerRadius(dp(16));
-    view.setBackground(new RippleDrawable(ColorStateList.valueOf(RIPPLE), fill, mask));
-    view.setOnClickListener(v -> action.run());
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
-    params.rightMargin = dp(4);
-    params.bottomMargin = dp(6);
-    view.setLayoutParams(params);
-    return view;
-  }
-
-  private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
 }
