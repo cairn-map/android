@@ -16,13 +16,28 @@ The first automatically built release after 0.5.0 uses a replacement signing key
 
 ## Pull requests, merging and releases
 
-Agents must push their changes and file a PR against `main`, as required by `AGENTS.md`. **Android checks** builds the debug APK, runs the Android and release-automation tests, and runs lint. **Merge passing pull requests** runs trusted code from the default branch after those checks succeed. It rechecks the current PR head, skips drafts and changed heads, merges the checked SHA, and removes the merged feature branch when its tip has not advanced. Conflicting PRs and failed checks are not merged.
+Agents must push their changes and file a PR against `main`, as required by `AGENTS.md`. **Android checks** runs the debug build, tests and lint; the job's GitHub status context is `checks`. The `main` ruleset requires this status to pass and the branch to be up to date before merging. Open a non-draft PR and explicitly enable GitHub's **native auto-merge** (for example, `gh pr merge --auto --merge`). Draft PRs, failed checks, unresolved review conversations and outdated heads must not auto-merge. Native auto-merge is not enabled globally for every PR merely by switching on the repository setting.
 
-Every push to `main` starts **Publish signed Cairn update**. Automatic merges made with `GITHUB_TOKEN` do not generate push workflow runs, so the merge workflow explicitly dispatches the release workflow with the merge commit. Both routes build only commits contained in `main`. The merge workflow passes the successful PR check run ID to the release workflow.
+A native GitHub merge pushes a commit to `main`, triggering the existing **Publish signed Cairn update** workflow normally. No privileged `workflow_run` merge Action or manual workflow dispatch is needed. GitHub's **Automatically delete head branches** setting handles cleanup. The release workflow safely performs complete validation if no reusable PR check run ID was supplied (as with native merges); signing and APK verification always run.
+
+### One-time native auto-merge configuration
+
+The administrator must enable native auto-merge, branch cleanup and the required status check **before removing the legacy auto-merge Action**. This repository includes a guarded, idempotent helper that preserves the existing `main-2` ruleset's other rules while enforcing the `checks` context, strict branch freshness, resolved conversations and no bypass role. It keeps zero required human approvals so agent-created PRs can merge automatically after CI succeeds. The separate `main-1` deletion and non-fast-forward protection remains unchanged.
+
+Authenticate the GitHub CLI with repository administration permission, then run:
+
+```sh
+python3 scripts/configure_native_automerge.py --dry-run
+python3 scripts/configure_native_automerge.py
+```
+
+Verify [repository auto-merge and branch deletion](https://github.com/dayblox/cairn/settings) and the [`main-2` ruleset](https://github.com/dayblox/cairn/rules/25598518), which must require the `checks` job. Only then mark the migration PR ready and enable its native auto-merge. **Do not merge the migration PR before verifying these settings**, or future PRs could lose automatic merging or skip CI protection.
+
+For every subsequent PR, the agent creating it must enable native auto-merge itself. Failure to enable it means leaving the PR open and reporting the issue, not bypassing checks or force-merging.
 
 ### Validation reuse and caching
 
-Superseded PR check runs are canceled when a newer commit is pushed; only the latest checked head can merge. PR checks always execute the debug build, Android tests, automation tests and lint, then upload a small JSON record of the tested merge tree, PR head, workflow attempt and toolchain. A release reuses that validation only when GitHub confirms a successful current attempt of **Android checks** for the merged PR head, the recorded Git tree exactly matches the actual merge, and Java, runner architecture and runner image match. It also verifies the recorded checkout against GitHub's commit tree. Missing, expired, invalid or unavailable evidence, a concurrent rerun, changed source, and manual releases without a check run ID all cause full validation.
+Superseded PR check runs are canceled when a newer commit is pushed; only the latest checked head can merge. PR checks always execute the debug build, Android tests, automation tests and lint, then upload a small JSON record of the tested merge tree, PR head, workflow attempt and toolchain. A release can reuse that validation only when it receives a trusted check run ID and GitHub confirms a successful current attempt of **Android checks** for the merged PR head, the recorded Git tree exactly matches the actual merge, and Java, runner architecture and runner image match. Native auto-merges do not pass a check run ID, so normally use full release validation. It also verifies the recorded checkout against GitHub's commit tree. Missing, expired, invalid or unavailable evidence, a concurrent rerun, changed source, and manual releases without a check run ID all cause full validation.
 
 Changes under `.github` or `scripts` always receive full validation again after merge. In particular, the first release installing this optimization takes the full path and warms the default-branch caches. Later source-only PRs can reuse their verified checks. Signing, release building, APK identity/version/certificate verification and publication always run; signed APKs and signing credentials are never reused as cache entries.
 
@@ -34,7 +49,7 @@ The release workflow reads the latest public `update.json`, advances the Android
 
 Before these optimizations, [PR #4](https://github.com/dayblox/cairn/pull/4) to [Cairn 0.5.1](https://github.com/dayblox/cairn/releases/tag/v0.5.1) took **2 minutes 36 seconds**, including runner queues: PR checks took 72 seconds, automatic merge took 11 seconds, and the release job took 64 seconds. Repeated validation accounted for 38 seconds of the release; signed building/verification and publishing took about 8 seconds combined.
 
-Measure a normal source/documentation PR after default-branch caches have warmed, rather than the CI migration itself. Compare the PR creation timestamp with the release publication timestamp; job durations alone omit runner queues. In the release log, confirm `Reusing successful PR validation run` and that the repeated validation step was skipped only after evidence verification succeeded. The PR must still show successful Android checks, and the signed build, APK verification and publishing steps must all pass. A cache miss, changed validation configuration or unverifiable evidence is expected to take longer and must never bypass validation to meet a timing target.
+After migration to native auto-merge, compare PR creation with release publication to measure end-to-end time, including the full validation fallback. The PR must show a successful required `checks` status and the signed build, APK verification and publication must pass. Optimization must never bypass validation to meet a timing target.
 
 ### One-time signing configuration
 
