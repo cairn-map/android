@@ -12,6 +12,11 @@ Every PR needs all three columns, in this description or a linked comment. Link 
 `battery_benchmark.py compare` report and raw evidence. Use immutable revisions and matched
 device/OS/profile; include screen on/off/check and 1/5/20/30/60/300-second GPS intervals.
 Mark unavailable measurements **unmeasured**; passing unit tests cannot substitute for energy trials.
+A full phone run is not required for every PR: identify affected execution paths, remeasure affected
+scenarios when needed, and cite valid unchanged scenario evidence with its actual measured revision.
+Label reused results explicitly; do not present them as a new measurement of the PR.
+
+Impact review and measurement decision (fresh / reused, with evidence and reason):
 
 | Measurement | Baseline (revision) | Previous main (revision) | Current PR (revision) |
 | --- | --- | --- | --- |
@@ -25,6 +30,6 @@ Mark unavailable measurements **unmeasured**; passing unit tests cannot substitu
 Comparison verdict and evidence:
 
 - [ ] Current results meet objectives and are no worse than baseline and previous main.
-- [ ] No missing, stale, incompatible or inconclusive measurements.
+- [ ] Required evidence is fresh or explicitly justified as valid reuse; no missing or inconclusive results.
 
 **Keep auto-merge off if either box cannot be checked. Never reset a baseline to hide a regression.**

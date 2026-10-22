@@ -189,14 +189,67 @@ resolution; this conservative screen is not statistical proof.
 
 Every PR description or linked comment must contain **baseline**, **previous main**, and **current
 PR** measurements, immutable revisions, scenarios, raw artifacts, track quality, tests, limitations
-and verdict. The template and `AGENTS.md` require this for future agents. A documentation-only PR
-may cite applicable measured results with a reuse explanation. JVM tests and CI time are not battery
-measurements. Missing measurements must say **unmeasured**.
+and verdict. The template and `AGENTS.md` require this for future agents. Every PR needs an impact
+review, not a new full phone matrix. Reuse is allowed only for scenarios whose measured execution
+paths and conditions remain unchanged; cite the original revision and raw evidence, and label the
+current PR entry **reused**, never newly measured. JVM tests and CI time are not battery measurements.
+Missing measurements must say **unmeasured**.
 
 Do not enable or leave auto-merge enabled when performance worsens against baseline/previous, an
 objective fails, or evidence is missing, stale or inconclusive. This overrides standing auto-merge
 authorization. Never silently lower a baseline or manually merge to bypass the gate. Physical-device
 performance review is an additional policy; this repository does not claim to run hardware CI.
+
+## How often you need a phone, and how to start
+
+The baseline is established once **per phone/OS/test profile**, then reused while applicable. It is
+not a lifetime guarantee and does not require repeating the full suite on every PR.
+
+| When | Automated checks | Physical-phone work |
+| --- | --- | --- |
+| First setup | Run existing simulated power/rendering tests | Establish Cairn baseline and matched competitor reference |
+| Every PR | Build/tests/lint, power/rendering regressions, impact review and three-column report | None if reviewed unchanged scenario evidence remains applicable |
+| GPS, recorder lifecycle, timers/locks, core renderer/tile loading, background I/O or relevant dependency change | Add/run relevant regressions | Repeat affected scenarios against baseline and previous main; reuse only unaffected scenarios |
+| Power-affecting release or changed OS/device/power policy/measurement setup | Full regression checks | Full matrix/requalification; preserve old results for comparison |
+| Unknown impact, noisy result or reported drain | Investigate and keep auto-merge off | Targeted measurements first; expand scope until the uncertainty is resolved |
+
+Routine text, documentation or cosmetic changes can often reuse measurements, but file names and
+PR size alone do not establish unchanged execution paths. New animations, large images or altered
+visibility behavior can affect rendering even in a visually small change. Current simulated checks
+exercise behavior; they do not yet constitute a calibrated emulator CPU/energy benchmark.
+
+For targeted changes, use the normal endpoint harness on affected scenarios. Assemble the complete
+comparison report using fresh affected trials plus valid unaffected trials, retaining every trial's
+actual measured revision. Link a reuse manifest in the PR stating scenario, original revision,
+evidence, changed paths and why the measurement remains applicable. The comparator still requires
+the full scenario matrix; it does not infer reuse eligibility or impact. A reviewer/agent must reject
+reused measurements for changed paths. If reuse cannot be justified, collect fresh results.
+
+A practical first session:
+
+1. Pick one Android phone and a computer with ADB. Install a non-debuggable Cairn build, enable USB
+   debugging and pair wireless ADB while still connected by USB. Save phone/build/profile details.
+2. Download a small offline map and choose a repeatable walk with good GPS reception. Disable other
+   GPS clients and keep brightness/radios/guidance fixed. Charge to a repeatable middle range and let
+   the phone cool. Set Cairn to its default 20-second interval.
+3. First do a 15–30-minute screen-off practice run: physically unplug, start the hike, capture
+   `begin`, disconnect ADB, walk, reconnect wirelessly and capture `end`. Then stop/export GPX and
+   run `summarize`. This is only a capture smoke test: it will not satisfy the >=1h gate or prove
+   battery endurance. Confirm counters, track and artifact collection work before long trials.
+4. Collect >=1-hour screen-off and screen-on runs, then periodic screen checks, at the matrix
+   intervals. Repeat three times under matched conditions. Start with one phone; add manufacturers
+   later. The full 6-interval x 3-screen x 3-repeat matrix is at least **54 recording hours per
+   build/app**, so accumulate trials over multiple sessions; do not mistake it for a quick check.
+5. Capture separate diagnostic traces to verify actual suspend and wakeup causes. Run OruxMaps
+   alone under the same conditions for the first competitor comparison; Locus/OsmAnd can follow.
+   A reduced pilot is useful, but cannot be advertised as a passing full baseline.
+6. Archive raw evidence and freeze the baseline. Future PRs run automated tests and identify which,
+   if any, phone scenarios need repeating. You should not need to rerun every competitor on each PR.
+
+The cloud workspace can prepare builds, commands, analyze exported evidence and maintain PR reports.
+The physical phone must perform the real GPS/suspend trial; its measurements cannot be generated
+truthfully from cloud simulation. Until the first qualifying baseline exists, hardware results remain
+unmeasured and auto-merge remains off for this performance PR.
 
 ## Primary references
 
