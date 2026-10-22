@@ -1,15 +1,15 @@
 # Actions performance audit
 
 Reviewed on 22 October 2026 against `main` at `e5a46de`, including merged PRs
-[#5](https://github.com/dayblox/cairn/pull/5),
-[#9](https://github.com/dayblox/cairn/pull/9), and
-[#10–16](https://github.com/dayblox/cairn/pulls?q=is%3Apr+is%3Amerged).
+[#5](https://github.com/cairn-map/android/pull/5),
+[#9](https://github.com/cairn-map/android/pull/9), and
+[#10–16](https://github.com/cairn-map/android/pulls?q=is%3Apr+is%3Amerged).
 
 ## Measured baseline
 
-The latest successful [PR checks](https://github.com/dayblox/cairn/actions/runs/39707528817)
+The latest successful [PR checks](https://github.com/cairn-map/android/actions/runs/39707528817)
 took 56 seconds in the job (59 seconds from workflow creation to completion).
-The associated [release](https://github.com/dayblox/cairn/actions/runs/39707867073)
+The associated [release](https://github.com/cairn-map/android/actions/runs/39707867073)
 took 57 seconds in the job (61 seconds including scheduling and finalization).
 Step timestamps are rounded to seconds; nested action timings come from job logs.
 
@@ -28,7 +28,7 @@ The cache miss then caused an unnecessary `sdkmanager` invocation (3.3 s / 2.3 s
 Robolectric restored another 354 MiB (2.3 s / 3.1 s). Gradle restore itself was
 working and took 3.5–4.4 s; keep it.
 
-The six-minute duration of [PR #14's checks](https://github.com/dayblox/cairn/actions/runs/39703164451)
+The six-minute duration of [PR #14's checks](https://github.com/cairn-map/android/actions/runs/39703164451)
 was mostly runner queueing: the job started at 01:06:26 UTC after workflow
 creation at 01:00:52 UTC and ran for only 38 seconds. Removing tests cannot fix
 that queue. PR #9's stalled release was canceled; later PRs added step and job
@@ -99,9 +99,9 @@ estimates alone.
 
 ## First measured result
 
-[PR #17](https://github.com/dayblox/cairn/pull/17) passed required Android checks
+[PR #17](https://github.com/cairn-map/android/pull/17) passed required Android checks
 and merged through native auto-merge. Its
-[check job](https://github.com/dayblox/cairn/actions/runs/39708990202) also took
+[check job](https://github.com/cairn-map/android/actions/runs/39708990202) also took
 56 seconds overall; individual setup improvements were offset by a slower
 Gradle restore and build on that runner.
 
@@ -118,7 +118,7 @@ Both builds restored the same 28 Gradle tasks from cache. The first result
 confirms removal of roughly 22 seconds of avoidable SDK/linter work, but does
 not establish an overall job speedup. This documentation-only follow-up also
 exercised validation reuse after the workflow changes, without changing CI or
-automation scripts again. [PR #18](https://github.com/dayblox/cairn/pull/18)
+automation scripts again. [PR #18](https://github.com/cairn-map/android/pull/18)
 completed checks in 38 seconds, but its release still ran fallback validation.
 The live smoke test revealed that PR #11 called the nonexistent Octokit method
 `listWorkflowRunsForWorkflow`; the test mock repeated that invalid API name.
@@ -132,7 +132,7 @@ a later documentation-only smoke test before claiming working native reuse.
 
 ## Checking subsequent releases
 
-After [PR #19](https://github.com/dayblox/cairn/pull/19), which passed required
+After [PR #19](https://github.com/cairn-map/android/pull/19), which passed required
 Android checks in 28 seconds, inspect a source-only release's **Verify reusable
 PR validation** step. Successful reuse must identify the PR run with
 `Reusing successful PR validation run`, while the Robolectric action and all

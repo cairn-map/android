@@ -165,10 +165,15 @@ public final class TrekMapView extends View {
 
   /** Preserve the geographical point under the fingers at every fractional zoom. */
   void scaleBy(double factor, float focusX, float focusY) {
+    // Android quick-scale can produce zero/negative factors after a fast upward drag.
+    if (!Double.isFinite(factor)
+        || factor <= 0
+        || !Float.isFinite(focusX)
+        || !Float.isFinite(focusY)) return;
     double oldWorld = scaledTileSize() * (1 << zoom);
     double anchorX = Geo.x(lon, 0) + (focusX - getWidth() / 2f) / oldWorld;
     double anchorY = Geo.y(lat, 0) + (focusY - getHeight() / 2f) / oldWorld;
-    double level = zoom + Math.log(zoomScale * factor) / Math.log(2);
+    double level = zoom + (Math.log(zoomScale) + Math.log(factor)) / Math.log(2);
     level =
         Math.max(
             source == null ? 2 : source.minZoom(),

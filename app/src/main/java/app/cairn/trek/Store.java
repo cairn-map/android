@@ -193,6 +193,22 @@ public final class Store extends SQLiteOpenHelper {
     return result;
   }
 
+  public void deleteTrek(String id) {
+    if (TrackingService.running && id.equals(prefs.getString("currentTrek", "")))
+      throw new IllegalStateException("Finish recording before removing this hike.");
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      // Only remove collections belonging to a recorded hike.
+      if (db.delete("treks", "id=?", new String[] {id}) > 0)
+        db.delete("points", "collection=?", new String[] {id});
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+    if (id.equals(prefs.getString("currentTrek", ""))) prefs.edit().remove("currentTrek").apply();
+  }
+
   public long intervalMillis() {
     return Math.max(1, Math.min(3600, prefs.getInt("intervalSeconds", 60))) * 1000L;
   }

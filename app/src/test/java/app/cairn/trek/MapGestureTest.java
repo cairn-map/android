@@ -102,6 +102,37 @@ public class MapGestureTest {
   }
 
   @Test
+  public void invalidQuickScaleFactorsAndFocusDoNotCorruptTheCamera() {
+    double[] before = map.camera();
+    for (double factor : new double[] {0, -0.5, Double.NaN, Double.POSITIVE_INFINITY}) {
+      map.scaleBy(factor, 200, 300);
+      assertArrayEquals(before, map.camera(), 1e-10);
+    }
+    map.scaleBy(2, Float.NaN, 300);
+    map.scaleBy(2, 200, Float.POSITIVE_INFINITY);
+    assertArrayEquals(before, map.camera(), 1e-10);
+    map.scaleBy(Double.MIN_VALUE, 200, 300);
+    assertEquals(2, map.camera()[2], 1e-10);
+    map.scaleBy(Double.MAX_VALUE, 200, 300);
+    assertEquals(19, map.camera()[2], 1e-10);
+    for (double coordinate : map.camera()) assertTrue(Double.isFinite(coordinate));
+  }
+
+  @Test
+  public void fastUpwardQuickScaleLeavesAFiniteCameraAndUsableMap() {
+    doublePress();
+    touch(MotionEvent.ACTION_MOVE, 200, 200);
+    touch(MotionEvent.ACTION_MOVE, 200, -3000);
+    touch(MotionEvent.ACTION_UP, 200, -3000);
+    for (double coordinate : map.camera()) assertTrue(Double.isFinite(coordinate));
+    assertTrue(map.camera()[2] >= 2);
+    assertTrue(map.camera()[2] <= 19);
+    for (double bound : map.bounds()) assertTrue(Double.isFinite(bound));
+    map.zoom(1);
+    for (double coordinate : map.camera()) assertTrue(Double.isFinite(coordinate));
+  }
+
+  @Test
   public void singleTapDoesNotZoomAndOrdinaryDragStillPans() {
     double[] before = map.camera();
     touch(MotionEvent.ACTION_DOWN, 200, 300);

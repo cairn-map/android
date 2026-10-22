@@ -70,7 +70,7 @@ public class AppUpdateTest {
 
   private ReleaseClient client(List<String> requests, Response... responses) {
     Deque<Response> queue = new ArrayDeque<>(Arrays.asList(responses));
-    return new ReleaseClient("dayblox/cairn", url -> {
+    return new ReleaseClient("cairn-map/android", url -> {
       requests.add(url.toString());
       if (queue.isEmpty()) throw new IOException("Unexpected request");
       return queue.remove();
@@ -78,11 +78,12 @@ public class AppUpdateTest {
   }
 
   @Test public void checkUsesPublicAssetDownloadsWithoutRestApi() throws Exception {
+    assertEquals("cairn-map/android", BuildConfig.UPDATE_REPOSITORY);
     List<String> requests = new ArrayList<>();
     Response manifestRedirect = new Response(new byte[0]);
     manifestRedirect.code = 302;
     manifestRedirect.location =
-        "https://github.com/dayblox/cairn/releases/download/v0.6.0/update.json";
+        "https://github.com/cairn-map/android/releases/download/v0.6.0/update.json";
     Response apkRedirect = new Response(new byte[0]);
     apkRedirect.code = 302;
     apkRedirect.location = "https://release-assets.githubusercontent.com/signed-apk";
@@ -92,14 +93,14 @@ public class AppUpdateTest {
         apkRedirect, apkResponse);
     ReleaseClient.Release result = client.latest(() -> false);
     assertEquals(6, result.manifest.versionCode);
-    assertEquals("https://github.com/dayblox/cairn/releases/latest/download/update.json",
+    assertEquals("https://github.com/cairn-map/android/releases/latest/download/update.json",
         requests.get(0));
     assertEquals(2, requests.size());
     File target = new File(temporary.getRoot(), "download.part");
     client.download(result, target, () -> false, n -> {});
     assertArrayEquals(apkBytes, Files.readAllBytes(target.toPath()));
     assertEquals(4, requests.size());
-    assertEquals("https://github.com/dayblox/cairn/releases/download/v0.6.0/Cairn-0.6.0.apk",
+    assertEquals("https://github.com/cairn-map/android/releases/download/v0.6.0/Cairn-0.6.0.apk",
         requests.get(2));
     for (String url : requests) assertFalse(url.contains("api.github.com"));
     assertNull(metadataResponse.getRequestProperty("Authorization"));
@@ -109,7 +110,7 @@ public class AppUpdateTest {
   @Test public void rejectsUntrustedDownloadRedirects() throws Exception {
     for (String address : Arrays.asList("http://release-assets.githubusercontent.com/file",
         "https://evil.example/update",
-        "https://api.github.com/repos/dayblox/cairn/releases/assets/1",
+        "https://api.github.com/repos/cairn-map/android/releases/assets/1",
         "https://github.com/other/app/releases/download/v0.6.0/update.json",
         "https://release-assets.githubusercontent.com:8443/file")) {
       Response redirect = new Response(new byte[0]);
