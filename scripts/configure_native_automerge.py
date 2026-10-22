@@ -55,8 +55,11 @@ def updated_ruleset(original):
         raise ValueError("Expected existing pull-request rule")
     pr["parameters"]["required_review_thread_resolution"] = True
     pr["parameters"]["required_approving_review_count"] = 0
-    pr["parameters"]["require_code_owner_review"] = True
-    pr["parameters"]["dismiss_stale_reviews_on_push"] = True
+    # This is a single-maintainer repository: the PR author cannot self-approve.
+    # Never require code-owner or human approval unless a second trusted reviewer exists.
+    pr["parameters"]["require_code_owner_review"] = False
+    pr["parameters"]["dismiss_stale_reviews_on_push"] = False
+    pr["parameters"]["require_last_push_approval"] = False
     pr["parameters"]["allowed_merge_methods"] = ["merge"]
     return {
         "name": original["name"],
@@ -76,13 +79,13 @@ def configure(repository, dry_run=False):
     matches = [rule for rule in rulesets if rule["name"] == RULESET_NAME
                and rule["target"] == "branch" and rule["enforcement"] == "active"]
     if len(matches) != 1:
-        raise ValueError("Expected one active main-2 ruleset; review repository settings")
+        raise ValueError("Expected one active main ruleset; review repository settings")
     rule_id = matches[0]["id"]
     original = api("GET", f"repos/{repository}/rulesets/{rule_id}")
     updated = updated_ruleset(original)
     print(f"Repository: {repository}")
     print(f"Ruleset: {RULESET_NAME} ({rule_id}); required: {REQUIRED_CHECK}; strict: yes")
-    print("No bypass; code-owner review required for protected paths; zero general approvals")
+    print("No bypass; solo maintainer: zero required approvals and no code-owner gate")
     print("Allow merge commits ONLY; disable squash/rebase; keep auto-merge and branch deletion")
     if dry_run:
         print("Dry run: no settings changed")
@@ -98,7 +101,9 @@ def configure(repository, dry_run=False):
                for c in statuses["required_status_checks"])
     assert not rule["bypass_actors"]
     live_pr = next(r["parameters"] for r in rule["rules"] if r["type"] == "pull_request")
-    assert live_pr["require_code_owner_review"]
+    assert live_pr["required_approving_review_count"] == 0
+    assert live_pr["require_code_owner_review"] is False
+    assert live_pr["require_last_push_approval"] is False
     assert live_pr["allowed_merge_methods"] == ["merge"]
     if any(after.get(key) is not expected for key, expected in MERGE_SETTINGS.items()):
         raise RuntimeError("GitHub did not retain merge-commit-only repository settings")
