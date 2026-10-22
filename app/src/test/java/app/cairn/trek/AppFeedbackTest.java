@@ -53,17 +53,17 @@ public class AppFeedbackTest {
       int topMargin = ((FrameLayout.LayoutParams) feedback.view().getLayoutParams()).topMargin;
       AlertDialog first = CairnDialogs.drawer(activity).setTitle("Saved maps").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), first.getWindow(), topMargin);
+      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
       Object firstPanel = feedback.view().getParent();
       feedback.update("Downloading · 10%", true);
       feedback.show("Region ready", 3500);
       assertSame(firstPanel, feedback.view().getParent());
       AlertDialog second = CairnDialogs.drawer(activity).setTitle("Routing data").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), second.getWindow(), topMargin);
+      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
       second.dismiss();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), first.getWindow(), topMargin);
+      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6000));
       assertEquals("Region ready", feedback.view().getText().toString());
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
@@ -84,15 +84,15 @@ public class AppFeedbackTest {
         AppFeedback feedback = new AppFeedback(controller.get())) {
       Activity activity = controller.get();
       int topMargin = ((FrameLayout.LayoutParams) feedback.view().getLayoutParams()).topMargin;
-      AlertDialog drawer = CairnDialogs.drawer(activity).setTitle("Battery & GPS").show();
+      AlertDialog drawer = CairnDialogs.drawer(activity).setTitle("GPS").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       feedback.show("Position found", 3500);
-      assertScreenOverlay(feedback.view(), drawer.getWindow(), topMargin);
+      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
       feedback.clear();
       assertEquals(View.GONE, feedback.view().getVisibility());
       assertSame(activity.getWindow().getDecorView(), feedback.view().getParent());
       feedback.show("GPX exported", 3500);
-      assertScreenOverlay(feedback.view(), drawer.getWindow(), topMargin);
+      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
       assertEquals(View.GONE, feedback.view().getVisibility());
       assertSame(activity.getWindow().getDecorView(), feedback.view().getParent());
@@ -104,7 +104,10 @@ public class AppFeedbackTest {
     assertNotSame(host.getDecorView(), banner.getParent());
     WindowManager.LayoutParams panel =
         (WindowManager.LayoutParams) banner.getRootView().getLayoutParams();
-    assertSame(host.getDecorView().getWindowToken(), panel.token);
+    // APPLICATION_PANEL would inherit a bottom drawer's frame, regardless of its
+    // gravity and LAYOUT_IN_SCREEN flag. This must be a sibling application window.
+    assertEquals(WindowManager.LayoutParams.TYPE_APPLICATION, panel.type);
+    assertSame(host.getDecorView().getApplicationWindowToken(), panel.token);
     assertEquals(
         Gravity.TOP | Gravity.CENTER_HORIZONTAL,
         panel.gravity & (Gravity.VERTICAL_GRAVITY_MASK | Gravity.HORIZONTAL_GRAVITY_MASK));

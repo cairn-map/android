@@ -1,10 +1,17 @@
 # Route selection and compact drawer corners — 22 October 2026
 
-`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **214 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/documentation changes.
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **215 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for these app/documentation changes.
 
 Regression checks cover the six remaining route actions, selecting a hidden route for guidance, making it visible, persisting guidance after reopening the library store, and retaining corridor downloads after the menu indices changed. Camera checks fit wide, tall, looping and high-latitude routes in portrait/landscape, date-line crossings, single/repeated points, and fitting after the map is laid out or reparented. Padding reserves room for map controls and planning panels.
 
 The native Canvas GPS drawer preview was visually inspected: its top corners are rounded and its bottom corners are square. No physical-device UI trial was performed.
+# Stable toast placement and cleaner search/GPS — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **210 tests**, zero failures/errors/skips. Lint reported zero errors and five existing warnings in unchanged `TrekMapView` and `SwipeToRemoveView` code. The shared automation selector reports `required=false` for these app/documentation changes.
+
+Feedback checks on API 28 and 35 require a sibling application window with the activity's application token, preventing inheritance of a content-sized drawer's frame; they retain nested-dialog, queue, expiration and cleanup coverage. Settings checks verify the 20-second default and persistence of custom intervals. Search checks cover a blank input without a hint or empty-submit error, keyboard-compatible window flags, result selection and cancellation. Native Canvas previews of the empty search bar, search results at full/reduced heights and compact GPS drawer were visually inspected.
+
+No physical-device window-positioning or keyboard trial was performed. Window placement is covered by framework configuration checks, and reduced-height previews simulate space above a keyboard.
 
 # Nature-prioritized search — 22 October 2026
 

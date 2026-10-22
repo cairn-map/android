@@ -116,8 +116,8 @@ final class AppFeedback implements AutoCloseable {
     String text = current == null ? progress : current.text;
     banner.setText(text);
     banner.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
-    // A content-sized drawer's decor starts at the drawer, not the screen. Attach a
-    // non-interactive panel to its window so feedback stays above it at screen top.
+    // A subwindow inherits its parent drawer's frame even with LAYOUT_IN_SCREEN.
+    // Use a sibling application window so every banner has the same screen origin.
     boolean overDialog = windows.size() > 1 && !text.isEmpty();
     if (overlay != null && (!overDialog || overlayHost != window)) {
       activity.getWindowManager().removeViewImmediate(overlay);
@@ -149,13 +149,13 @@ final class AppFeedback implements AutoCloseable {
           new WindowManager.LayoutParams(
               -1,
               -2,
-              WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+              WindowManager.LayoutParams.TYPE_APPLICATION,
               WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                   | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                   | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
               PixelFormat.TRANSLUCENT);
       panel.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-      panel.token = window.getDecorView().getWindowToken();
+      panel.token = activity.getWindow().getDecorView().getApplicationWindowToken();
       if (Build.VERSION.SDK_INT >= 30) panel.setFitInsetsTypes(0);
       activity.getWindowManager().addView(overlay, panel);
     }
