@@ -37,8 +37,8 @@ async function readProof(github, repository, artifact) {
 
 async function reuseValidation({ github, owner, repo, source, runId,
     environment = runtime(), changed = configurationChanged, loadProof = readProof }) {
-  if (!sha(source) || !/^[1-9][0-9]*$/.test(String(runId || '')))
-    return fallback('No PR validation run was supplied');
+  if (!sha(source) || (runId && !/^[1-9][0-9]*$/.test(String(runId))))
+    return fallback('Invalid source SHA or PR validation run ID');
   const repository = { owner, repo };
   try {
     const { data: merged } = await github.rest.git.getCommit({ ...repository, commit_sha: source });
@@ -47,8 +47,25 @@ async function reuseValidation({ github, owner, repo, source, runId,
     if (changed(merged.parents[0].sha, source))
       return fallback('CI or validation scripts changed in this merge');
     const { data: workflow } = await github.rest.actions.getWorkflow({ ...repository, workflow_id: 'checks.yml' });
-    const { data: run } = await github.rest.actions.getWorkflowRun({ ...repository, run_id: Number(runId) });
-    if (run.id !== Number(runId) || run.workflow_id !== workflow.id || run.event !== 'pull_request'
+    let resolvedId = String(runId || '');
+    if (!resolvedId) {
+      // Native auto-merge generates a main push without workflow_dispatch inputs.
+      // Query only runs for the second parent (the PR head), then verify one proof.
+      const { data } = await github.rest.actions.listWorkflowRunsForWorkflow({
+        ...repository, workflow_id: workflow.id, event: 'pull_request',
+        head_sha: merged.parents[1].sha, per_page: 100
+      });
+      const candidates = (data.workflow_runs || []).filter(candidate =>
+        candidate.workflow_id === workflow.id && candidate.event === 'pull_request'
+        && candidate.head_sha === merged.parents[1].sha && candidate.status === 'completed'
+        && candidate.conclusion === 'success' && candidate.repository?.full_name === `${owner}/${repo}`
+        && Number.isSafeInteger(candidate.id) && candidate.id > 0);
+      if (candidates.length !== 1)
+        return fallback('No unique successful PR validation run matches the merged head');
+      resolvedId = String(candidates[0].id);
+    }
+    const { data: run } = await github.rest.actions.getWorkflowRun({ ...repository, run_id: Number(resolvedId) });
+    if (run.id !== Number(resolvedId) || run.workflow_id !== workflow.id || run.event !== 'pull_request'
         || run.status !== 'completed' || run.conclusion !== 'success'
         || run.repository?.full_name !== `${owner}/${repo}` || run.head_sha !== merged.parents[1].sha
         || !Number.isInteger(run.run_attempt) || run.run_attempt < 1)

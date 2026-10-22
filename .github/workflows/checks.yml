@@ -9,14 +9,19 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/android-toolchain
+      - name: Python automation tests
+        timeout-minutes: 2
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Node automation tests
+        timeout-minutes: 2
+        run: node --test scripts/test-*.cjs
       - name: Build, test and lint
-        run: |
-          python3 -m unittest discover -s scripts -p 'test_*.py'
-          node --test scripts/test-*.cjs
-          bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2
+        timeout-minutes: 10
+        run: bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2 --build-cache --stacktrace
       - name: Record the validated source and toolchain
         env:
           VALIDATED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
