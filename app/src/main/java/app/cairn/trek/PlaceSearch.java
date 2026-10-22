@@ -104,7 +104,7 @@ final class PlaceSearch implements AutoCloseable {
             });
   }
 
-  /** Text relevance dominates; distance is only a soft tie-breaker among good matches. */
+  /** Favor hiking destinations among relevant matches; distance remains a soft tie-breaker. */
   static List<Address> rank(String query, Point center, List<Address> places) {
     List<Address> ranked = new ArrayList<>();
     if (places == null) return ranked;
@@ -135,7 +135,6 @@ final class PlaceSearch implements AutoCloseable {
         }
       }
       if (!duplicate) unique.add(place);
-      if (unique.size() == 10) break;
     }
     return unique;
   }
@@ -145,12 +144,19 @@ final class PlaceSearch implements AutoCloseable {
     String label = normalized(label(place));
     double score =
         name.equals(query) ? 240 : name.startsWith(query) ? 170 : name.contains(query) ? 130 : 0;
+    boolean matchesAllTokens = !query.isEmpty();
+    boolean matchesName = false;
     for (String token : query.split(" ")) {
       boolean nameMatch = Arrays.stream(name.split(" ")).anyMatch(word -> word.startsWith(token));
       boolean labelMatch = Arrays.stream(label.split(" ")).anyMatch(word -> word.startsWith(token));
       score += nameMatch ? 35 : labelMatch ? 20 : -100;
+      matchesAllTokens &= nameMatch || labelMatch;
+      matchesName |= nameMatch;
     }
     String kind = place.getExtras() == null ? "" : place.getExtras().getString("kind", "");
+    // A partial mountain/hut name should beat an exact urban namesake. Require all query
+    // tokens so that this preference cannot override an explicit country or address qualifier.
+    if (matchesAllTokens && matchesName && hikingDestination(place, kind)) score += 200;
     switch (kind) {
       case "city":
         score += 50;
@@ -173,6 +179,47 @@ final class PlaceSearch implements AutoCloseable {
       score += 20 / (1 + km / 100);
     }
     return score;
+  }
+
+  private static boolean hikingDestination(Address place, String kind) {
+    String category =
+        place.getExtras() == null ? "" : place.getExtras().getString("category", "");
+    if ("natural".equals(category)) return true;
+    switch (kind) {
+      case "peak":
+      case "mountain_range":
+      case "saddle":
+      case "ridge":
+      case "valley":
+      case "volcano":
+      case "glacier":
+      case "cliff":
+      case "cave_entrance":
+      case "waterfall":
+      case "spring":
+      case "hot_spring":
+      case "water":
+      case "wood":
+      case "forest":
+      case "alpine_hut":
+      case "wilderness_hut":
+      case "shelter":
+      case "trailhead":
+      case "path":
+      case "footway":
+      case "hiking":
+      case "foot":
+      case "viewpoint":
+      case "camp_site":
+      case "picnic_site":
+      case "national_park":
+      case "protected_area":
+      case "nature_reserve":
+      case "park":
+        return true;
+      default:
+        return false;
+    }
   }
 
   static String normalized(String text) {

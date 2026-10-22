@@ -135,6 +135,7 @@ final class PhotonClient implements PlaceSearch.Lookup {
         place.setThoroughfare(street);
         place.setSubThoroughfare(number);
         android.os.Bundle metadata = new android.os.Bundle();
+        metadata.putString("category", p.optString("osm_key", ""));
         metadata.putString("kind", p.optString("osm_value", ""));
         place.setExtras(metadata);
         place.setLatitude(lat);

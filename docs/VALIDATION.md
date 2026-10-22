@@ -1,3 +1,11 @@
+# Nature-prioritized search — 22 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **207 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for this app/documentation change.
+
+Controlled Photon responses verify that “Thabor” ranks Mont Thabor first, with alpine and wilderness refuges ahead of exact urban namesakes even when the map is centered near the urban results. Ranking checks cover other natural features, trails, viewpoints, campsites, shelters and protected areas; explicit country/street qualifiers; name relevance; soft distance bias; and retaining all 40 distinct provider matches instead of truncating to ten. Parser checks preserve OSM categories, and the request remains unrestricted by place type.
+
+No live Photon or physical-device search trial was performed. Results still depend on the provider's coverage and OSM classification; the preference reorders returned candidates.
+
 # Full-width drawers, GPS ticks and unified feedback — 22 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **202 tests**, zero failures/errors/skips, and no lint findings. The shared automation selector reports `required=false` for this app/documentation change; workflows and automation are unchanged.

@@ -93,6 +93,7 @@ public class PhotonClientTest {
     assertEquals("6.5", url.getQueryParameter("lon"));
     assertNull(url.getQueryParameter("bbox"));
     assertNull(url.getQueryParameter("countrycode"));
+    assertNull(url.getQueryParameter("osm_tag"));
   }
 
   @Test
@@ -101,7 +102,7 @@ public class PhotonClientTest {
         PhotonClient.parse(
             """
 {"features":[
-  {"properties":{"name":"Mont Thabor","osm_value":"peak","city":"Valmeinier","country":"France"},
+  {"properties":{"name":"Mont Thabor","osm_key":"natural","osm_value":"peak","city":"Valmeinier","country":"France"},
    "geometry":{"type":"Point","coordinates":[6.563,45.115]}},
   {"properties":{"name":"Mont Thabor"},"geometry":{"type":"Point","coordinates":[6.563,45.115]}},
   {"properties":{"name":"Invalid"},"geometry":{"type":"Point","coordinates":[6,95]}},
@@ -114,6 +115,8 @@ public class PhotonClientTest {
     assertEquals("Mont Thabor, Mountain, Valmeinier, France", PlaceSearch.label(places.get(0)));
     assertEquals(45.115, places.get(0).getLatitude(), 1e-6);
     assertEquals(6.563, places.get(0).getLongitude(), 1e-6);
+    assertEquals("natural", places.get(0).getExtras().getString("category"));
+    assertEquals("peak", places.get(0).getExtras().getString("kind"));
   }
 
   @Test(expected = IOException.class)
