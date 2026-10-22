@@ -4,7 +4,7 @@
 
 New regressions exercise pause/window/ancestor visibility, tile queue/source cancellation, obsolete tile rejection, resuming the same viewport, canceling delayed long presses, and persisting every received fix while limiting recording notification updates to once a minute. Benchmark tests cover charge/suspend arithmetic, unsupported diagnostics, GPX terminal gaps/duplicates, complete matched matrices/repetitions, zero background work, frame budgets, baseline and previous-result regressions, invalid measurements, and fail-closed CLI behavior.
 
-| Performance | Baseline | Previous main (`dd1d29f`) | Current change |
+| Performance | Baseline | Previous main (`df95c52`) | Current change |
 | --- | --- | --- | --- |
 | Device energy, screen on/off/check at 1/5/20/30/60/300s | unmeasured | unmeasured | unmeasured |
 | Hardware suspend, wake reasons, GNSS duty cycle | unmeasured | unmeasured | unmeasured |
