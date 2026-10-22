@@ -187,7 +187,15 @@ public class OfflineWorkflowTest {
       assertNotNull(find(root, "Add files"));
       assertNull(find(root, "Import GPX"));
       assertNull(find(root, "Import OruxMaps sources XML"));
-      find(root, "Routing data").performClick();
+      org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().dismiss();
+      java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
+      menu.setAccessible(true);
+      menu.invoke(activity);
+      View maps =
+          org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+              .getWindow()
+              .getDecorView();
+      find(maps, "Routing data").performClick();
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       assertTrue(
           ((TextView) dialog.findViewById(android.R.id.message))
@@ -223,7 +231,9 @@ public class OfflineWorkflowTest {
     java.lang.reflect.Field field = MainActivity.class.getDeclaredField("libraryButton");
     field.setAccessible(true);
     ((View) field.get(activity)).performClick();
-    return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().getWindow().getDecorView();
+    return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+        .getWindow()
+        .getDecorView();
   }
 
   private TextView find(View view, String text) {

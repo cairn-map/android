@@ -28,7 +28,8 @@ public final class MainActivity extends Activity {
   private OfflineMap offlineMap;
   private IgnMap ignMap;
   private PlanIgnStore mapStore;
-  private ImageButton previewButton, libraryButton;
+  private ImageButton previewButton, libraryButton, updateButton;
+  private TextView updateStatus;
   private AlertDialog libraryDialog;
   private FrameLayout libraryBody;
   private TextView downloadStatus;
@@ -162,7 +163,7 @@ public final class MainActivity extends Activity {
     loadPoints();
     reloadLibrary();
     refreshStatus();
-    if ("Routes".equals(currentPage)) appUpdates.resume();
+    appUpdates.resume();
   }
 
   @Override
@@ -223,7 +224,6 @@ public final class MainActivity extends Activity {
     }
     if (libraryDialog != null) libraryDialog.dismiss();
     currentPage = "Map";
-    appUpdates.pause();
     pages.removeAllViews();
     showMap();
     refreshStatus();
@@ -242,11 +242,7 @@ public final class MainActivity extends Activity {
     libraryBody = new FrameLayout(this);
     showRoutes();
     AlertDialog popout =
-        new AlertDialog.Builder(this)
-            .setTitle("Routes & Recordings")
-            .setView(libraryBody)
-            .setPositiveButton("Back to map", (dialog, which) -> {})
-            .create();
+        CairnDialogs.drawer(this).setTitle("Routes & Recordings").setView(libraryBody).create();
     libraryDialog = popout;
     popout.setOnDismissListener(
         dialog -> {
@@ -254,14 +250,15 @@ public final class MainActivity extends Activity {
           libraryDialog = null;
           libraryBody = null;
           currentPage = "Map";
-          appUpdates.pause();
           if (libraryButton != null) setIconActive(libraryButton, false);
           if (!destroyed) refreshStatus();
         });
     libraryDialog.show();
     libraryDialog
         .getWindow()
-        .setLayout(-1, Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f));
+        .setLayout(
+            Math.min(getResources().getDisplayMetrics().widthPixels, dp(600)),
+            Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f));
     setIconActive(libraryButton, true);
   }
 
@@ -275,6 +272,7 @@ public final class MainActivity extends Activity {
     frame.addView(map, new FrameLayout.LayoutParams(-1, -1));
     pages.addView(frame, new LinearLayout.LayoutParams(-1, -1));
 
+    boolean compactPlanning = planning && getResources().getConfiguration().screenHeightDp < 600;
     LinearLayout controls = column();
     controls.setGravity(Gravity.END);
     controls.addView(
@@ -295,6 +293,14 @@ public final class MainActivity extends Activity {
     iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
     iconParams.topMargin = dp(8);
     controls.addView(iconButton(MapIcon.SEARCH, "Search places", this::searchPlaces), iconParams);
+    libraryButton = iconButton(MapIcon.PATH, "Routes and recordings", () -> showPage("Routes"));
+    iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+    iconParams.topMargin = dp(8);
+    controls.addView(libraryButton, iconParams);
+    updateButton = iconButton(MapIcon.UPDATE, "Update Cairn", () -> appUpdates.update());
+    iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+    iconParams.topMargin = dp(8);
+    controls.addView(updateButton, iconParams);
     intervalChip = button("GPS · 60s", false, this::batterySettings);
     intervalChip.setTextSize(12);
     intervalChip.setSingleLine(true);
@@ -303,24 +309,45 @@ public final class MainActivity extends Activity {
     LinearLayout.LayoutParams gpsParams = new LinearLayout.LayoutParams(-2, dp(48));
     gpsParams.topMargin = dp(8);
     controls.addView(intervalChip, gpsParams);
+    controls.setGravity(Gravity.END | Gravity.BOTTOM);
+    ScrollView controlRail = new ScrollView(this);
+    controlRail.setFillViewport(true);
+    controlRail.setVerticalScrollBarEnabled(false);
+    controlRail.addView(controls);
     FrameLayout.LayoutParams controlsParams =
-        new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.BOTTOM);
-    controlsParams.setMargins(0, 0, dp(12), dp(planning ? 168 : 92));
-    frame.addView(controls, controlsParams);
+        new FrameLayout.LayoutParams(-2, -1, Gravity.END | Gravity.TOP);
+    controlsParams.setMargins(0, dp(12), dp(12), dp(planning ? (compactPlanning ? 168 : 264) : 92));
+    frame.addView(controlRail, controlsParams);
 
-    libraryButton = iconButton(MapIcon.PATH, "Routes and recordings", () -> showPage("Routes"));
-    FrameLayout.LayoutParams libraryParams =
-        new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.BOTTOM);
-    libraryParams.setMargins(dp(12), 0, 0, dp(planning ? 168 : 16));
-    frame.addView(libraryButton, libraryParams);
+    updateStatus = label("", 13, TEXT, false);
+    updateStatus.setPadding(dp(16), dp(12), dp(16), dp(12));
+    updateStatus.setBackground(surface(SURFACE, OUTLINE, 20));
+    updateStatus.setMaxWidth(
+        Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(132)));
+    updateStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+    FrameLayout.LayoutParams updateParams =
+        new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP);
+    updateParams.setMargins(dp(12), dp(12), dp(112), 0);
+    frame.addView(updateStatus, updateParams);
+    appUpdates.listen(
+        (message, busy) -> {
+          if (destroyed) return;
+          updateStatus.setText(message);
+          updateStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+          updateButton.setEnabled(!busy);
+          setIconActive(updateButton, busy);
+          updateButton.setContentDescription(busy ? message : "Update Cairn");
+          updateButton.setTooltipText(busy ? message : "Check, download and install Cairn updates");
+        });
 
     if (planning) {
       LinearLayout bottom = column();
       bottom.setPadding(dp(12), dp(8), dp(12), dp(8));
       bottom.setBackground(surface(SURFACE, OUTLINE, 24));
       planStatus = label("Long press to add points", 13, MUTED, false);
+      planStatus.setMaxLines(2);
       bottom.addView(planStatus);
-      LinearLayout actions = row();
+      LinearLayout actions = compactPlanning ? row() : column();
       actions.addView(
           button(
               "Undo",
@@ -331,7 +358,7 @@ public final class MainActivity extends Activity {
                   refreshPlanning();
                 }
               }),
-          new LinearLayout.LayoutParams(0, dp(48), 1));
+          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
       actions.addView(
           button(
               calculationRunning ? "Cancel" : "Route",
@@ -340,13 +367,13 @@ public final class MainActivity extends Activity {
                 if (calculationRunning) router.cancel();
                 else calculate();
               }),
-          new LinearLayout.LayoutParams(0, dp(48), 1));
+          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
       actions.addView(
           button(
               "More",
               false,
               () ->
-                  new AlertDialog.Builder(this)
+                  CairnDialogs.dialog(this)
                       .setItems(
                           new String[] {
                             "Add coordinates", "Download routing data", "Cancel planning"
@@ -367,9 +394,11 @@ public final class MainActivity extends Activity {
                             showPage("Map");
                           })
                       .show()),
-          new LinearLayout.LayoutParams(0, dp(48), 1));
+          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
       bottom.addView(actions);
-      FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+      FrameLayout.LayoutParams params =
+          new FrameLayout.LayoutParams(
+              dp(compactPlanning ? 248 : 176), -2, Gravity.END | Gravity.BOTTOM);
       params.setMargins(dp(12), 0, dp(12), dp(12));
       frame.addView(bottom, params);
       refreshPlanning();
@@ -392,23 +421,24 @@ public final class MainActivity extends Activity {
       hike.addView(
           recordButton, new LinearLayout.LayoutParams(renderedRecording ? dp(80) : -1, dp(48)));
       int width =
-          renderedRecording ? getResources().getDisplayMetrics().widthPixels - dp(96) : dp(120);
+          renderedRecording
+              ? Math.min(dp(240), getResources().getDisplayMetrics().widthPixels - dp(24))
+              : dp(120);
       FrameLayout.LayoutParams params =
           new FrameLayout.LayoutParams(
               width, dp(renderedRecording ? 56 : 48), Gravity.END | Gravity.BOTTOM);
       params.setMargins(0, 0, dp(12), dp(renderedRecording ? 12 : 16));
       frame.addView(hike, params);
     }
-    map.bottomOverlay = dp(planning ? 160 : 0);
+    map.bottomOverlay = dp(planning ? (compactPlanning ? 160 : 260) : 0);
   }
 
-  private LinearLayout page(String title, String subtitle) {
+  private LinearLayout libraryContent() {
     ScrollView scroll = new ScrollView(this);
     scroll.setFillViewport(true);
     LinearLayout content = column();
     content.setPadding(dp(20), dp(8), dp(20), dp(24));
-    content.addView(label(title, 29, TEXT, true));
-    TextView sub = label(subtitle, 14, MUTED, false);
+    TextView sub = label("Your saved routes and recorded hikes", 14, MUTED, false);
     sub.setPadding(0, dp(8), 0, dp(24));
     content.addView(sub);
     scroll.addView(content);
@@ -445,7 +475,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showRoutes() {
-    LinearLayout content = page("Your library", "Saved routes and recorded hikes, together");
+    LinearLayout content = libraryContent();
     LinearLayout actions = row();
     actions.addView(
         button("Add files", false, () -> openDocument(IMPORT_GPX)),
@@ -462,7 +492,6 @@ public final class MainActivity extends Activity {
             }),
         new LinearLayout.LayoutParams(0, dp(52), 1));
     content.addView(actions);
-    content.addView(button("Routing data", false, this::routingDataMenu));
     content.addView(spacer(20));
     content.addView(label("SAVED ROUTES", 11, MUTED, true));
     if (routeEntries.isEmpty())
@@ -521,12 +550,7 @@ public final class MainActivity extends Activity {
     }
     content.addView(spacer(20));
     content.addView(
-        label(
-            "BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL). Routing data and Plan IGN"
-                + " tiles are separate downloads.",
-            12,
-            MUTED,
-            false));
+        label("BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL).", 12, MUTED, false));
     TextView licences = label("Licences & attribution", 12, ACCENT, true);
     licences.setPadding(0, dp(16), 0, dp(16));
     licences.setOnClickListener(
@@ -557,8 +581,6 @@ public final class MainActivity extends Activity {
     ignCredit.setLinkTextColor(ACCENT);
     ignCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     content.addView(ignCredit);
-    content.addView(spacer(32));
-    content.addView(appUpdates.view());
   }
 
   private void removeTrek(String id) {
@@ -590,7 +612,7 @@ public final class MainActivity extends Activity {
   }
 
   private void routeActions(Store.RouteEntry entry) {
-    new AlertDialog.Builder(this)
+    CairnDialogs.dialog(this)
         .setTitle(entry.title)
         .setItems(
             new String[] {
@@ -641,7 +663,7 @@ public final class MainActivity extends Activity {
                 EditText title = new EditText(this);
                 title.setSingleLine(true);
                 title.setText(entry.title);
-                new AlertDialog.Builder(this)
+                CairnDialogs.dialog(this)
                     .setTitle("Route name")
                     .setView(title)
                     .setNegativeButton("Cancel", null)
@@ -658,7 +680,7 @@ public final class MainActivity extends Activity {
                         })
                     .show();
               } else
-                new AlertDialog.Builder(this)
+                CairnDialogs.dialog(this)
                     .setTitle("Remove " + entry.title + "?")
                     .setMessage(
                         "Remove this saved route from Cairn? Your original file stays in Android.")
@@ -710,7 +732,7 @@ public final class MainActivity extends Activity {
               false,
               () -> {
                 if (mapDialog != null) mapDialog.dismiss();
-                new AlertDialog.Builder(this)
+                CairnDialogs.dialog(this)
                     .setTitle(pack.name)
                     .setItems(
                         new String[] {
@@ -732,7 +754,7 @@ public final class MainActivity extends Activity {
                                   main.post(() -> beginDownload(pack.id));
                                 });
                           } else
-                            new AlertDialog.Builder(this)
+                            CairnDialogs.dialog(this)
                                 .setMessage("Remove " + pack.name + " from this phone?")
                                 .setNegativeButton("Keep", null)
                                 .setPositiveButton(
@@ -782,7 +804,7 @@ public final class MainActivity extends Activity {
                 message("Finish recording or pause the map download first.");
                 return;
               }
-              new AlertDialog.Builder(this)
+              CairnDialogs.dialog(this)
                   .setMessage(
                       "Remove automatically kept map tiles? Downloaded route corridors and other"
                           + " saved packs will stay available.")
@@ -806,10 +828,11 @@ public final class MainActivity extends Activity {
                       })
                   .show();
             }));
+    content.addView(button("Routing data", false, this::routingDataMenu));
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
     mapDialog =
-        new AlertDialog.Builder(this)
+        CairnDialogs.drawer(this)
             .setTitle("Saved maps")
             .setView(scroll)
             .setPositiveButton("Done", null)
@@ -828,9 +851,7 @@ public final class MainActivity extends Activity {
     List<Point> points =
         usingMapCenter
             ? Collections.singletonList(map.center())
-            : hasPlanningPoints
-                ? new ArrayList<>(waypoints)
-                : new ArrayList<>(route);
+            : hasPlanningPoints ? new ArrayList<>(waypoints) : new ArrayList<>(route);
     List<String> needed;
     try {
       needed = RoutingData.missing(this, points);
@@ -856,7 +877,7 @@ public final class MainActivity extends Activity {
                 ? "none"
                 : String.join(", ", downloaded));
     AlertDialog.Builder builder =
-        new AlertDialog.Builder(this)
+        CairnDialogs.drawer(this)
             .setTitle("Offline routing data")
             .setMessage(text)
             .setNegativeButton("Close", null);
@@ -884,11 +905,10 @@ public final class MainActivity extends Activity {
     builder.setNeutralButton(
         "Regions",
         (d, w) -> {
-          List<RoutingRegionMenu.Item> items =
-              RoutingRegionMenu.items(usingMapCenter, downloaded);
+          List<RoutingRegionMenu.Item> items = RoutingRegionMenu.items(usingMapCenter, downloaded);
           String[] labels = new String[items.size()];
           for (int i = 0; i < items.size(); i++) labels[i] = items.get(i).label;
-          new AlertDialog.Builder(this)
+          CairnDialogs.dialog(this)
               .setTitle("Routing regions")
               .setItems(
                   labels,
@@ -910,7 +930,7 @@ public final class MainActivity extends Activity {
                         discard
                             ? "Discard paused routing downloads? Finished regions stay available."
                             : "Remove " + item.region + "? Download it again later to update it.";
-                    new AlertDialog.Builder(this)
+                    CairnDialogs.dialog(this)
                         .setMessage(prompt)
                         .setNegativeButton("Keep", null)
                         .setPositiveButton(
@@ -924,8 +944,7 @@ public final class MainActivity extends Activity {
                                         .matches(
                                             "[EW][0-9]+_[NS][0-9]+\\.rd5\\.(part|resume|resume\\.tmp|import)"))
                                       file.delete();
-                              } else
-                                new File(RoutingData.directory(this), item.region).delete();
+                              } else new File(RoutingData.directory(this), item.region).delete();
                               routingDataMenu(aroundMap);
                             })
                         .show();
@@ -973,9 +992,15 @@ public final class MainActivity extends Activity {
   private void setIconActive(ImageButton view, boolean active) {
     if (view == null) return;
     view.setSelected(active);
-    view.setImageTintList(ColorStateList.valueOf(active ? BACKGROUND : ACCENT));
+    // Give custom drawables their own colors: ImageView tint can mask their strokes.
+    view.setImageTintList(null);
+    int background = active ? PRIMARY : SURFACE;
+    if (view.getDrawable() instanceof MapIcon)
+      ((MapIcon) view.getDrawable()).colors(active ? ON_PRIMARY : ACCENT, background);
+    GradientDrawable fill = surface(background, active ? ACCENT : OUTLINE, 18);
+    fill.setStroke(dp(active ? 2 : 1), active ? ACCENT : OUTLINE);
     view.setBackground(
-        buttonBackground(active ? ACCENT : SURFACE, active ? ON_PRIMARY : OUTLINE, 16));
+        new RippleDrawable(ColorStateList.valueOf(RIPPLE), fill, round(Color.WHITE, 18)));
     if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
@@ -1025,7 +1050,7 @@ public final class MainActivity extends Activity {
             MUTED,
             false));
     AlertDialog dialog =
-        new AlertDialog.Builder(this)
+        CairnDialogs.dialog(this)
             .setTitle(corridor ? "Save route corridor" : "Save map area")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1076,8 +1101,9 @@ public final class MainActivity extends Activity {
                                         String.format(
                                             Locale.getDefault(),
                                             (corridor
-                                                ? "Corridor: %1$.1f km on each side · detail zoom %2$d\n\n"
-                                                : "Map area · detail zoom %2$d\n\n")
+                                                    ? "Corridor: %1$.1f km on each side · detail"
+                                                        + " zoom %2$d\n\n"
+                                                    : "Map area · detail zoom %2$d\n\n")
                                                 + "%3$,d tiles · roughly %4$.0f MB\n"
                                                 + "%5$.0f MB available on this phone.\n\n"
                                                 + "Detailed tiles download first; overview tiles"
@@ -1090,7 +1116,7 @@ public final class MainActivity extends Activity {
                                             plan.tiles.size(),
                                             plan.estimatedBytes() / 1e6,
                                             available / 1e6);
-                                    new AlertDialog.Builder(this)
+                                    CairnDialogs.dialog(this)
                                         .setTitle(savedTitle)
                                         .setMessage(estimate)
                                         .setNegativeButton("Cancel", null)
@@ -1218,7 +1244,7 @@ public final class MainActivity extends Activity {
             MUTED,
             false));
     AlertDialog dialog =
-        new AlertDialog.Builder(this)
+        CairnDialogs.drawer(this)
             .setTitle("Battery & GPS")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1251,7 +1277,7 @@ public final class MainActivity extends Activity {
 
   private void toggleRecording() {
     if (TrackingService.running) {
-      new AlertDialog.Builder(this)
+      CairnDialogs.dialog(this)
           .setTitle("Finish this hike?")
           .setMessage("Your track stays saved on this phone.")
           .setNegativeButton("Keep recording", null)
@@ -1281,7 +1307,7 @@ public final class MainActivity extends Activity {
       return;
     }
     if (!getSystemService(LocationManager.class).isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-      new AlertDialog.Builder(this)
+      CairnDialogs.dialog(this)
           .setTitle("Enable GPS to record")
           .setMessage("Offline maps still work with location switched off.")
           .setNegativeButton("Cancel", null)
@@ -1664,7 +1690,7 @@ public final class MainActivity extends Activity {
     input.setSingleLine(true);
     content.addView(input);
     AlertDialog dialog =
-        new AlertDialog.Builder(this)
+        CairnDialogs.dialog(this)
             .setTitle("Add latitude, longitude")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1765,7 +1791,7 @@ public final class MainActivity extends Activity {
     scroll.addView(results);
     content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(220)));
     AlertDialog dialog =
-        new AlertDialog.Builder(this)
+        CairnDialogs.drawer(this)
             .setTitle("Search places")
             .setView(content)
             .setNegativeButton("Cancel", null)
@@ -1862,7 +1888,7 @@ public final class MainActivity extends Activity {
 
   private void message(String text) {
     if (!destroyed && !isFinishing())
-      new AlertDialog.Builder(this)
+      CairnDialogs.dialog(this)
           .setMessage(text == null ? "Operation could not be completed" : text)
           .setPositiveButton("OK", null)
           .show();
@@ -1912,6 +1938,7 @@ public final class MainActivity extends Activity {
 
   private ImageButton iconButton(int icon, String description, Runnable action) {
     ImageButton view = new ImageButton(this);
+    view.setScaleType(ImageView.ScaleType.FIT_CENTER);
     view.setImageDrawable(new MapIcon(icon));
     view.setPadding(dp(12), dp(12), dp(12), dp(12));
     view.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
