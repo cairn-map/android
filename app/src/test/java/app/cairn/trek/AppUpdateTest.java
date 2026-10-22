@@ -374,6 +374,33 @@ public class AppUpdateTest {
   }
 
   @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
+  public void licencesStayInPlaceAsUpdateMessagesAndActionsChange() throws Exception {
+    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      android.view.View root = activity.findViewById(android.R.id.content);
+      button(root, "Routes").performClick();
+      AppUpdates updates = (AppUpdates) field(activity, "appUpdates");
+      android.widget.TextView licences = button(root, "Licences & attribution");
+      android.widget.TextView status = (android.widget.TextView) field(updates, "status");
+      java.lang.reflect.Method refresh = AppUpdates.class.getDeclaredMethod("refresh");
+      refresh.setAccessible(true);
+      int top = -1;
+      for (String message : new String[] {"", "Checking the latest public Cairn release…",
+          "Cairn 0.6.0 is available\n\n" + "Long release notes.\n".repeat(40),
+          "Downloading… 25%", "Canceled. Nothing will restart automatically."}) {
+        status.setText(message);
+        refresh.invoke(updates);
+        root.measure(android.view.View.MeasureSpec.makeMeasureSpec(786, android.view.View.MeasureSpec.EXACTLY),
+            android.view.View.MeasureSpec.makeMeasureSpec(1550, android.view.View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, 786, 1550);
+        if (top < 0) top = licences.getTop();
+        assertEquals("Update text must not move licences", top, licences.getTop());
+        assertTrue(licences.getTop() < ((android.view.View) field(updates, "content")).getTop());
+      }
+    }
+  }
+
+  @Test @GraphicsMode(GraphicsMode.Mode.LEGACY)
   public void leavingRoutesCancelsUpdateWorkAndReturningDoesNotRestartIt() throws Exception {
     try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();

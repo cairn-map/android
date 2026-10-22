@@ -73,19 +73,28 @@ public final class OfflineMap implements TileSource, AutoCloseable {
   }
 
   public synchronized Bitmap tile(int z, int x, int y) {
+    return tile(z, x, y, () -> false);
+  }
+
+  @Override
+  public synchronized Bitmap tile(
+      int z, int x, int y, java.util.function.BooleanSupplier obsolete) {
     if (database == null) return null;
+    Bitmap base = null;
     int row = xyz ? y : (1 << z) - 1 - y;
     try (Cursor c =
         database.rawQuery(
             "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=? LIMIT"
                 + " 1",
             new String[] {"" + z, "" + x, "" + row})) {
-      if (!c.moveToFirst()) return null;
-      byte[] bytes = c.getBlob(0);
-      BitmapFactory.Options options = new BitmapFactory.Options();
-      options.inPreferredConfig = Bitmap.Config.RGB_565;
-      return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+      if (c.moveToFirst()) {
+        byte[] bytes = c.getBlob(0);
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        base = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+      }
     }
+    return TilePyramid.detail(database, z, x, y, xyz, base, obsolete);
   }
 
   @Override

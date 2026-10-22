@@ -52,6 +52,25 @@ public class OfflineWorkflowTest {
   }
 
   @Test
+  public void parallelBatchesContainDistinctPendingTilesAndResumeOnlyUncommittedTiles() throws Exception {
+    String id = store.create("Parallel", TilePlanner.area(6.86, 45.92, 6.88, 45.94, 17));
+    List<TilePlanner.Tile> batch = store.next(id, 4);
+    assertEquals(4, batch.size());
+    assertEquals(4, new HashSet<>(batch).size());
+    // Network completions may arrive in any order; only committed work advances progress.
+    store.completeTile(id, batch.get(2), new IgnClient.Result(IgnClientTest.png(), null, null));
+    assertEquals(1, store.packs().get(0).done);
+    store.close();
+    store = new PlanIgnStore(RuntimeEnvironment.getApplication());
+    List<TilePlanner.Tile> resumed = store.next(id, 4);
+    assertFalse(resumed.contains(batch.get(2)));
+    assertTrue(resumed.contains(batch.get(0)));
+    assertTrue(resumed.contains(batch.get(1)));
+    assertTrue(resumed.contains(batch.get(3)));
+    assertFalse(store.finish(id));
+  }
+
+  @Test
   public void partialDownloadSurvivesClosingAndReopening() throws Exception {
     String id = store.create("Partial", TilePlanner.area(6.86, 45.92, 6.88, 45.94, 17));
     TilePlanner.Tile first = store.next(id);

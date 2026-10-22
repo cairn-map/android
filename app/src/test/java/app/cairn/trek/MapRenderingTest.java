@@ -68,7 +68,11 @@ public class MapRenderingTest {
   }
 
   private void drain(TrekMapView view) throws Exception {
-    executor(view).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (executor(view).getActiveCount() != 0 || !executor(view).getQueue().isEmpty()) {
+      if (System.nanoTime() >= deadline) fail("Tile workers did not drain");
+      Thread.sleep(5);
+    }
     Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
   }
 
@@ -112,7 +116,7 @@ public class MapRenderingTest {
 
   private void assertQueuedTilesCanceled(boolean replaceSource) throws Exception {
     TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
-    CountDownLatch firstStarted = new CountDownLatch(1), release = new CountDownLatch(1);
+    CountDownLatch firstStarted = new CountDownLatch(4), release = new CountDownLatch(1);
     ThreadPoolExecutor worker = executor(view);
     List<TilePlanner.Tile> requests = Collections.synchronizedList(new ArrayList<>());
     view.source(
@@ -143,7 +147,7 @@ public class MapRenderingTest {
         });
     try {
       draw(view);
-      assertTrue(firstStarted.await(3, TimeUnit.SECONDS));
+      assertTrue("Four visible tiles must load concurrently", firstStarted.await(3, TimeUnit.SECONDS));
       if (replaceSource)
         view.source(
             new EmptySource() {
@@ -161,15 +165,36 @@ public class MapRenderingTest {
               }
             });
       else view.center(new Point(46.1, 7.2));
+      int oldRequests = requests.size();
+      assertEquals("Queued obsolete tiles must never start", 4, oldRequests);
       draw(view);
       drain(view);
       int z = view.zoomLevel();
       List<TilePlanner.Tile> expected =
           TileViewport.ordered(z, Geo.x(7.2, z), Geo.y(46.1, z), 786, 1200, 512);
-      assertEquals(expected.get(0), requests.get(1));
-      for (int i = 1; i < requests.size(); i++) assertTrue(expected.contains(requests.get(i)));
+      assertTrue(requests.subList(oldRequests, Math.min(oldRequests + 4, requests.size()))
+          .contains(expected.get(0)));
+      for (int i = oldRequests; i < requests.size(); i++) assertTrue(expected.contains(requests.get(i)));
     } finally {
       release.countDown();
+      view.dispose();
+    }
+  }
+
+  @Test
+  public void finerCachedTilesAreNotPaintedOverByTheCurrentOverview() throws Exception {
+    TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+    view.source(new EmptySource());
+    try {
+      for (int delta = 0; delta <= 1; delta++) {
+        int z = view.zoomLevel() + delta;
+        int x = (int) Geo.x(view.center().lon, z), y = (int) Geo.y(view.center().lat, z);
+        Bitmap tile = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
+        tile.eraseColor(delta == 0 ? Color.RED : Color.BLUE);
+        cache(view).put(z + "/" + x + "/" + y, tile);
+      }
+      assertEquals(Color.BLUE, draw(view).getPixel(393, 600));
+    } finally {
       view.dispose();
     }
   }
