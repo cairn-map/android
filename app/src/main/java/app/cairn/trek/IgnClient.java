@@ -8,7 +8,20 @@ import java.util.function.BooleanSupplier;
 public final class IgnClient {
   public static final String LAYER = "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2";
   private static long nextRequestNanos;
-  private volatile HttpURLConnection active;
+  private final java.util.Set<HttpURLConnection> active =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final java.util.concurrent.atomic.AtomicInteger generation =
+      new java.util.concurrent.atomic.AtomicInteger();
+  interface Connections { HttpURLConnection open(URL url) throws IOException; }
+  private final Connections connections;
+
+  public IgnClient() {
+    this(url -> (HttpURLConnection) url.openConnection());
+  }
+
+  IgnClient(Connections connections) {
+    this.connections = connections;
+  }
 
   public static final class Result {
     public final byte[] bytes;
@@ -70,11 +83,13 @@ public final class IgnClient {
   public Result fetch(
       TilePlanner.Tile tile, String etag, String modified, BooleanSupplier cancelled)
       throws IOException {
+    int epoch = generation.get();
+    BooleanSupplier stop = () -> cancelled.getAsBoolean() || epoch != generation.get();
     for (int attempt = 0; attempt < 3; attempt++) {
-      check(cancelled);
-      throttle(cancelled);
-      HttpURLConnection connection = (HttpURLConnection) new URL(url(tile)).openConnection();
-      active = connection;
+      check(stop);
+      throttle(stop);
+      HttpURLConnection connection = connections.open(new URL(url(tile)));
+      active.add(connection);
       connection.setConnectTimeout(10000);
       connection.setReadTimeout(15000);
       connection.setInstanceFollowRedirects(false);
@@ -84,13 +99,14 @@ public final class IgnClient {
       else if (modified != null && !modified.isEmpty())
         connection.setRequestProperty("If-Modified-Since", modified);
       try {
+        check(stop);
         int code = connection.getResponseCode();
         if (code == 429 || code == 503) {
           if (attempt == 2)
             throw new IOException("IGN is busy. Your download is saved; resume it later.");
           int retry = connection.getHeaderFieldInt("Retry-After", 5 * (attempt + 1));
           connection.disconnect();
-          waitFor(Math.max(5, Math.min(60, retry)) * 1000L, cancelled);
+          waitFor(Math.max(5, Math.min(60, retry)) * 1000L, stop);
           continue;
         }
         if (code == 304) return new Result(null, etag, modified);
@@ -106,7 +122,7 @@ public final class IgnClient {
           byte[] buffer = new byte[8192];
           int count;
           while ((count = in.read(buffer)) != -1) {
-            check(cancelled);
+            check(stop);
             if (out.size() + count > 2 * 1024 * 1024)
               throw new IOException("Map tile exceeds the size limit");
             out.write(buffer, 0, count);
@@ -114,12 +130,12 @@ public final class IgnClient {
           bytes = out.toByteArray();
         }
         validatePng(bytes);
-        check(cancelled);
+        check(stop);
         return new Result(
             bytes, connection.getHeaderField("ETag"), connection.getHeaderField("Last-Modified"));
       } finally {
         connection.disconnect();
-        if (active == connection) active = null;
+        active.remove(connection);
       }
     }
     throw new IOException("Could not download map tile");
@@ -162,7 +178,7 @@ public final class IgnClient {
   }
 
   public void cancel() {
-    HttpURLConnection connection = active;
-    if (connection != null) connection.disconnect();
+    generation.incrementAndGet();
+    for (HttpURLConnection connection : active) connection.disconnect();
   }
 }

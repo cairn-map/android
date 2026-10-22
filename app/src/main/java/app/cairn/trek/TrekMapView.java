@@ -35,7 +35,7 @@ public final class TrekMapView extends View {
   private final Path linePath = new Path();
   private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
   private final ThreadPoolExecutor executor =
-      new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+      new ThreadPoolExecutor(4, 4, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
   private final Set<String> pending = new HashSet<>(), missing = new HashSet<>();
   private final LruCache<String, Bitmap> cache =
       new LruCache<String, Bitmap>(12 * 1024 * 1024) {
@@ -57,6 +57,9 @@ public final class TrekMapView extends View {
   private float quickFocusX, quickFocusY, quickLastY, quickDirection;
   private int flingPosition;
   private long lastQuickMove;
+  private boolean tapZoom;
+  private long tapZoomStarted;
+  private double tapZoomStart, tapZoomTarget;
 
   public TrekMapView(Context context) {
     super(context);
@@ -117,8 +120,12 @@ public final class TrekMapView extends View {
                       quickZooming = false;
                       if (!flingQuickZoom(e.getEventTime())) refreshTiles(false);
                     } else if (tapCandidate) {
-                      scaleBy(2, e.getX(), e.getY());
+                      tapZoom = true;
+                      tapZoomStarted = android.os.SystemClock.uptimeMillis();
+                      tapZoomStart = camera()[2];
+                      tapZoomTarget = Math.min(maxZoom(), tapZoomStart + 1);
                       refreshTiles(false);
+                      postInvalidateOnAnimation();
                     }
                     break;
                 }
@@ -216,6 +223,18 @@ public final class TrekMapView extends View {
 
   @Override
   public void computeScroll() {
+    if (tapZoom) {
+      double progress = Math.min(1, (android.os.SystemClock.uptimeMillis() - tapZoomStarted) / 180.0);
+      double eased = 1 - Math.pow(1 - progress, 3);
+      double level = tapZoomStart + (tapZoomTarget - tapZoomStart) * eased;
+      scaleBy(Math.pow(2, level - camera()[2]), quickFocusX, quickFocusY);
+      if (progress < 1) postInvalidateOnAnimation();
+      else {
+        tapZoom = false;
+        refreshTiles(false);
+      }
+      return;
+    }
     if (!zoomFling) return;
     if (zoomScroller.computeScrollOffset()) {
       int position = zoomScroller.getCurrY();
@@ -230,6 +249,7 @@ public final class TrekMapView extends View {
   }
 
   void stopMotion() {
+    tapZoom = false;
     zoomScroller.forceFinished(true);
     zoomFling = false;
     quickZooming = false;
@@ -396,7 +416,7 @@ public final class TrekMapView extends View {
   public boolean onTouchEvent(MotionEvent e) {
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
       gestures.setIsLongpressEnabled(true);
-      boolean wasMoving = zoomFling;
+      boolean wasMoving = zoomFling || tapZoom;
       stopMotion();
       if (wasMoving) refreshTiles(false);
       zoomVelocity = VelocityTracker.obtain();
@@ -489,7 +509,7 @@ public final class TrekMapView extends View {
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeWidth(1);
     paint.setColor(0x2243474E);
-    int n = 1 << zoom, drawn = drawCachedBackground(c, cx, cy, tileSize);
+    int drawn = drawCachedBackground(c, cx, cy, tileSize);
     for (int x = x0; x <= x1; x++)
       for (int y = y0; y <= y1; y++) {
         float left = (float) (getWidth() / 2f + (x - cx) * tileSize),
@@ -497,18 +517,8 @@ public final class TrekMapView extends View {
         RectF destination = tileRect;
         destination.set(left, top, left + tileSize, top + tileSize);
         c.drawRect(destination, paint);
-        if (source != null && y >= 0 && y < n) {
-          int wrappedX = Math.floorMod(x, n);
-          String key = zoom + "/" + wrappedX + "/" + y;
-          Bitmap bitmap = cache.get(key);
-          if (bitmap != null) {
-            c.drawBitmap(bitmap, null, destination, bitmapPaint);
-            drawn++;
-          } else {
-          }
-        }
       }
-    if (source != null && !scales.isInProgress() && !quickZooming && !zoomFling) {
+    if (source != null && !scales.isInProgress() && !quickZooming && !zoomFling && !tapZoom) {
       boolean complete = true;
       for (TilePlanner.Tile tile :
           TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize)) {
@@ -639,6 +649,7 @@ public final class TrekMapView extends View {
     double world = 1 << zoom;
     List<CachedTile> backdrop = new ArrayList<>(previousTiles);
     backdrop.addAll(cachedTiles);
+    backdrop.sort(Comparator.comparingInt(tile -> tile.z));
     for (CachedTile tile : backdrop) {
       double factor = Math.scalb(1, zoom - tile.z);
       double dx = (tile.x + 0.5) * factor - cx;
@@ -683,7 +694,10 @@ public final class TrekMapView extends View {
           Bitmap value = result;
           main.post(
               () -> {
-                if (gen != generation || !active) return;
+                if (gen != generation || !active) {
+                  if (value != null) value.recycle();
+                  return;
+                }
                 pending.remove(key);
                 if (value != null) {
                   cache.put(key, value);

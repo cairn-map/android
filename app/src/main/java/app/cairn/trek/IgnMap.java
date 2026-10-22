@@ -65,10 +65,16 @@ public final class IgnMap implements TileSource, AutoCloseable {
         if (online && request == generation) lastError = failure.getMessage();
       }
     }
-    if (cached == null) return online ? null : enlargedParent(tile);
-    BitmapFactory.Options options = new BitmapFactory.Options();
-    options.inPreferredConfig = Bitmap.Config.RGB_565;
-    return BitmapFactory.decodeByteArray(cached.bytes, 0, cached.bytes.length, options);
+    Bitmap base = null;
+    if (cached != null) {
+      BitmapFactory.Options options = new BitmapFactory.Options();
+      options.inPreferredConfig = Bitmap.Config.RGB_565;
+      base = BitmapFactory.decodeByteArray(cached.bytes, 0, cached.bytes.length, options);
+    } else if (!online) base = enlargedParent(tile);
+    synchronized (this) {
+      if (closed || obsolete.getAsBoolean()) return null;
+      return store.detail(tile, base, obsolete);
+    }
   }
 
   @Override

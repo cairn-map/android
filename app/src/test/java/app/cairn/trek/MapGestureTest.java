@@ -358,10 +358,38 @@ public class MapGestureTest {
   @Test
   public void doubleTapZoomsOnlyWhenTheSecondPressIsReleased() {
     double[] before = map.camera();
+    Point anchor = underSecondTap();
     doublePress();
     assertArrayEquals(before, map.camera(), 1e-10);
-    touch(MotionEvent.ACTION_UP, 200, 300);
+    touch(MotionEvent.ACTION_UP, 200, 300, 0);
+    assertArrayEquals(before, map.camera(), 1e-10);
+    coast(64);
+    assertTrue(map.camera()[2] > before[2]);
+    assertTrue(map.camera()[2] < before[2] + 1);
+    assertEquals(anchor.lat, underSecondTap().lat, 1e-5);
+    assertEquals(anchor.lon, underSecondTap().lon, 1e-5);
+    coast(160);
     assertEquals(before[2] + 1, map.camera()[2], 1e-10);
+    assertEquals(anchor.lat, underSecondTap().lat, 1e-5);
+    assertEquals(anchor.lon, underSecondTap().lon, 1e-5);
+  }
+
+  @Test
+  public void newTouchInterruptsDoubleTapTransitionAndMaximumZoomIsRespected() {
+    doublePress();
+    touch(MotionEvent.ACTION_UP, 200, 300, 0);
+    coast(64);
+    touch(MotionEvent.ACTION_DOWN, 200, 300);
+    double[] stopped = map.camera();
+    coast(300);
+    assertArrayEquals(stopped, map.camera(), 1e-10);
+    touch(MotionEvent.ACTION_CANCEL, 200, 300);
+    map.restoreCamera(new double[] {45.9, 6.8, 18.75});
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    doublePress();
+    touch(MotionEvent.ACTION_UP, 200, 300);
+    coast(240);
+    assertEquals(19, map.camera()[2], 1e-10);
   }
 
   @Test
@@ -374,6 +402,7 @@ public class MapGestureTest {
     assertArrayEquals(before, map.camera(), 1e-10);
     assertEquals(0, planningPoints[0]);
     touch(MotionEvent.ACTION_UP, 200, 300);
+    coast(240);
     assertEquals(before[2] + 1, map.camera()[2], 1e-10);
   }
 
@@ -399,6 +428,7 @@ public class MapGestureTest {
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
     doublePress();
     touch(MotionEvent.ACTION_UP, 200, 300);
+    coast(240);
     assertEquals(before[2] + 1, map.camera()[2], 1e-10);
   }
 

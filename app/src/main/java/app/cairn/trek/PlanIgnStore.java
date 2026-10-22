@@ -100,6 +100,12 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     }
   }
 
+  public android.graphics.Bitmap detail(
+      TilePlanner.Tile tile, android.graphics.Bitmap base,
+      java.util.function.BooleanSupplier obsolete) {
+    return TilePyramid.detail(getReadableDatabase(), tile.z, tile.x, tile.y, true, base, obsolete);
+  }
+
   private static String[] args(TilePlanner.Tile t) {
     return new String[] {"" + t.z, "" + t.x, "" + t.y};
   }
@@ -154,13 +160,21 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public TilePlanner.Tile next(String id) {
+    List<TilePlanner.Tile> tiles = next(id, 1);
+    return tiles.isEmpty() ? null : tiles.get(0);
+  }
+
+  public List<TilePlanner.Tile> next(String id, int limit) {
+    List<TilePlanner.Tile> tiles = new ArrayList<>();
     try (Cursor c =
         getReadableDatabase()
             .rawQuery(
-                "SELECT z,x,y FROM pack_tiles WHERE pack=? AND done=0 ORDER BY z,y,x LIMIT 1",
-                new String[] {id})) {
-      return c.moveToFirst() ? new TilePlanner.Tile(c.getInt(0), c.getInt(1), c.getInt(2)) : null;
+                "SELECT z,x,y FROM pack_tiles WHERE pack=? AND done=0 ORDER BY z,y,x LIMIT ?",
+                new String[] {id, "" + limit})) {
+      while (c.moveToNext())
+        tiles.add(new TilePlanner.Tile(c.getInt(0), c.getInt(1), c.getInt(2)));
     }
+    return tiles;
   }
 
   public void completeTile(String id, TilePlanner.Tile tile, IgnClient.Result result) {

@@ -501,8 +501,6 @@ public final class MainActivity extends Activity {
       }
     }
     content.addView(spacer(20));
-    content.addView(appUpdates.view());
-    content.addView(spacer(32));
     content.addView(
         label(
             "BRouter 1.7.9 · routing © OpenStreetMap contributors (ODbL). Routing data and Plan IGN"
@@ -540,6 +538,8 @@ public final class MainActivity extends Activity {
     ignCredit.setLinkTextColor(ACCENT);
     ignCredit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     content.addView(ignCredit);
+    content.addView(spacer(32));
+    content.addView(appUpdates.view());
   }
 
   private void removeTrek(String id) {
