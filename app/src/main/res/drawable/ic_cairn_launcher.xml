@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="42"
+    android:viewportHeight="42">
+    <!-- Fill the launcher width and center the unchanged Ascent silhouette. -->
+    <group android:translateX="-3" android:translateY="-1.5">
+        <path
+            android:fillColor="#006653"
+            android:pathData="M24,4L3,41L19,36.8L24,28.9L26.7,33.5Z" />
+        <path
+            android:fillColor="#00B894"
+            android:pathData="M24,4L45,41L30.5,39L26.7,33.5Z" />
+    </group>
+</vector>

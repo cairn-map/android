@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <application android:label="Cairn" android:theme="@style/AppTheme" android:icon="@drawable/ic_cairn"
+    <application android:label="Cairn" android:theme="@style/AppTheme" android:icon="@drawable/ic_cairn_launcher"
         android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
         <provider android:name=".UpdateFileProvider" android:authorities="${applicationId}.updates"
             android:exported="false" android:grantUriPermissions="true" />
