@@ -107,7 +107,9 @@ public class AppFeedbackTest {
     // APPLICATION_PANEL would inherit a bottom drawer's frame, regardless of its
     // gravity and LAYOUT_IN_SCREEN flag. This must be a sibling application window.
     assertEquals(WindowManager.LayoutParams.TYPE_APPLICATION, panel.type);
-    assertSame(host.getDecorView().getApplicationWindowToken(), panel.token);
+    assertNotNull(host.getAttributes().token);
+    assertNotSame(host.getDecorView().getApplicationWindowToken(), host.getAttributes().token);
+    assertSame(host.getAttributes().token, panel.token);
     assertEquals(
         Gravity.TOP | Gravity.CENTER_HORIZONTAL,
         panel.gravity & (Gravity.VERTICAL_GRAVITY_MASK | Gravity.HORIZONTAL_GRAVITY_MASK));
