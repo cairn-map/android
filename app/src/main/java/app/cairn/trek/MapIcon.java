@@ -5,7 +5,7 @@ import android.graphics.drawable.Drawable;
 
 /** Small platform-only icons; no bitmap assets or icon-library dependency. */
 final class MapIcon extends Drawable {
-  static final int LOCATE = 0, ONLINE = 1, OFFLINE = 2, MAPS = 3, SEARCH = 4;
+  static final int LOCATE = 0, ONLINE = 1, OFFLINE = 2, MAPS = 3, SEARCH = 4, PATH = 5;
   private final int kind;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -24,7 +24,18 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == SEARCH) {
+    if (kind == PATH) {
+      canvas.drawCircle(5, 19, 2.5f, paint);
+      canvas.drawCircle(19, 5, 2.5f, paint);
+      Path path = new Path();
+      path.moveTo(7.5f, 19);
+      path.lineTo(15, 19);
+      path.cubicTo(22, 19, 22, 12, 15, 12);
+      path.lineTo(9, 12);
+      path.cubicTo(2, 12, 2, 5, 9, 5);
+      path.lineTo(16.5f, 5);
+      canvas.drawPath(path, paint);
+    } else if (kind == SEARCH) {
       canvas.drawCircle(10, 10, 6.5f, paint);
       canvas.drawLine(15, 15, 21, 21, paint);
     } else if (kind == MAPS) {

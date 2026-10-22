@@ -116,7 +116,7 @@ public class OfflineWorkflowTest {
       for (String width : new String[] {"0.2", "2.0"}) {
         drain(activity);
         View root = activity.getWindow().getDecorView();
-        find(root, "Routes").performClick();
+        root = openLibrary(activity);
         find(root, "Width check · selected").performClick();
         AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         actions.getListView().performItemClick(null, 2, 2);
@@ -183,9 +183,7 @@ public class OfflineWorkflowTest {
       MainActivity activity = controller.get();
       View root = activity.getWindow().getDecorView();
       assertNull(find(root, "Offline"));
-      TextView routes = find(root, "Routes");
-      assertNotNull(routes);
-      routes.performClick();
+      root = openLibrary(activity);
       assertNotNull(find(root, "Add files"));
       assertNull(find(root, "Import GPX"));
       assertNull(find(root, "Import OruxMaps sources XML"));
@@ -219,6 +217,13 @@ public class OfflineWorkflowTest {
     assertNull(store.cached(viewed));
     assertNotNull(store.cached(tile));
     assertTrue(store.finish(id));
+  }
+
+  private View openLibrary(MainActivity activity) throws Exception {
+    java.lang.reflect.Field field = MainActivity.class.getDeclaredField("libraryButton");
+    field.setAccessible(true);
+    ((View) field.get(activity)).performClick();
+    return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().getWindow().getDecorView();
   }
 
   private TextView find(View view, String text) {

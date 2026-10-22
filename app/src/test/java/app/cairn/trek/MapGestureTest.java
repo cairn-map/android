@@ -20,6 +20,12 @@ public class MapGestureTest {
 
   @Before
   public void setup() {
+    // Robolectric's legacy tracker retains old coordinates after clear(). Empty
+    // the platform pool so synthetic clocks restarting between tests stay isolated.
+    Object pool =
+        org.robolectric.util.ReflectionHelpers.getStaticField(
+            android.view.VelocityTracker.class, "sPool");
+    while (org.robolectric.util.ReflectionHelpers.callInstanceMethod(pool, "acquire") != null) {}
     map = new TrekMapView(RuntimeEnvironment.getApplication());
     map.layout(0, 0, 600, 1000);
   }
@@ -532,5 +538,109 @@ public class MapGestureTest {
     assertEquals(before[2], map.camera()[2], 1e-10);
     assertNotEquals(before[0], map.camera()[0], 1e-10);
     assertNotEquals(before[1], map.camera()[1], 1e-10);
+  }
+
+  private void swipe(int interval) {
+    touch(MotionEvent.ACTION_DOWN, 200, 300, interval);
+    for (int i = 1; i <= 6; i++)
+      touch(MotionEvent.ACTION_MOVE, 200 + i * 20, 300 + i * 10, interval);
+    touch(MotionEvent.ACTION_UP, 320, 360, 0);
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void panCoastsInTheReleaseDirectionAndANewTouchStopsIt() {
+    swipe(16);
+    double[] released = map.camera();
+    coast(64);
+    assertTrue(map.camera()[0] > released[0]);
+    assertTrue(
+        java.util.Arrays.toString(released) + " -> " + java.util.Arrays.toString(map.camera()),
+        map.camera()[1] < released[1]);
+    assertEquals(released[2], map.camera()[2], 1e-10);
+    touch(MotionEvent.ACTION_DOWN, 320, 360, 0);
+    double[] stopped = map.camera();
+    coast(2000);
+    assertArrayEquals(stopped, map.camera(), 1e-10);
+  }
+
+  @Test
+  public void fastPanTravelsFartherAndEventuallySettles() {
+    double[] start = map.camera();
+    double[] travel = new double[2];
+    for (int run = 0; run < 2; run++) {
+      map.restoreCamera(start);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      swipe(run == 0 ? 60 : 10);
+      double released = map.camera()[1];
+      coast(3000);
+      travel[run] = released - map.camera()[1];
+      double[] settled = map.camera();
+      coast(1000);
+      assertArrayEquals(settled, map.camera(), 1e-10);
+    }
+    assertTrue(travel[0] > 0);
+    assertTrue(travel[1] > travel[0] * 2);
+  }
+
+  @Test
+  public void heldOrCancelledPanHasNoMomentumAndProgrammaticCenterStopsACoast() {
+    for (int ending : new int[] {MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL}) {
+      touch(MotionEvent.ACTION_DOWN, 200, 300);
+      touch(MotionEvent.ACTION_MOVE, 300, 400);
+      touch(MotionEvent.ACTION_MOVE, 400, 500);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+      touch(ending, 400, 500);
+      double[] stopped = map.camera();
+      coast(2000);
+      assertArrayEquals(stopped, map.camera(), 1e-10);
+    }
+    swipe(10);
+    coast(64);
+    map.center(new Point(48, 2));
+    double[] centered = map.camera();
+    coast(2000);
+    assertArrayEquals(centered, map.camera(), 1e-10);
+  }
+
+  @Test
+  public void twoFingerDragMovesTheMapWithoutChangingZoomOrFlingingOnPointerLift() {
+    touch(MotionEvent.ACTION_DOWN, 200, 300);
+    twoFingers(
+        MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 200, 400);
+    double[] before = map.camera();
+    twoFingers(MotionEvent.ACTION_MOVE, 240, 440);
+    twoFingers(MotionEvent.ACTION_MOVE, 280, 480);
+    assertTrue(map.camera()[1] < before[1]);
+    assertEquals(before[2], map.camera()[2], 1e-10);
+    twoFingers(
+        MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 280, 480);
+    touch(MotionEvent.ACTION_UP, 280, 300);
+    double[] released = map.camera();
+    coast(2000);
+    assertArrayEquals(released, map.camera(), 1e-10);
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void twoFingerTapAnimatesZoomOutWithoutMovingItsAnchor() {
+    touch(MotionEvent.ACTION_DOWN, 200, 300, 20);
+    twoFingers(
+        MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 200, 400);
+    double[] before = map.camera();
+    double world = 256 * map.getResources().getDisplayMetrics().density * Math.pow(2, before[2]);
+    double anchorY = Geo.y(before[0], 0) + (300 - map.getHeight() / 2.0) / world;
+    twoFingers(
+        MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 200, 400);
+    touch(MotionEvent.ACTION_UP, 200, 300, 0);
+    coast(64);
+    assertTrue(map.camera()[2] < before[2]);
+    assertTrue(map.camera()[2] > before[2] - 1);
+    coast(240);
+    assertEquals(before[2] - 1, map.camera()[2], 1e-10);
+    double[] after = map.camera();
+    world = 256 * map.getResources().getDisplayMetrics().density * Math.pow(2, after[2]);
+    assertEquals(anchorY, Geo.y(after[0], 0) + (300 - map.getHeight() / 2.0) / world, 1e-9);
+    assertEquals(before[1], after[1], 1e-10);
   }
 }

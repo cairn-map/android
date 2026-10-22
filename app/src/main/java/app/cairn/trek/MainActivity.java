@@ -28,12 +28,14 @@ public final class MainActivity extends Activity {
   private OfflineMap offlineMap;
   private IgnMap ignMap;
   private PlanIgnStore mapStore;
-  private ImageButton previewButton;
+  private ImageButton previewButton, libraryButton;
+  private AlertDialog libraryDialog;
+  private FrameLayout libraryBody;
   private TextView downloadStatus;
   private String pendingDownload;
   private EmbeddedRouter router;
   private FrameLayout root;
-  private LinearLayout pages, nav;
+  private LinearLayout pages;
   private TextView intervalChip, status, recordButton, planStatus;
   private final ExecutorService io = Executors.newSingleThreadExecutor();
   private final Handler main = new Handler(Looper.getMainLooper());
@@ -123,21 +125,6 @@ public final class MainActivity extends Activity {
             refreshPlanning();
           }
         };
-    nav = row();
-    nav.setPadding(dp(4), dp(4), dp(4), dp(4));
-    for (String title : new String[] {"Map", "Routes"}) {
-      TextView b = button(title, false, () -> showPage(title));
-      b.setMinHeight(dp(48));
-      b.setTextSize(13);
-      b.setPadding(dp(8), dp(10), dp(8), dp(10));
-      b.setSingleLine(true);
-      nav.addView(b, new LinearLayout.LayoutParams(0, dp(48), 1));
-    }
-    nav.setBackground(surface(SURFACE, OUTLINE, 28));
-    FrameLayout.LayoutParams navParams =
-        new FrameLayout.LayoutParams(dp(164), dp(56), Gravity.START | Gravity.BOTTOM);
-    navParams.setMargins(dp(12), 0, 0, dp(12));
-    root.addView(nav, navParams);
     showPage("Map");
     File file = new File(getFilesDir(), "offline.mbtiles");
     if (file.exists())
@@ -230,24 +217,52 @@ public final class MainActivity extends Activity {
   }
 
   private void showPage(String title) {
-    currentPage = title;
-    if (!"Map".equals(title)) cancelSearch();
-    if (!"Routes".equals(title)) appUpdates.pause();
-    if (!"Map".equals(title) && ignMap.online()) setMapOnline(false);
-    pages.removeAllViews();
-    for (int i = 0; i < nav.getChildCount(); i++) {
-      TextView b = (TextView) nav.getChildAt(i);
-      boolean selected = b.getText().toString().equals(title);
-      b.setTextColor(selected ? ON_PRIMARY : MUTED);
-      b.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
-      b.setSelected(selected);
-      b.setBackground(
-          buttonBackground(selected ? PRIMARY : SURFACE, Color.TRANSPARENT, 24));
+    if ("Routes".equals(title)) {
+      showLibrary();
+      return;
     }
-    if (title.equals("Map")) showMap();
-    else if (title.equals("Routes")) showRoutes();
-    else showRoutes();
+    if (libraryDialog != null) libraryDialog.dismiss();
+    currentPage = "Map";
+    appUpdates.pause();
+    pages.removeAllViews();
+    showMap();
     refreshStatus();
+  }
+
+  private void showLibrary() {
+    if (libraryDialog != null && libraryDialog.isShowing()) {
+      libraryBody.removeAllViews();
+      showRoutes();
+      return;
+    }
+    cancelSearch();
+    map.stopMotion();
+    if (ignMap.online()) setMapOnline(false);
+    currentPage = "Routes";
+    libraryBody = new FrameLayout(this);
+    showRoutes();
+    AlertDialog popout =
+        new AlertDialog.Builder(this)
+            .setTitle("Routes & Recordings")
+            .setView(libraryBody)
+            .setPositiveButton("Back to map", (dialog, which) -> {})
+            .create();
+    libraryDialog = popout;
+    popout.setOnDismissListener(
+        dialog -> {
+          if (libraryDialog != popout) return;
+          libraryDialog = null;
+          libraryBody = null;
+          currentPage = "Map";
+          appUpdates.pause();
+          if (libraryButton != null) setIconActive(libraryButton, false);
+          if (!destroyed) refreshStatus();
+        });
+    libraryDialog.show();
+    libraryDialog
+        .getWindow()
+        .setLayout(-1, Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f));
+    setIconActive(libraryButton, true);
   }
 
   private boolean renderedRecording;
@@ -290,8 +305,14 @@ public final class MainActivity extends Activity {
     controls.addView(intervalChip, gpsParams);
     FrameLayout.LayoutParams controlsParams =
         new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.BOTTOM);
-    controlsParams.setMargins(0, 0, dp(12), dp(planning ? 234 : 92));
+    controlsParams.setMargins(0, 0, dp(12), dp(planning ? 168 : 92));
     frame.addView(controls, controlsParams);
+
+    libraryButton = iconButton(MapIcon.PATH, "Routes and recordings", () -> showPage("Routes"));
+    FrameLayout.LayoutParams libraryParams =
+        new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.BOTTOM);
+    libraryParams.setMargins(dp(12), 0, 0, dp(planning ? 168 : 16));
+    frame.addView(libraryButton, libraryParams);
 
     if (planning) {
       LinearLayout bottom = column();
@@ -349,7 +370,7 @@ public final class MainActivity extends Activity {
           new LinearLayout.LayoutParams(0, dp(48), 1));
       bottom.addView(actions);
       FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-      params.setMargins(dp(12), 0, dp(12), dp(80));
+      params.setMargins(dp(12), 0, dp(12), dp(12));
       frame.addView(bottom, params);
       refreshPlanning();
     } else {
@@ -369,12 +390,9 @@ public final class MainActivity extends Activity {
       recordButton.setTextSize(14);
       recordButton.setBackground(buttonBackground(PRIMARY, PRIMARY_BORDER, 24));
       hike.addView(
-          recordButton,
-          new LinearLayout.LayoutParams(renderedRecording ? dp(80) : -1, dp(48)));
+          recordButton, new LinearLayout.LayoutParams(renderedRecording ? dp(80) : -1, dp(48)));
       int width =
-          renderedRecording
-              ? Math.max(dp(148), getResources().getDisplayMetrics().widthPixels - dp(200))
-              : dp(120);
+          renderedRecording ? getResources().getDisplayMetrics().widthPixels - dp(96) : dp(120);
       FrameLayout.LayoutParams params =
           new FrameLayout.LayoutParams(
               width, dp(renderedRecording ? 56 : 48), Gravity.END | Gravity.BOTTOM);
@@ -388,13 +406,13 @@ public final class MainActivity extends Activity {
     ScrollView scroll = new ScrollView(this);
     scroll.setFillViewport(true);
     LinearLayout content = column();
-    content.setPadding(dp(20), dp(20), dp(20), dp(100));
+    content.setPadding(dp(20), dp(8), dp(20), dp(24));
     content.addView(label(title, 29, TEXT, true));
     TextView sub = label(subtitle, 14, MUTED, false);
     sub.setPadding(0, dp(8), 0, dp(24));
     content.addView(sub);
     scroll.addView(content);
-    pages.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    libraryBody.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
     return content;
   }
 
@@ -427,7 +445,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showRoutes() {
-    LinearLayout content = page("Routes", "Your GPX library · offline routing built in");
+    LinearLayout content = page("Your library", "Saved routes and recorded hikes, together");
     LinearLayout actions = row();
     actions.addView(
         button("Add files", false, () -> openDocument(IMPORT_GPX)),
@@ -446,6 +464,7 @@ public final class MainActivity extends Activity {
     content.addView(actions);
     content.addView(button("Routing data", false, this::routingDataMenu));
     content.addView(spacer(20));
+    content.addView(label("SAVED ROUTES", 11, MUTED, true));
     if (routeEntries.isEmpty())
       content.addView(
           label(
@@ -948,7 +967,16 @@ public final class MainActivity extends Activity {
             : "Offline maps. Tap to load and keep visible Plan IGN tiles";
     previewButton.setContentDescription(hint);
     previewButton.setTooltipText(hint);
-    previewButton.setSelected(ignMap.online());
+    setIconActive(previewButton, ignMap.online());
+  }
+
+  private void setIconActive(ImageButton view, boolean active) {
+    if (view == null) return;
+    view.setSelected(active);
+    view.setImageTintList(ColorStateList.valueOf(active ? BACKGROUND : ACCENT));
+    view.setBackground(
+        buttonBackground(active ? ACCENT : SURFACE, active ? ON_PRIMARY : OUTLINE, 16));
+    if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
   private void prepareDownload(boolean corridor) {
@@ -1924,6 +1952,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onDestroy() {
     destroyed = true;
+    if (libraryDialog != null) libraryDialog.dismiss();
     appUpdates.close();
     cancelSearch();
     placeSearch.close();

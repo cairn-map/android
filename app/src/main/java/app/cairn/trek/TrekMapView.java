@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.*;
 import android.util.LruCache;
 import android.view.*;
+import android.widget.OverScroller;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -53,6 +54,13 @@ public final class TrekMapView extends View {
   private final List<CachedTile> previousTiles = new ArrayList<>();
   private final GestureDetector gestures;
   private final ScaleGestureDetector scales;
+  private final OverScroller panScroller;
+  private int panX, panY;
+  private long lastPanMove;
+  private boolean multiplePointers;
+  private float pinchX, pinchY;
+  private boolean twoFingerTap;
+  private float twoFingerX, twoFingerY, twoFingerSpan;
   // One zoom level per 160 dp, independent of distance from the second tap or event rate.
   private final float quickZoomDistance;
   private VelocityTracker zoomVelocity;
@@ -71,6 +79,7 @@ public final class TrekMapView extends View {
     super(context);
     tileSize = 256 * getResources().getDisplayMetrics().density;
     quickZoomDistance = dp(160);
+    panScroller = new OverScroller(context);
     setContentDescription(
         "Offline trekking map. Drag to move, pinch to zoom. Long press to add a"
             + " planning point.");
@@ -85,11 +94,32 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onScroll(MotionEvent first, MotionEvent now, float dx, float dy) {
-                if (doubleTap || scales.isInProgress()) return true;
-                center(
-                    new Point(
-                        Geo.lat(Geo.y(lat, zoom) + dy / scaledTileSize(), zoom),
-                        Geo.wrap(Geo.lon(Geo.x(lon, zoom) + dx / scaledTileSize(), zoom))));
+                if (doubleTap || now.getPointerCount() > 1 || scales.isInProgress()) return true;
+                panBy(dx, dy);
+                refreshTiles(false);
+                lastPanMove = now.getEventTime();
+                return true;
+              }
+
+              @Override
+              public boolean onFling(MotionEvent first, MotionEvent last, float vx, float vy) {
+                if (doubleTap
+                    || multiplePointers
+                    || scales.isInProgress()
+                    || last.getEventTime() - lastPanMove > 100) return true;
+                // Native spline deceleration respects density and the user's release speed.
+                panX = panY = 0;
+                panScroller.fling(
+                    0,
+                    0,
+                    Math.round(-vx),
+                    Math.round(-vy),
+                    Integer.MIN_VALUE,
+                    Integer.MAX_VALUE,
+                    Integer.MIN_VALUE,
+                    Integer.MAX_VALUE);
+                refreshTiles(false);
+                postInvalidateOnAnimation();
                 return true;
               }
 
@@ -124,12 +154,7 @@ public final class TrekMapView extends View {
                       quickZooming = false;
                       if (!flingQuickZoom(e.getEventTime())) refreshTiles(false);
                     } else if (tapCandidate) {
-                      tapZoom = true;
-                      tapZoomStarted = android.os.SystemClock.uptimeMillis();
-                      tapZoomStart = camera()[2];
-                      tapZoomTarget = Math.min(maxZoom(), tapZoomStart + 1);
-                      refreshTiles(false);
-                      postInvalidateOnAnimation();
+                      animateZoom(1, quickFocusX, quickFocusY);
                     }
                     break;
                 }
@@ -160,6 +185,7 @@ public final class TrekMapView extends View {
               @Override
               public boolean onScaleBegin(ScaleGestureDetector d) {
                 tapCandidate = false;
+                twoFingerTap = false;
                 refreshTiles(false);
                 return true;
               }
@@ -224,8 +250,27 @@ public final class TrekMapView extends View {
     return true;
   }
 
+  private void animateZoom(int delta, float x, float y) {
+    quickFocusX = x;
+    quickFocusY = y;
+    tapZoom = true;
+    tapZoomStarted = android.os.SystemClock.uptimeMillis();
+    tapZoomStart = camera()[2];
+    tapZoomTarget = Math.max(minZoom(), Math.min(maxZoom(), tapZoomStart + delta));
+    refreshTiles(false);
+    postInvalidateOnAnimation();
+  }
+
   @Override
   public void computeScroll() {
+    if (panScroller.computeScrollOffset()) {
+      int x = panScroller.getCurrX(), y = panScroller.getCurrY();
+      panBy(x - panX, y - panY);
+      panX = x;
+      panY = y;
+      if (panScroller.isFinished()) refreshTiles(false);
+      else postInvalidateOnAnimation();
+    }
     if (tapZoom) {
       double progress =
           Math.min(1, (android.os.SystemClock.uptimeMillis() - tapZoomStarted) / 180.0);
@@ -255,10 +300,12 @@ public final class TrekMapView extends View {
   }
 
   void stopMotion() {
+    panScroller.forceFinished(true);
     tapZoom = false;
     zoomFling = false;
     quickZooming = false;
     quickZoomEligible = false;
+    twoFingerTap = false;
     doubleTap = false;
     if (zoomVelocity != null) zoomVelocity.recycle();
     zoomVelocity = null;
@@ -309,6 +356,14 @@ public final class TrekMapView extends View {
 
   private float scaledTileSize() {
     return (float) (tileSize * zoomScale);
+  }
+
+  /** Translate in screen pixels without resetting the active gesture or its velocity. */
+  private void panBy(float dx, float dy) {
+    if (!Float.isFinite(dx) || !Float.isFinite(dy)) return;
+    lat = Math.max(-85, Math.min(85, Geo.lat(Geo.y(lat, zoom) + dy / scaledTileSize(), zoom)));
+    lon = Geo.wrap(Geo.lon(Geo.x(lon, zoom) + dx / scaledTileSize(), zoom));
+    invalidate();
   }
 
   /** Preserve the geographical point under the fingers at every fractional zoom. */
@@ -421,16 +476,25 @@ public final class TrekMapView extends View {
   public boolean onTouchEvent(MotionEvent e) {
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
       gestures.setIsLongpressEnabled(true);
-      boolean wasMoving = zoomFling || tapZoom;
+      boolean wasMoving = zoomFling || tapZoom || !panScroller.isFinished();
       stopMotion();
+      multiplePointers = false;
       if (wasMoving) refreshTiles(false);
       zoomVelocity = VelocityTracker.obtain();
+      zoomVelocity.clear();
       tapCandidate = true;
       downX = e.getX();
       downY = e.getY();
     }
     if (zoomVelocity != null) zoomVelocity.addMovement(e);
     if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+      multiplePointers = true;
+      pinchX = focus(e, true, -1);
+      pinchY = focus(e, false, -1);
+      twoFingerTap = e.getPointerCount() == 2 && !doubleTap;
+      twoFingerX = pinchX;
+      twoFingerY = pinchY;
+      twoFingerSpan = span(e);
       tapCandidate = false;
       quickZoomEligible = false;
       if (quickZooming) {
@@ -438,16 +502,42 @@ public final class TrekMapView extends View {
         refreshTiles(false);
       }
     }
+    // Move the pinch anchor along with the fingers, including two-finger drags
+    // whose span never crosses ScaleGestureDetector's scaling threshold.
+    if (e.getActionMasked() == MotionEvent.ACTION_MOVE && e.getPointerCount() > 1) {
+      float x = focus(e, true, -1), y = focus(e, false, -1);
+      if (Math.hypot(x - twoFingerX, y - twoFingerY)
+              > ViewConfiguration.get(getContext()).getScaledTouchSlop()
+          || Math.abs(span(e) - twoFingerSpan)
+              > ViewConfiguration.get(getContext()).getScaledTouchSlop()) twoFingerTap = false;
+      panBy(pinchX - x, pinchY - y);
+      pinchX = x;
+      pinchY = y;
+    }
+    if (e.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
+      pinchX = focus(e, true, e.getActionIndex());
+      pinchY = focus(e, false, e.getActionIndex());
+    }
+    if (e.getPointerCount() == 1
+        && multiplePointers
+        && Math.hypot(e.getX() - pinchX, e.getY() - pinchY)
+            > ViewConfiguration.get(getContext()).getScaledTouchSlop()) twoFingerTap = false;
     if (e.getActionMasked() == MotionEvent.ACTION_MOVE
         && Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
     scales.onTouchEvent(e);
     gestures.onTouchEvent(e);
+    if (e.getActionMasked() == MotionEvent.ACTION_UP
+        && twoFingerTap
+        && e.getEventTime() - e.getDownTime() <= ViewConfiguration.getDoubleTapTimeout()) {
+      animateZoom(-1, twoFingerX, twoFingerY);
+      twoFingerTap = false;
+    }
     if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) performClick();
     if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
       tapCandidate = false;
-      if (quickZooming) refreshTiles(false);
       stopMotion();
+      refreshTiles(false);
     }
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
@@ -458,6 +548,21 @@ public final class TrekMapView extends View {
       zoomVelocity = null;
     }
     return true;
+  }
+
+  private static float focus(MotionEvent event, boolean horizontal, int skip) {
+    float sum = 0;
+    int count = 0;
+    for (int i = 0; i < event.getPointerCount(); i++) {
+      if (i == skip) continue;
+      sum += horizontal ? event.getX(i) : event.getY(i);
+      count++;
+    }
+    return sum / count;
+  }
+
+  private static float span(MotionEvent event) {
+    return (float) Math.hypot(event.getX(1) - event.getX(0), event.getY(1) - event.getY(0));
   }
 
   @Override
@@ -523,7 +628,12 @@ public final class TrekMapView extends View {
         destination.set(left, top, left + tileSize, top + tileSize);
         c.drawRect(destination, paint);
       }
-    if (source != null && !scales.isInProgress() && !quickZooming && !zoomFling && !tapZoom) {
+    if (source != null
+        && panScroller.isFinished()
+        && !scales.isInProgress()
+        && !quickZooming
+        && !zoomFling
+        && !tapZoom) {
       boolean complete = true;
       for (TilePlanner.Tile tile :
           TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize)) {
