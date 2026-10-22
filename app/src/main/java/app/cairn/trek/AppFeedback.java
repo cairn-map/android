@@ -141,7 +141,11 @@ final class AppFeedback implements AutoCloseable {
     }
     WindowInsets insets = activity.getWindow().getDecorView().getRootWindowInsets();
     ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) banner.getLayoutParams();
-    params.topMargin = dp(12) + (insets == null ? 0 : insets.getSystemWindowInsetTop());
+    // The activity decor includes the system bars; the overlay window is already
+    // fitted below them and any cutout. Adding the activity inset there counts it
+    // twice: LAYOUT_IN_SCREEN / fitInsetsTypes(0) cannot prevent cutout clipping.
+    params.topMargin =
+        dp(12) + (overDialog || insets == null ? 0 : insets.getSystemWindowInsetTop());
     banner.setLayoutParams(params);
     banner.bringToFront();
     if (overDialog && overlay.getParent() == null) {
@@ -150,14 +154,15 @@ final class AppFeedback implements AutoCloseable {
               -1,
               -2,
               WindowManager.LayoutParams.TYPE_APPLICATION,
-              WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                  | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                   | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
               PixelFormat.TRANSLUCENT);
       panel.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+      panel.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
       // Leave the token unset so the activity's WindowManager supplies its app token.
       // getApplicationWindowToken() identifies the view window, valid only for subwindows.
-      if (Build.VERSION.SDK_INT >= 30) panel.setFitInsetsTypes(0);
+      if (Build.VERSION.SDK_INT >= 30)
+        panel.setFitInsetsTypes(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
       activity.getWindowManager().addView(overlay, panel);
     }
   }
