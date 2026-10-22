@@ -30,11 +30,15 @@ public class MapGestureTest {
   }
 
   private void touch(int action, float x, float y) {
+    touch(action, x, y, 40);
+  }
+
+  private void touch(int action, float x, float y, int interval) {
     if (action == MotionEvent.ACTION_DOWN) down = SystemClock.uptimeMillis();
     MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
     map.onTouchEvent(event);
     event.recycle();
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(40));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(interval));
   }
 
   private void doublePress() {
@@ -135,6 +139,56 @@ public class MapGestureTest {
     assertEquals(second - first, third - second, 1e-6);
     touch(MotionEvent.ACTION_MOVE, 200, 480);
     assertEquals(second, map.camera()[2], 1e-6);
+  }
+
+  @Test
+  public void reversingAcrossTheSecondTapRespondsInsideTheOriginalTouchSlop() {
+    doublePress();
+    touch(MotionEvent.ACTION_MOVE, 200, 400);
+    float halfSlop = ViewConfiguration.get(map.getContext()).getScaledTouchSlop() / 2f;
+    touch(MotionEvent.ACTION_MOVE, 200, 300 + halfSlop);
+    double above = map.camera()[2];
+    touch(MotionEvent.ACTION_MOVE, 200, 300 - halfSlop);
+    double below = map.camera()[2];
+    double distance = 160 * map.getResources().getDisplayMetrics().density;
+    assertEquals(-2 * halfSlop / distance, below - above, 1e-6);
+    touch(MotionEvent.ACTION_MOVE, 200, 300 + halfSlop);
+    assertEquals(above, map.camera()[2], 1e-6);
+    touch(MotionEvent.ACTION_MOVE, 200, 300 - halfSlop);
+    assertEquals(below, map.camera()[2], 1e-6);
+  }
+
+  @Test
+  public void releasingJustAfterAReversalNeverCoastsInThePreviousDirection() {
+    double[] start = map.camera();
+    for (int direction : new int[] {-1, 1}) {
+      map.restoreCamera(start);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+      doublePress();
+      for (int i = 1; i <= 8; i++)
+        touch(MotionEvent.ACTION_MOVE, 200, 300 + direction * i * 20, 10);
+      float reversed = 300 + direction * 159;
+      touch(MotionEvent.ACTION_MOVE, 200, reversed, 10);
+      touch(MotionEvent.ACTION_UP, 200, reversed, 10);
+      double released = map.camera()[2];
+      coast(500);
+      assertTrue(
+          "Momentum must not undo the reversal", direction * (map.camera()[2] - released) <= 1e-6);
+    }
+  }
+
+  @Test
+  public void sustainedReverseMotionCoastsInTheNewDirection() {
+    doublePress();
+    touch(MotionEvent.ACTION_MOVE, 200, 400);
+    touch(MotionEvent.ACTION_MOVE, 200, 480);
+    touch(MotionEvent.ACTION_MOVE, 200, 440);
+    touch(MotionEvent.ACTION_MOVE, 200, 400);
+    touch(MotionEvent.ACTION_MOVE, 200, 360);
+    touch(MotionEvent.ACTION_UP, 200, 360);
+    double released = map.camera()[2];
+    coast(500);
+    assertTrue(map.camera()[2] < released);
   }
 
   @Test
