@@ -171,6 +171,44 @@ public class RecordingEditingTest {
   }
 
   @Test
+  public void undoRestoresAWholeDragAndDeletedGpsDetailsAcrossRotation() throws Exception {
+    tap("Edit recording");
+    TrekMapView map = map();
+    map.layout(0, 0, 1000, 1200);
+    map.restoreCamera(new double[] {46, 7, 16});
+    long down = SystemClock.uptimeMillis();
+    int step = 0;
+    for (int action :
+        new int[] {
+          MotionEvent.ACTION_DOWN,
+          MotionEvent.ACTION_MOVE,
+          MotionEvent.ACTION_MOVE,
+          MotionEvent.ACTION_UP
+        }) {
+      MotionEvent event =
+          MotionEvent.obtain(down, down + step * 20, action, 500 + step * 30, 600, 0);
+      map.onTouchEvent(event);
+      event.recycle();
+      step++;
+    }
+    assertNotEquals(recording.get(0).lon, map.waypoints.get(0).lon, 0);
+    map.onNodeDeleted.accept(2);
+    controller.recreate();
+    activity = controller.get();
+    drain();
+    tap("Undo last edit");
+    assertPoint(recording.get(2), map().waypoints.get(2));
+    tap("Undo last edit");
+    for (int i = 0; i < recording.size(); i++)
+      assertPoint(recording.get(i), map().waypoints.get(i));
+    assertFalse(find(activity.getWindow().getDecorView(), "Undo last edit").isEnabled());
+    assertFalse((boolean) field("editDirty"));
+    tap("Finish editing");
+    for (int i = 0; i < recording.size(); i++)
+      assertPoint(recording.get(i), store().read(trekId).get(i));
+  }
+
+  @Test
   public void recreationKeepsUnsavedEditsAndAllGpsDetails() throws Exception {
     tap("Edit recording");
     String draftId = (String) field("newRouteId");

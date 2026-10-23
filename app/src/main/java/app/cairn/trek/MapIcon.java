@@ -19,7 +19,8 @@ final class MapIcon extends Drawable {
       HIDE = 11,
       CENTER = 12,
       EDIT = 13,
-      TUNE = 14;
+      TUNE = 14,
+      UNDO = 15;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -55,7 +56,11 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == TUNE) {
+    if (kind == UNDO) {
+      canvas.drawArc(5, 7, 21, 21, 210, 250, false, paint);
+      canvas.drawLine(5, 6, 5, 12, paint);
+      canvas.drawLine(5, 12, 11, 12, paint);
+    } else if (kind == TUNE) {
       for (int i = 0; i < 3; i++) {
         float y = 6 + i * 6, x = i == 1 ? 15 : 9;
         canvas.drawLine(3, y, x - 3, y, paint);

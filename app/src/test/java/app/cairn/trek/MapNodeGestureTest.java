@@ -26,7 +26,7 @@ public class MapNodeGestureTest {
     map.restoreCamera(new double[] {45, 6, 14});
     map.waypoints = new ArrayList<>(List.of(new Point(45, 6)));
     map.editing = true;
-    map.onNodeMoved = (index, point) -> moved++;
+    map.onNodeMoved = (index, original) -> moved++;
     map.onNodeDeleted =
         index -> {
           deleted++;
@@ -56,6 +56,12 @@ public class MapNodeGestureTest {
   @Test
   public void draggingANodeChangesItsCoordinatesWithoutPanningAndRoutesOnceOnRelease() {
     double[] camera = map.camera();
+    Point original = map.waypoints.get(0);
+    map.onNodeMoved =
+        (index, before) -> {
+          assertSame(original, before);
+          moved++;
+        };
     touch(MotionEvent.ACTION_DOWN, 300, 400);
     touch(MotionEvent.ACTION_MOVE, 380, 340);
     touch(MotionEvent.ACTION_MOVE, 420, 320);

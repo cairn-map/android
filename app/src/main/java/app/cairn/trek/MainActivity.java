@@ -44,6 +44,25 @@ public final class MainActivity extends Activity {
   private List<Point> plannedRoute = Collections.emptyList();
   private int editRevision, calculatedRevision = -1;
   private boolean editDirty, finishEditing, savingEdit;
+  private final Deque<NodeUndo> nodeUndo = new ArrayDeque<>();
+
+  private static final class NodeUndo {
+    final int index, kind;
+    final Point point;
+    boolean dirty, calculated;
+    List<Point> geometry;
+
+    NodeUndo(
+        int index, int kind, Point point, boolean dirty, boolean calculated, List<Point> geometry) {
+      this.index = index;
+      this.kind = kind;
+      this.point = point;
+      this.dirty = dirty;
+      this.calculated = calculated;
+      this.geometry = geometry;
+    }
+  }
+
   private final Runnable autoRoute = this::autoCalculate;
   private AlertDialog routingPrompt, routingPreferencesDialog;
   private List<Point> pendingRoute;
@@ -161,6 +180,11 @@ public final class MainActivity extends Activity {
       }
       routingRequest = state.getString("routingRequest");
       if (routingRequest != null) pendingRoute = new ArrayList<>(waypoints);
+      if ((!editingRecording() || editDirty)
+          && getLastNonConfigurationInstance() instanceof List<?>) {
+        for (Object undo : (List<?>) getLastNonConfigurationInstance())
+          if (undo instanceof NodeUndo) nodeUndo.addLast((NodeUndo) undo);
+      }
     }
     root = new FrameLayout(this);
     root.setBackgroundColor(BACKGROUND);
@@ -188,7 +212,11 @@ public final class MainActivity extends Activity {
           });
     map.onLongPress = p -> addNode(waypoints.size(), p);
     map.onNodeAdded = this::addNode;
-    map.onNodeMoved = (index, point) -> nodesChanged();
+    map.onNodeMoved =
+        (index, original) -> {
+          rememberNode(index, 2, original);
+          nodesChanged();
+        };
     map.onNodeDeleted = this::deleteNode;
     map.onPathSelected =
         id -> {
@@ -254,6 +282,11 @@ public final class MainActivity extends Activity {
         message(outcome.message + ". Finish editing to resume.");
       } else finishRoutingDownload();
     }
+  }
+
+  @Override
+  public Object onRetainNonConfigurationInstance() {
+    return new ArrayList<>(nodeUndo);
   }
 
   @Override
@@ -701,6 +734,10 @@ public final class MainActivity extends Activity {
     selectionPanel.removeAllViews();
     selectionPanel.setVisibility(View.VISIBLE);
     if (planning) {
+      addSelectionAction(MapIcon.UNDO, "Undo last edit", this::undoNode);
+      View undo = selectionPanel.getChildAt(selectionPanel.getChildCount() - 1);
+      undo.setEnabled(map.editing && !nodeUndo.isEmpty());
+      undo.setAlpha(undo.isEnabled() ? 1f : 0.4f);
       if (!editingRecording())
         addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
       addSelectionAction(
@@ -813,6 +850,7 @@ public final class MainActivity extends Activity {
     plannedRoute = new ArrayList<>(geometry);
     waypoints.clear();
     waypoints.addAll(nodes);
+    nodeUndo.clear();
     showPage("Map");
   }
 
@@ -832,8 +870,37 @@ public final class MainActivity extends Activity {
       int segment = waypoints.get(index > 0 ? index - 1 : 0).segment;
       point = new Point(point.lat, point.lon, point.elevation, point.time, point.accuracy, segment);
     }
+    rememberNode(index, 0, null);
     waypoints.add(index, point);
     nodesChanged();
+  }
+
+  private void rememberNode(int index, int kind, Point point) {
+    nodeUndo.addFirst(
+        new NodeUndo(
+            index,
+            kind,
+            point,
+            editDirty,
+            calculatedRevision == editRevision,
+            editingRecording() ? Collections.emptyList() : plannedRoute));
+    // Keep history bounded without copying full-resolution recordings for each edit.
+    if (nodeUndo.size() > 100) nodeUndo.removeLast();
+  }
+
+  private void undoNode() {
+    if (!map.editing || nodeUndo.isEmpty()) return;
+    NodeUndo undo = nodeUndo.removeFirst();
+    if (undo.kind == 0) waypoints.remove(undo.index);
+    else if (undo.kind == 1) waypoints.add(undo.index, undo.point);
+    else waypoints.set(undo.index, undo.point);
+    nodesChanged();
+    editDirty = undo.dirty;
+    if (!editingRecording()) {
+      plannedRoute = undo.geometry;
+      if (undo.calculated) calculatedRevision = editRevision;
+    }
+    refreshPlanning();
   }
 
   private void nodesChanged() {
@@ -853,6 +920,7 @@ public final class MainActivity extends Activity {
 
   private void deleteNode(int index) {
     if (!map.editing || index < 0 || index >= waypoints.size()) return;
+    rememberNode(index, 1, waypoints.get(index));
     waypoints.remove(index);
     nodesChanged();
   }
@@ -873,7 +941,15 @@ public final class MainActivity extends Activity {
             this,
             store.prefs,
             () -> {
-              if (planning) nodesChanged();
+              if (planning) {
+                // Node undo must retain newer routing preferences and recalculate with them.
+                for (NodeUndo undo : nodeUndo) {
+                  undo.dirty = true;
+                  undo.calculated = false;
+                  undo.geometry = Collections.emptyList();
+                }
+                nodesChanged();
+              }
             },
             () -> {
               routingPreferencesDialog = null;
@@ -898,6 +974,7 @@ public final class MainActivity extends Activity {
     if (editingRecording()) RecordingDraft.delete(this, newRouteId);
     planning = finishEditing = savingEdit = false;
     editingEntry = null;
+    nodeUndo.clear();
     waypoints.clear();
     plannedRoute = Collections.emptyList();
     refreshPlanning();
@@ -1998,6 +2075,7 @@ public final class MainActivity extends Activity {
   private void refreshPlanning() {
     map.waypoints = waypoints;
     map.editing = planning && pendingRoute == null && !finishEditing && !savingEdit;
+    map.showRouteStarts = !planning;
     map.editRoute = planning ? plannedRoute : Collections.emptyList();
     map.editingPathId = planning && editingEntry != null ? editingEntry.id : "";
     map.invalidate();
