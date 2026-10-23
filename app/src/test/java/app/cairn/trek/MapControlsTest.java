@@ -566,6 +566,46 @@ public class MapControlsTest {
   }
 
   @Test
+  @Config(sdk = {28, 35}, qualifiers = "w393dp-h851dp-xhdpi")
+  public void tappingAboveTheRightControlRailAddsAnEditNode() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      Field planning = MainActivity.class.getDeclaredField("planning");
+      planning.setAccessible(true);
+      planning.setBoolean(activity, true);
+      java.lang.reflect.Method show =
+          MainActivity.class.getDeclaredMethod("showPage", String.class);
+      show.setAccessible(true);
+      show.invoke(activity, "Map");
+      View root = activity.getWindow().getDecorView();
+      root.measure(
+          View.MeasureSpec.makeMeasureSpec(786, View.MeasureSpec.EXACTLY),
+          View.MeasureSpec.makeMeasureSpec(1550, View.MeasureSpec.EXACTLY));
+      root.layout(0, 0, 786, 1550);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      ViewGroup frame = (ViewGroup) map.getParent();
+      View button = (View) field(activity, "previewButton");
+      ScrollView rail = (ScrollView) button.getParent().getParent();
+      float x = rail.getLeft() + rail.getWidth() / 2f;
+      float y = map.getHeight() / 4f;
+      int[] added = {0};
+      map.onNodeAdded = (index, point) -> added[0]++;
+      assertTrue(map.editing);
+      long down = SystemClock.uptimeMillis();
+      for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+        MotionEvent event = MotionEvent.obtain(down, down + action * 20, action, x, y, 0);
+        frame.dispatchTouchEvent(event);
+        event.recycle();
+      }
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
+      assertEquals("The empty right edge must pass edit taps to the map", 1, added[0]);
+      assertTrue("The rail must start at its first button", rail.getTop() > y);
+    }
+  }
+
+  @Test
   @Config(qualifiers = "w640dp-h360dp-land")
   public void compactPlanningKeepsTheRightControlRailScrollable() throws Exception {
     try (ActivityController<MainActivity> controller =
