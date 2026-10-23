@@ -41,7 +41,7 @@ public final class EmbeddedRouter implements AutoCloseable {
             List<String> missing = RoutingData.missing(context, points);
             if (!missing.isEmpty())
               throw new IOException(
-                  "Routing data is missing. Tap Route to download it: "
+                  "Routing data is missing. Edit the route to download it: "
                       + String.join(", ", missing));
             int memory = context.getSystemService(ActivityManager.class).getMemoryClass();
             result =

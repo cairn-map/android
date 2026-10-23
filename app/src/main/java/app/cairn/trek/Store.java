@@ -118,7 +118,15 @@ public final class Store extends SQLiteOpenHelper {
   }
 
   public String saveRoute(List<Point> points, String title) {
-    String id = "route-" + UUID.randomUUID();
+    return saveRoute(points, title, Collections.emptyList());
+  }
+
+  public String saveRoute(List<Point> points, String title, List<Point> nodes) {
+    return saveRoute("route-" + UUID.randomUUID(), points, title, nodes);
+  }
+
+  /** A stable draft ID makes retrying an interrupted editor save idempotent. */
+  String saveRoute(String id, List<Point> points, String title, List<Point> nodes) {
     SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
     try {
@@ -127,8 +135,10 @@ public final class Store extends SQLiteOpenHelper {
       value.put("title", title);
       value.put("visible", 1);
       value.put("created", System.currentTimeMillis());
-      db.insertOrThrow("routes", null, value);
+      db.insertWithOnConflict("routes", null, value, SQLiteDatabase.CONFLICT_IGNORE);
+      db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
       for (Point point : points) add(id, point);
+      for (Point node : nodes) add("nodes:" + id, node);
       replaceRoute(points);
       db.setTransactionSuccessful();
     } finally {
@@ -141,6 +151,29 @@ public final class Store extends SQLiteOpenHelper {
         .putBoolean("follow", false)
         .apply();
     return id;
+  }
+
+  public List<Point> routeNodes(String id) {
+    return read("nodes:" + id);
+  }
+
+  /** Replace an edited route and its guidance copy atomically, preserving its identity. */
+  public void updateRoute(String id, List<Point> points, List<Point> nodes) {
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      ContentValues value = new ContentValues();
+      value.put("visible", 1);
+      if (db.update("routes", value, "id=?", new String[] {id}) != 1)
+        throw new IllegalArgumentException("This route no longer exists");
+      db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
+      for (Point point : points) add(id, point);
+      for (Point node : nodes) add("nodes:" + id, node);
+      if (id.equals(prefs.getString("activeRouteId", ""))) replaceRoute(points);
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
   }
 
   public List<Point> activateRoute(String id) {
@@ -174,6 +207,7 @@ public final class Store extends SQLiteOpenHelper {
     db.beginTransaction();
     try {
       db.delete("points", "collection=?", new String[] {id});
+      db.delete("points", "collection=?", new String[] {"nodes:" + id});
       db.delete("routes", "id=?", new String[] {id});
       if (active) db.delete("points", "collection='route'", null);
       db.setTransactionSuccessful();

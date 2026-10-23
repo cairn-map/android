@@ -29,6 +29,41 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void retryingAnInterruptedDraftSaveDoesNotCreateADuplicateRouteOrNodes() {
+    try (Store store = new Store(context)) {
+      String id = "route-test-draft";
+      store.saveRoute(id, points(45), "Weekend", points(45));
+      store.saveRoute(id, points(46), "Weekend", points(46));
+      assertEquals(1, store.routes().size());
+      assertEquals(2, store.read(id).size());
+      assertEquals(2, store.routeNodes(id).size());
+      assertEquals(46, store.read("route").get(0).lat, 0);
+    }
+  }
+
+  @Test
+  public void editedRouteKeepsIdentityNameAndGuidanceAndRetainsNodesAfterReopening() {
+    String id;
+    try (Store store = new Store(context)) {
+      id = store.saveRoute(points(45), "Weekend", points(45));
+      store.activateRoute(id);
+      store.updateRoute(id, points(46), points(46));
+    }
+    try (Store store = new Store(context)) {
+      assertEquals(1, store.routes().size());
+      assertEquals(id, store.routes().get(0).id);
+      assertEquals("Weekend", store.routes().get(0).title);
+      assertEquals(id, store.selectedLibraryId());
+      assertTrue(store.prefs.getBoolean("follow", false));
+      assertEquals(46, store.read(id).get(0).lat, 0);
+      assertEquals(46, store.read("route").get(0).lat, 0);
+      assertEquals(46, store.routeNodes(id).get(0).lat, 0);
+      store.deleteRoute(id);
+      assertTrue(store.routeNodes(id).isEmpty());
+    }
+  }
+
+  @Test
   public void multipleFilesAndSelectionSurviveReopeningWithoutOverwritingEachOther() {
     String a, b;
     try (Store store = new Store(context)) {

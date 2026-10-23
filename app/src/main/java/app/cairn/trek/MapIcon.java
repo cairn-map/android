@@ -16,7 +16,9 @@ final class MapIcon extends Drawable {
       INFO = 8,
       SAVE_MAP = 9,
       EXPORT = 10,
-      HIDE = 11;
+      HIDE = 11,
+      CENTER = 12,
+      EDIT = 13;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -52,7 +54,25 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == SAVE_MAP) {
+    if (kind == CENTER) {
+      canvas.drawLines(
+          new float[] {
+            3, 9, 3, 3, 3, 3, 9, 3, 15, 3, 21, 3, 21, 3, 21, 9, 21, 15, 21, 21, 21, 21, 15, 21, 9,
+            21, 3, 21, 3, 21, 3, 15
+          },
+          paint);
+      canvas.drawCircle(12, 12, 3, paint);
+    } else if (kind == EDIT) {
+      Path pencil = new Path();
+      pencil.moveTo(4, 16);
+      pencil.lineTo(16, 4);
+      pencil.lineTo(20, 8);
+      pencil.lineTo(8, 20);
+      pencil.lineTo(3, 21);
+      pencil.close();
+      canvas.drawPath(pencil, paint);
+      canvas.drawLine(13, 7, 17, 11, paint);
+    } else if (kind == SAVE_MAP) {
       Path map = new Path();
       map.moveTo(3, 19);
       map.lineTo(3, 5);

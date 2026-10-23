@@ -38,7 +38,13 @@ public final class MainActivity extends Activity {
   private FrameLayout root;
   private LinearLayout pages;
   private TextView intervalChip, status, recordButton, planStatus;
-  private TextView planRouteButton;
+  private ImageButton editButton;
+  private Store.LibraryEntry editingEntry;
+  private String newRouteId = "route-" + UUID.randomUUID();
+  private List<Point> plannedRoute = Collections.emptyList();
+  private int editRevision, calculatedRevision = -1;
+  private boolean editDirty, finishEditing, savingEdit;
+  private final Runnable autoRoute = this::autoCalculate;
   private AlertDialog routingPrompt;
   private List<Point> pendingRoute;
   private String routingRequest, routingProgress;
@@ -72,7 +78,7 @@ public final class MainActivity extends Activity {
               if (i.getBooleanExtra("success", false)) finishRoutingDownload();
               else {
                 clearPendingRoute();
-                message(i.getStringExtra("message") + ". Tap Route to resume.");
+                message(i.getStringExtra("message") + ". Finish editing to resume.");
               }
             } else refreshPlanning();
             return;
@@ -125,6 +131,16 @@ public final class MainActivity extends Activity {
     router = new EmbeddedRouter(this);
     if (state != null && state.getBoolean("planning")) {
       planning = true;
+      editDirty = state.getBoolean("editDirty");
+      newRouteId = state.getString("newRouteId", newRouteId);
+      String editingId = state.getString("editingId");
+      if (editingId != null)
+        editingEntry =
+            new Store.LibraryEntry(
+                editingId,
+                state.getString("editingTitle"),
+                state.getBoolean("editingRecording"),
+                true);
       double[] coordinates = state.getDoubleArray("planningPoints");
       if (coordinates != null)
         for (int i = 0; i + 1 < coordinates.length; i += 2)
@@ -156,13 +172,9 @@ public final class MainActivity extends Activity {
             Double.longBitsToDouble(store.prefs.getLong("mapLon", 0)),
             Double.longBitsToDouble(store.prefs.getLong("mapZoom", Double.doubleToLongBits(13)))
           });
-    map.onLongPress =
-        p -> {
-          if (planning && !routingBusy()) {
-            waypoints.add(p);
-            refreshPlanning();
-          }
-        };
+    map.onLongPress = p -> addNode(waypoints.size(), p);
+    map.onNodeAdded = this::addNode;
+    map.onNodeMoved = (index, point) -> nodesChanged();
     map.onPathSelected =
         id -> {
           if (planning) return;
@@ -214,11 +226,17 @@ public final class MainActivity extends Activity {
     reloadLibrary();
     refreshStatus();
     appUpdates.resume();
+    if (planning) {
+      // Any result still in flight was canceled when the activity paused.
+      if (calculationRunning) editRevision++;
+      refreshPlanning();
+      if (pendingRoute == null) main.postDelayed(autoRoute, 250);
+    }
     if (pendingRoute != null && !RoutingDownloadService.running) {
       RoutingDownloadService.Outcome outcome = RoutingDownloadService.lastOutcome;
       if (outcome != null && Objects.equals(routingRequest, outcome.request) && !outcome.success) {
         clearPendingRoute();
-        message(outcome.message + ". Tap Route to resume.");
+        message(outcome.message + ". Finish editing to resume.");
       } else finishRoutingDownload();
     }
   }
@@ -227,6 +245,13 @@ public final class MainActivity extends Activity {
   protected void onSaveInstanceState(Bundle state) {
     super.onSaveInstanceState(state);
     state.putBoolean("planning", planning);
+    state.putBoolean("editDirty", editDirty);
+    state.putString("newRouteId", newRouteId);
+    if (editingEntry != null) {
+      state.putString("editingId", editingEntry.id);
+      state.putString("editingTitle", editingEntry.title);
+      state.putBoolean("editingRecording", editingEntry.recording);
+    }
     double[] coordinates = new double[waypoints.size() * 2];
     for (int i = 0; i < waypoints.size(); i++) {
       coordinates[i * 2] = waypoints.get(i).lat;
@@ -349,13 +374,8 @@ public final class MainActivity extends Activity {
     frame.addView(map, new FrameLayout.LayoutParams(-1, -1));
     pages.addView(frame, new LinearLayout.LayoutParams(-1, -1));
 
-    boolean compactPlanning = planning && getResources().getConfiguration().screenHeightDp < 600;
     LinearLayout controls = column();
     controls.setGravity(Gravity.END);
-    selectionPanel = column();
-    LinearLayout.LayoutParams selectionParams = new LinearLayout.LayoutParams(dp(48), -2);
-    selectionParams.bottomMargin = dp(16);
-    controls.addView(selectionPanel, selectionParams);
     controls.addView(
         iconButton(MapIcon.MAPS, "Saved maps and downloads", this::mapMenu),
         new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -392,8 +412,21 @@ public final class MainActivity extends Activity {
     intervalChip.setMinHeight(dp(48));
     intervalChip.setContentDescription("GPS settings");
     LinearLayout.LayoutParams gpsParams = new LinearLayout.LayoutParams(-2, dp(48));
-    gpsParams.topMargin = dp(8);
-    controls.addView(intervalChip, gpsParams);
+    LinearLayout bottomActions = row();
+    bottomActions.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
+    bottomActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+    selectionPanel = row();
+    selectionPanel.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
+    bottomActions.addView(selectionPanel, new LinearLayout.LayoutParams(-2, dp(48)));
+    gpsParams.leftMargin = dp(8);
+    bottomActions.addView(intervalChip, gpsParams);
+    HorizontalScrollView actionStrip = new HorizontalScrollView(this);
+    actionStrip.setHorizontalScrollBarEnabled(false);
+    actionStrip.setFillViewport(true);
+    actionStrip.addView(bottomActions);
+    FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM);
+    stripParams.setMargins(dp(12), 0, dp(12), dp(80));
+    frame.addView(actionStrip, stripParams);
     controls.setGravity(Gravity.END | Gravity.BOTTOM);
     ScrollView controlRail = new ScrollView(this);
     controlRail.setFillViewport(true);
@@ -401,7 +434,7 @@ public final class MainActivity extends Activity {
     controlRail.addView(controls);
     FrameLayout.LayoutParams controlsParams =
         new FrameLayout.LayoutParams(-2, -1, Gravity.END | Gravity.TOP);
-    controlsParams.setMargins(0, dp(12), dp(12), dp(planning ? (compactPlanning ? 168 : 264) : 92));
+    controlsParams.setMargins(0, dp(12), dp(12), dp(144));
     frame.addView(controlRail, controlsParams);
 
     updateStatus = feedback.view();
@@ -416,70 +449,14 @@ public final class MainActivity extends Activity {
         });
 
     if (planning) {
-      LinearLayout bottom = column();
-      bottom.setPadding(dp(12), dp(8), dp(12), dp(8));
-      bottom.setBackground(surface(SURFACE, OUTLINE, 24));
-      planStatus = label("Long press to add points", 13, MUTED, false);
+      planStatus = label("Tap to add nodes · drag nodes to move", 13, TEXT, false);
       planStatus.setMaxLines(2);
-      bottom.addView(planStatus);
-      LinearLayout actions = compactPlanning ? row() : column();
-      actions.addView(
-          button(
-              "Undo",
-              false,
-              () -> {
-                if (!routingBusy() && !waypoints.isEmpty()) {
-                  waypoints.remove(waypoints.size() - 1);
-                  refreshPlanning();
-                }
-              }),
-          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
-      planRouteButton =
-          button(
-              routingBusy() ? "Cancel" : "Route",
-              true,
-              () -> {
-                if (pendingRoute != null) cancelRoutingDownload();
-                else if (calculationRunning) router.cancel();
-                else calculate();
-              });
-      actions.addView(
-          planRouteButton,
-          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
-      actions.addView(
-          button(
-              "More",
-              false,
-              () ->
-                  CairnDialogs.drawer(this)
-                      .setItems(
-                          new String[] {
-                            "Add coordinates", "Download routing data", "Cancel planning"
-                          },
-                          (d, which) -> {
-                            if (which == 0) {
-                              addCoordinates();
-                              return;
-                            }
-                            if (which == 1) {
-                              routingDataMenu();
-                              return;
-                            }
-                            cancelRoutingDownload();
-                            router.cancel();
-                            planning = false;
-                            waypoints.clear();
-                            map.waypoints = waypoints;
-                            showPage("Map");
-                          })
-                      .show()),
-          new LinearLayout.LayoutParams(compactPlanning ? 0 : -1, dp(48), compactPlanning ? 1 : 0));
-      bottom.addView(actions);
-      FrameLayout.LayoutParams params =
-          new FrameLayout.LayoutParams(
-              dp(compactPlanning ? 248 : 176), -2, Gravity.END | Gravity.BOTTOM);
-      params.setMargins(dp(12), 0, dp(12), dp(12));
-      frame.addView(bottom, params);
+      planStatus.setGravity(Gravity.CENTER);
+      planStatus.setPadding(dp(12), dp(8), dp(12), dp(8));
+      planStatus.setBackground(surface(SURFACE, OUTLINE, 16));
+      FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+      params.setMargins(dp(12), 0, dp(12), dp(16));
+      frame.addView(planStatus, params);
       refreshPlanning();
     } else {
       LinearLayout hike = row();
@@ -509,7 +486,7 @@ public final class MainActivity extends Activity {
       params.setMargins(0, 0, dp(12), dp(renderedRecording ? 12 : 16));
       frame.addView(hike, params);
     }
-    map.bottomOverlay = dp(planning ? (compactPlanning ? 160 : 260) : 0);
+    map.bottomOverlay = dp(136);
     updateSelectionActions();
   }
 
@@ -566,6 +543,14 @@ public final class MainActivity extends Activity {
                 libraryEntries = entries;
                 selectedEntry = loadedSelection;
                 selectedPoints = loadedPoints;
+                if (planning
+                    && plannedRoute.isEmpty()
+                    && editingEntry != null
+                    && loadedSelection != null
+                    && editingEntry.id.equals(loadedSelection.id)) {
+                  plannedRoute = loadedPoints;
+                  map.editRoute = plannedRoute;
+                }
                 map.libraryPaths = paths;
                 map.selectedPathId = loadedSelection == null ? "" : loadedSelection.id;
                 map.liveTrackId = current;
@@ -589,11 +574,8 @@ public final class MainActivity extends Activity {
             "Create route",
             true,
             () -> {
-              cancelRoutingDownload();
-              planning = true;
-              waypoints.clear();
-              map.waypoints = waypoints;
-              showPage("Map");
+              if (!planning) startEditing(null, Collections.emptyList(), Collections.emptyList());
+              else showPage("Map");
             }),
         new LinearLayout.LayoutParams(0, dp(52), 1));
     content.addView(actions);
@@ -667,26 +649,187 @@ public final class MainActivity extends Activity {
     ((MapIcon) view.getDrawable()).colors(ON_SELECTION, SELECTION);
     view.setBackground(buttonBackground(SELECTION, SELECTION_BORDER, 16));
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
-    if (selectionPanel.getChildCount() > 0) params.topMargin = dp(8);
+    if (selectionPanel.getChildCount() > 0) params.leftMargin = dp(6);
     selectionPanel.addView(view, params);
   }
 
   private void updateSelectionActions() {
     if (selectionPanel == null) return;
     selectionPanel.removeAllViews();
-    boolean visible = selectedEntry != null && !planning;
-    selectionPanel.setVisibility(visible ? View.VISIBLE : View.GONE);
-    if (visible) {
+    selectionPanel.setVisibility(View.VISIBLE);
+    if (planning) {
+      addSelectionAction(
+          MapIcon.CENTER,
+          "Center selected",
+          () ->
+              map.fitRoute(
+                  calculatedRevision == editRevision && !plannedRoute.isEmpty()
+                      ? plannedRoute
+                      : waypoints));
+      addSelectionAction(
+          MapIcon.EDIT,
+          pendingRoute != null ? "Pause routing download" : "Finish editing",
+          this::toggleEditing);
+      editButton = (ImageButton) selectionPanel.getChildAt(selectionPanel.getChildCount() - 1);
+      editButton.setSelected(true);
+      ((MapIcon) editButton.getDrawable()).colors(SELECTION, ON_SELECTION);
+      editButton.setBackground(buttonBackground(ON_SELECTION, SELECTION_BORDER, 16));
+      editButton.setEnabled(!savingEdit);
+    } else if (selectedEntry != null) {
       Store.LibraryEntry entry = selectedEntry;
       addSelectionAction(
-          MapIcon.SAVE_MAP, "Save offline corridor", () -> prepareDownload(true, selectionSnapshot()));
+          MapIcon.CENTER, "Center selected", () -> map.fitRoute(selectionSnapshot()));
+      addSelectionAction(
+          MapIcon.SAVE_MAP,
+          "Save offline corridor",
+          () -> prepareDownload(true, selectionSnapshot()));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
       addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
+      if (!entry.recording) addSelectionAction(MapIcon.EDIT, "Edit route", this::toggleEditing);
+    } else {
+      addSelectionAction(MapIcon.EDIT, "Create route", this::toggleEditing);
     }
   }
 
+  private void toggleEditing() {
+    if (planning) {
+      if (savingEdit) return;
+      if (pendingRoute != null) {
+        cancelRoutingDownload();
+        return;
+      }
+      if (finishEditing) {
+        finishEditing = false;
+        refreshPlanning();
+        return;
+      }
+      if (!editDirty) {
+        leaveEditing();
+        return;
+      }
+      if (waypoints.size() < 2) {
+        leaveEditing();
+        return;
+      }
+      finishEditing = true;
+      if (calculatedRevision == editRevision && !plannedRoute.isEmpty()) saveEditedRoute();
+      else {
+        refreshPlanning();
+        calculate();
+      }
+      return;
+    }
+    if (selectedEntry == null) {
+      startEditing(null, Collections.emptyList(), Collections.emptyList());
+      return;
+    }
+    Store.LibraryEntry entry = selectedEntry;
+    List<Point> geometry = selectionSnapshot();
+    io.execute(
+        () -> {
+          List<Point> nodes = store.routeNodes(entry.id);
+          if (nodes.isEmpty()) nodes = RouteNodes.fromGeometry(geometry);
+          List<Point> anchors = nodes;
+          main.post(
+              () -> {
+                if (!destroyed
+                    && resumed
+                    && !planning
+                    && selectedEntry != null
+                    && entry.id.equals(selectedEntry.id)) startEditing(entry, geometry, anchors);
+              });
+        });
+  }
+
+  private void startEditing(Store.LibraryEntry entry, List<Point> geometry, List<Point> nodes) {
+    editingEntry = entry;
+    newRouteId = "route-" + UUID.randomUUID();
+    planning = true;
+    editDirty = finishEditing = savingEdit = false;
+    editRevision++;
+    calculatedRevision = editRevision;
+    plannedRoute = new ArrayList<>(geometry);
+    waypoints.clear();
+    waypoints.addAll(nodes);
+    showPage("Map");
+  }
+
+  private void addNode(int index, Point point) {
+    if (!planning || pendingRoute != null || finishEditing || savingEdit) return;
+    waypoints.add(index, point);
+    nodesChanged();
+  }
+
+  private void nodesChanged() {
+    editDirty = true;
+    editRevision++;
+    refreshPlanning();
+    main.removeCallbacks(autoRoute);
+    main.postDelayed(autoRoute, 250);
+  }
+
+  private void autoCalculate() {
+    if (resumed
+        && planning
+        && editDirty
+        && calculatedRevision != editRevision
+        && waypoints.size() >= 2
+        && !routingBusy()) calculate();
+  }
+
+  private void leaveEditing() {
+    main.removeCallbacks(autoRoute);
+    cancelRoutingDownload();
+    planning = finishEditing = savingEdit = false;
+    editingEntry = null;
+    waypoints.clear();
+    plannedRoute = Collections.emptyList();
+    refreshPlanning();
+    showPage("Map");
+  }
+
+  private void saveEditedRoute() {
+    if (savingEdit) return;
+    savingEdit = true;
+    refreshPlanning();
+    Store.LibraryEntry entry = editingEntry;
+    String draftId = newRouteId;
+    List<Point> geometry = new ArrayList<>(plannedRoute), nodes = new ArrayList<>(waypoints);
+    io.execute(
+        () -> {
+          try {
+            String name =
+                entry == null ? "Planned route " + java.time.LocalDate.now() : entry.title;
+            String id;
+            if (entry == null) id = store.saveRoute(draftId, geometry, name, nodes);
+            else {
+              id = entry.id;
+              store.updateRoute(id, geometry, nodes);
+            }
+            root.post(
+                () -> {
+                  if (destroyed) return;
+                  leaveEditing();
+                  showLibrarySelection(new Store.LibraryEntry(id, name, false, true), geometry);
+                });
+          } catch (RuntimeException error) {
+            root.post(
+                () -> {
+                  if (destroyed) return;
+                  savingEdit = finishEditing = false;
+                  refreshPlanning();
+                  message("Could not save route: " + error.getMessage());
+                });
+          }
+        });
+  }
+
   private void selectLibraryEntry(Store.LibraryEntry entry) {
+    if (planning) {
+      message("Finish editing before selecting another route or recording.");
+      return;
+    }
     libraryGeneration++;
     io.execute(
         () -> {
@@ -1726,56 +1869,28 @@ public final class MainActivity extends Activity {
 
   private void refreshPlanning() {
     map.waypoints = waypoints;
+    map.editing = planning && pendingRoute == null && !finishEditing && !savingEdit;
+    map.editRoute = planning ? plannedRoute : Collections.emptyList();
+    map.editingPathId = planning && editingEntry != null ? editingEntry.id : "";
     map.invalidate();
     if (planStatus != null)
       planStatus.setText(
-          pendingRoute != null
-              ? routingProgress == null ? "Downloading routing data…" : routingProgress
-              : calculationRunning
-                  ? "Calculating on this device…"
-                  : waypoints.size() + " points · long press to add another");
-    if (planRouteButton != null) planRouteButton.setText(routingBusy() ? "Cancel" : "Route");
-  }
-
-  private void addCoordinates() {
-    LinearLayout content = column();
-    content.setPadding(dp(24), 0, dp(24), 0);
-    EditText input = new EditText(this);
-    input.setHint("45.9237, 6.8694");
-    input.setSingleLine(true);
-    content.addView(input);
-    AlertDialog dialog =
-        CairnDialogs.dialog(this)
-            .setTitle("Add latitude, longitude")
-            .setView(content)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Add", null)
-            .create();
-    dialog.setOnShowListener(
-        d ->
-            dialog
-                .getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(
-                    v -> {
-                      try {
-                        if (routingBusy()) return;
-                        String[] value = input.getText().toString().split(",");
-                        if (value.length != 2) throw new IllegalArgumentException();
-                        waypoints.add(
-                            new Point(
-                                Double.parseDouble(value[0].trim()),
-                                Double.parseDouble(value[1].trim())));
-                        refreshPlanning();
-                        dialog.dismiss();
-                      } catch (IllegalArgumentException e) {
-                        input.setError("Enter valid latitude, longitude in decimal degrees");
-                      }
-                    }));
-    dialog.show();
+          savingEdit
+              ? "Saving route…"
+              : pendingRoute != null
+                  ? routingProgress == null ? "Downloading routing data…" : routingProgress
+                  : calculationRunning
+                      ? "Calculating on this device…"
+                      : waypoints.size() + " nodes · tap to add · drag to move");
+    updateSelectionActions();
   }
 
   private void calculate() {
-    if (routingBusy() || (routingPrompt != null && routingPrompt.isShowing())) return;
+    if (!planning
+        || !resumed
+        || routingBusy()
+        || savingEdit
+        || (routingPrompt != null && routingPrompt.isShowing())) return;
     if (waypoints.size() < 2) {
       message("Add at least two points to calculate a route.");
       return;
@@ -1785,6 +1900,8 @@ public final class MainActivity extends Activity {
     try {
       missing = RoutingData.missing(this, requested);
     } catch (IllegalArgumentException error) {
+      finishEditing = false;
+      refreshPlanning();
       message(error.getMessage());
       return;
     }
@@ -1793,11 +1910,15 @@ public final class MainActivity extends Activity {
       return;
     }
     if (TrackingService.running) {
-      message("Finish the hike before downloading routing data, then tap Route again.");
+      finishEditing = false;
+      refreshPlanning();
+      message("Finish the hike before downloading routing data, then edit the route again.");
       return;
     }
     if (RoutingDownloadService.running) {
-      message("Routing data is downloading. Tap Route when it finishes.");
+      finishEditing = false;
+      refreshPlanning();
+      message("Routing data is downloading. Finish editing when it completes.");
       return;
     }
     routingPrompt =
@@ -1813,7 +1934,12 @@ public final class MainActivity extends Activity {
             .setNegativeButton("Not now", null)
             .setPositiveButton("Download & route", (d, w) -> downloadAndRoute(requested, missing))
             .create();
-    routingPrompt.setOnDismissListener(d -> routingPrompt = null);
+    routingPrompt.setOnDismissListener(
+        d -> {
+          routingPrompt = null;
+          if (pendingRoute == null) finishEditing = false;
+          refreshPlanning();
+        });
     routingPrompt.show();
   }
 
@@ -1823,7 +1949,7 @@ public final class MainActivity extends Activity {
 
   private void downloadAndRoute(List<Point> requested, List<String> missing) {
     if (!resumed || !planning || TrackingService.running || RoutingDownloadService.running) {
-      message("Routing download unavailable. Tap Route to try again.");
+      message("Routing download unavailable. Finish editing to try again.");
       return;
     }
     pendingRoute = requested;
@@ -1845,6 +1971,7 @@ public final class MainActivity extends Activity {
   }
 
   private void clearPendingRoute() {
+    finishEditing = false;
     pendingRoute = null;
     routingRequest = null;
     routingProgress = null;
@@ -1853,6 +1980,7 @@ public final class MainActivity extends Activity {
 
   private void cancelRoutingDownload() {
     if (pendingRoute == null) return;
+    finishEditing = false;
     clearPendingRoute();
     startService(new Intent(this, RoutingDownloadService.class).setAction("pause"));
   }
@@ -1860,16 +1988,19 @@ public final class MainActivity extends Activity {
   private void finishRoutingDownload() {
     if (pendingRoute == null || !resumed || destroyed) return;
     List<Point> requested = pendingRoute;
+    boolean finish = finishEditing;
     clearPendingRoute();
     if (!planning) return;
     if (!RoutingData.missing(this, requested).isEmpty()) {
-      message("Routing download paused. Tap Route to resume.");
+      message("Routing download paused. Finish editing to resume.");
       return;
     }
+    finishEditing = finish;
     calculate(requested);
   }
 
   private void calculate(List<Point> requested) {
+    int revision = editRevision;
     calculationRunning = true;
     refreshPlanning();
     router.calculate(
@@ -1877,32 +2008,23 @@ public final class MainActivity extends Activity {
         (points, error) -> {
           if (destroyed) return;
           calculationRunning = false;
+          if (!resumed || !planning) return;
+          if (revision != editRevision) {
+            refreshPlanning();
+            main.removeCallbacks(autoRoute);
+            main.post(autoRoute);
+            return;
+          }
           if (error != null) {
+            finishEditing = false;
             refreshPlanning();
             message(error);
             return;
           }
-          io.execute(
-              () -> {
-                try {
-                  String name = "Planned route " + java.time.LocalDate.now();
-                  String id = store.saveRoute(points, name);
-                  main.post(
-                      () -> {
-                        if (destroyed) return;
-                        waypoints.clear();
-                        planning = false;
-                        map.waypoints = waypoints;
-                        showLibrarySelection(new Store.LibraryEntry(id, name, false, true), points);
-                      });
-                } catch (RuntimeException e) {
-                  main.post(
-                      () -> {
-                        refreshPlanning();
-                        message("Could not save route: " + e.getMessage());
-                      });
-                }
-              });
+          plannedRoute = points;
+          calculatedRevision = revision;
+          refreshPlanning();
+          if (finishEditing) saveEditedRoute();
         });
   }
 
