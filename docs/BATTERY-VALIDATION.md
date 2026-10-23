@@ -75,7 +75,7 @@ and the workload require owner review before being weakened; never reset a basel
 The direction cone is off by default, so the existing comparison matrix retains its normal workload.
 `PhoneHeadingTest` and `PhoneDirectionLifecycleTest` separately exercise sensor selection, compass
 fallback, four display rotations, update throttling, jitter around north, unreliable readings, and
-subscription cleanup on pause, hidden/offscreen map positions, Routes and view removal. They also
+subscription cleanup on pause, loss of focus, hidden/offscreen map positions, Routes and view removal. They also
 check that enabling the option preserves the GPS interval and does not create location requests.
 Only non-wake-up geomagnetic/accelerometer/magnetometer sensors are eligible; no gyroscope, sensor
 timer or compass animation loop is introduced. These automated checks verify software behavior,

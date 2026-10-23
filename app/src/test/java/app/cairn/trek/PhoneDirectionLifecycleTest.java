@@ -25,6 +25,7 @@ import org.robolectric.shadows.ShadowSensor;
 @Config(sdk = {28, 35})
 @LooperMode(LooperMode.Mode.PAUSED)
 @SQLiteMode(SQLiteMode.Mode.LEGACY)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 public class PhoneDirectionLifecycleTest {
   private ActivityController<MainActivity> controller;
   private MainActivity activity;
@@ -57,7 +58,7 @@ public class PhoneDirectionLifecycleTest {
     manager = RuntimeEnvironment.getApplication().getSystemService(SensorManager.class);
     Shadows.shadowOf(manager)
         .addSensor(ShadowSensor.newInstance(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR));
-    controller = Robolectric.buildActivity(MainActivity.class).setup();
+    controller = Robolectric.buildActivity(MainActivity.class).setup().windowFocusChanged(true);
     activity = controller.get();
     ((ExecutorService) field("io")).submit(() -> {}).get(5, TimeUnit.SECONDS);
     Shadows.shadowOf(Looper.getMainLooper()).idle();
@@ -88,6 +89,12 @@ public class PhoneDirectionLifecycleTest {
     map.position = new Point(48, 2);
     draw();
     assertEquals(1, Shadows.shadowOf(manager).getListeners().size());
+    controller.windowFocusChanged(false);
+    draw();
+    assertTrue(Shadows.shadowOf(manager).getListeners().isEmpty());
+    controller.windowFocusChanged(true);
+    draw();
+    assertEquals(1, Shadows.shadowOf(manager).getListeners().size());
     map.restoreCamera(new double[] {0, 0, 14});
     draw();
     assertTrue(Shadows.shadowOf(manager).getListeners().isEmpty());
@@ -104,12 +111,17 @@ public class PhoneDirectionLifecycleTest {
     assertTrue(Shadows.shadowOf(manager).getListeners().isEmpty());
     ((Store) field("store")).prefs.edit().putBoolean("phoneDirection", true).apply();
     controller.resume();
+    ((ExecutorService) field("io")).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
     draw();
     assertEquals(1, Shadows.shadowOf(manager).getListeners().size());
     invoke("showLibrary");
     draw();
     assertTrue(Shadows.shadowOf(manager).getListeners().isEmpty());
     ((AlertDialog) field("libraryDialog")).dismiss();
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    controller.windowFocusChanged(true);
+    assertEquals("Map", field("currentPage"));
     draw();
     assertEquals(1, Shadows.shadowOf(manager).getListeners().size());
     ((ViewGroup) map.getParent()).removeView(map);
@@ -126,7 +138,6 @@ public class PhoneDirectionLifecycleTest {
 
   @Test
   @Config(sdk = 28)
-  @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void coneTurnsFromNorthToEastWithoutMovingThePositionDot() {
     map.position = new Point(48, 2, 0, System.currentTimeMillis(), 5, 0);
     draw();

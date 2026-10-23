@@ -51,7 +51,7 @@ Visited map tiles stay on disk until explicitly removed through the layers menu.
 the phone faces, including in airplane mode. It uses a non-wake-up geomagnetic rotation sensor,
 or low-rate accelerometer/compass readings if that sensor is unavailable, without using a gyroscope.
 Readings run only while the map and position marker are visible, stop on pause/screen off or opening
-Routes, and never change GPS requests or the recording interval. Heading changes are limited to four
+drawers, and never change GPS requests or the recording interval. Heading changes are limited to four
 updates per second with small compass jitter ignored. Active sensors still use some power; leaving
 the option off preserves the previous behavior. Phones without suitable sensors keep the position dot.
 

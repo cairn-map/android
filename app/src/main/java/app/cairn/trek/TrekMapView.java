@@ -492,6 +492,7 @@ public final class TrekMapView extends View {
     boolean visible =
         phoneDirectionEnabled
             && canRender()
+            && hasWindowFocus()
             && isAttachedToWindow()
             && position != null
             && px(position.lon) >= -radius
@@ -509,6 +510,13 @@ public final class TrekMapView extends View {
                   System.currentTimeMillis())
               .getDeclination();
     }
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean focused) {
+    super.onWindowFocusChanged(focused);
+    if (!focused && phoneHeading != null) phoneHeading.setActive(false);
+    else if (focused) invalidatePosition();
   }
 
   @Override
