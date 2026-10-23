@@ -1619,10 +1619,6 @@ public final class MainActivity extends Activity {
   private void refreshStatus() {
     if (destroyed || !resumed) return;
     if (followingRecording != TrackingService.running) {
-      followingRecording = TrackingService.running;
-      followResumeAt = 0;
-      followTouching = false;
-      main.removeCallbacks(resumeFollow);
       followPosition();
     }
     if ("Map".equals(currentPage) && !planning && renderedRecording != TrackingService.running) {
@@ -1827,6 +1823,7 @@ public final class MainActivity extends Activity {
 
   @Override
   public boolean dispatchTouchEvent(MotionEvent event) {
+    syncFollowRecording();
     if (TrackingService.running) {
       followTouching =
           event.getActionMasked() != MotionEvent.ACTION_UP
@@ -1851,6 +1848,7 @@ public final class MainActivity extends Activity {
   /** Follow existing recording fixes only; the single idle callback never requests location. */
   private void followPosition() {
     main.removeCallbacks(resumeFollow);
+    syncFollowRecording();
     if (destroyed
         || !resumed
         || !TrackingService.running
@@ -1863,6 +1861,14 @@ public final class MainActivity extends Activity {
       Point center = map.center();
       if (center.lat != map.position.lat || center.lon != map.position.lon) map.center(map.position);
     }
+  }
+
+  private void syncFollowRecording() {
+    if (followingRecording == TrackingService.running) return;
+    followingRecording = TrackingService.running;
+    followResumeAt = 0;
+    followTouching = false;
+    main.removeCallbacks(resumeFollow);
   }
 
   private void showLocationAccuracy(Point point, boolean cached) {

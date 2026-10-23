@@ -137,6 +137,19 @@ public class HikeFollowTest {
   }
 
   @Test
+  public void interactingAsRecordingStartsStillPausesTheFirstFix() throws Exception {
+    TrackingService.running = false;
+    invoke("refreshStatus");
+    TrackingService.running = true;
+    touch(MotionEvent.ACTION_DOWN);
+    touch(MotionEvent.ACTION_UP);
+    fix(45, 6);
+    assertCenter(48, 2);
+    waitSeconds(30);
+    assertCenter(45, 6);
+  }
+
+  @Test
   public void locateResumesImmediatelyAndKeepsFollowing() throws Exception {
     fix(45, 6);
     touch(MotionEvent.ACTION_DOWN);
