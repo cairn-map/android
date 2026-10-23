@@ -191,6 +191,29 @@ public class RoutingFlowTest {
   }
 
   @Test
+  public void preferencesPauseAnActiveCalculationAndRecalculateOnceClosed() throws Exception {
+    installGraphs();
+    changeNodes();
+    assertTrue((boolean) field("calculationRunning"));
+    tap("Routing preferences");
+    AlertDialog preferences = (AlertDialog) field("routingPreferencesDialog");
+    android.widget.CheckBox elevation =
+        (android.widget.CheckBox)
+            find(preferences.getWindow().getDecorView(), "Prefer less climbing");
+    elevation.setChecked(true);
+    drain();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    assertTrue(preferences.isShowing());
+    assertFalse((boolean) field("calculationRunning"));
+    assertNotEquals(field("editRevision"), field("calculatedRevision"));
+    assertTrue(((List<?>) field("plannedRoute")).isEmpty());
+    preferences.cancel();
+    drain();
+    assertEquals(field("editRevision"), field("calculatedRevision"));
+    assertTrue(((List<?>) field("plannedRoute")).size() > 2);
+  }
+
+  @Test
   public void editsDuringCalculationDiscardTheOldResultAndFinishSavesTheLatestNodes()
       throws Exception {
     installGraphs();

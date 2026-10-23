@@ -1,5 +1,6 @@
 package app.cairn.trek;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.view.View;
@@ -42,20 +43,14 @@ final class RoutingPreferences {
     return values;
   }
 
-  static void show(Context context, SharedPreferences prefs, Runnable changed) {
+  static AlertDialog show(
+      Context context, SharedPreferences prefs, Runnable changed, Runnable closed) {
     Map<String, String> values = read(prefs);
     float density = context.getResources().getDisplayMetrics().density;
     LinearLayout content = new LinearLayout(context);
     content.setOrientation(LinearLayout.VERTICAL);
     int padding = (int) (24 * density);
     content.setPadding(padding, 0, padding, padding);
-    TextView note = new TextView(context);
-    note.setText(
-        "BRouter hiking preferences apply to future calculations. Changing them recalculates the"
-            + " route being edited. Difficulty uses mapped SAC ratings; unrated paths can still be"
-            + " difficult. The maximum strongly penalizes harder paths rather than excluding"
-            + " them.");
-    content.addView(note);
     Spinner limit =
         choice(
             context,
@@ -70,23 +65,6 @@ final class RoutingPreferences {
             "Preferred difficulty",
             DIFFICULTIES,
             Integer.parseInt(values.get("SAC_scale_preferred")));
-    // Keep the preferred level within the selected maximum in both directions.
-    limit.setOnItemSelectedListener(
-        new AdapterView.OnItemSelectedListener() {
-          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-            if (preferred.getSelectedItemPosition() > position) preferred.setSelection(position);
-          }
-
-          public void onNothingSelected(AdapterView<?> parent) {}
-        });
-    preferred.setOnItemSelectedListener(
-        new AdapterView.OnItemSelectedListener() {
-          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-            if (position > limit.getSelectedItemPosition()) limit.setSelection(position);
-          }
-
-          public void onNothingSelected(AdapterView<?> parent) {}
-        });
     String[] hikingLabels = {"None", "Normal", "Strong", "Very strong"};
     float[] hikingValues = {0, 0.2f, 1, 2};
     float savedHiking = Float.parseFloat(values.get("hiking_routes_preference"));
@@ -107,33 +85,77 @@ final class RoutingPreferences {
     }
     ScrollView scroll = new ScrollView(context);
     scroll.addView(content);
-    CairnDialogs.drawer(context)
-        .setTitle("Routing preferences")
-        .setView(scroll)
-        .setNegativeButton("Cancel", null)
-        .setNeutralButton(
-            "Reset defaults",
-            (dialog, which) -> {
-              SharedPreferences.Editor edit = prefs.edit();
-              for (String key : values.keySet()) edit.remove(PREFIX + key);
-              edit.apply();
-              if (!values.equals(read(prefs))) changed.run();
-            })
-        .setPositiveButton(
-            "Apply",
-            (dialog, which) -> {
-              SharedPreferences.Editor edit = prefs.edit();
-              edit.putInt(PREFIX + "SAC_scale_limit", limit.getSelectedItemPosition());
-              edit.putInt(PREFIX + "SAC_scale_preferred", preferred.getSelectedItemPosition());
-              edit.putFloat(
-                  PREFIX + "hiking_routes_preference",
-                  hikingValues[hiking.getSelectedItemPosition()]);
-              for (int i = 0; i < FLAGS.length; i++)
-                edit.putBoolean(PREFIX + FLAGS[i], checks.get(i).isChecked());
-              edit.apply();
-              if (!values.equals(read(prefs))) changed.run();
-            })
-        .show();
+    Runnable save =
+        () -> {
+          Map<String, String> before = read(prefs);
+          SharedPreferences.Editor edit = prefs.edit();
+          edit.putInt(PREFIX + "SAC_scale_limit", limit.getSelectedItemPosition());
+          edit.putInt(PREFIX + "SAC_scale_preferred", preferred.getSelectedItemPosition());
+          edit.putFloat(
+              PREFIX + "hiking_routes_preference", hikingValues[hiking.getSelectedItemPosition()]);
+          for (int i = 0; i < FLAGS.length; i++)
+            edit.putBoolean(PREFIX + FLAGS[i], checks.get(i).isChecked());
+          edit.apply();
+          if (!before.equals(read(prefs))) changed.run();
+        };
+    // Keep the preferred level within the selected maximum in both directions,
+    // including in saved preferences before the other spinner's callback runs.
+    limit.setOnItemSelectedListener(
+        new AdapterView.OnItemSelectedListener() {
+          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+            if (preferred.getSelectedItemPosition() > position) preferred.setSelection(position);
+            save.run();
+          }
+
+          public void onNothingSelected(AdapterView<?> parent) {}
+        });
+    preferred.setOnItemSelectedListener(
+        new AdapterView.OnItemSelectedListener() {
+          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+            if (position > limit.getSelectedItemPosition()) limit.setSelection(position);
+            save.run();
+          }
+
+          public void onNothingSelected(AdapterView<?> parent) {}
+        });
+    hiking.setOnItemSelectedListener(
+        new AdapterView.OnItemSelectedListener() {
+          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+            save.run();
+          }
+
+          public void onNothingSelected(AdapterView<?> parent) {}
+        });
+    for (CheckBox check : checks) check.setOnCheckedChangeListener((button, checked) -> save.run());
+    AlertDialog dialog =
+        CairnDialogs.drawer(context)
+            .setTitle("Routing preferences")
+            .setView(scroll)
+            .setNeutralButton("Reset defaults", null)
+            .create();
+    dialog.setOnDismissListener(d -> closed.run());
+    dialog.setOnShowListener(
+        d ->
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(
+                button -> {
+                  // Updating all controls first keeps their listeners from saving a partial reset.
+                  for (CheckBox check : checks) check.setOnCheckedChangeListener(null);
+                  Map<String, String> before = read(prefs);
+                  SharedPreferences.Editor edit = prefs.edit();
+                  for (String key : values.keySet()) edit.remove(PREFIX + key);
+                  edit.apply();
+                  limit.setSelection(3);
+                  preferred.setSelection(1);
+                  hiking.setSelection(1);
+                  for (int i = 0; i < FLAGS.length; i++) {
+                    CheckBox check = checks.get(i);
+                    check.setChecked(FLAGS[i].startsWith("allow_"));
+                    check.setOnCheckedChangeListener((view, checked) -> save.run());
+                  }
+                  if (!before.equals(read(prefs))) changed.run();
+                }));
+    dialog.show();
+    return dialog;
   }
 
   private static Spinner choice(

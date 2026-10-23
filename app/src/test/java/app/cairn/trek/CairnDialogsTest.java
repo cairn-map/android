@@ -48,7 +48,14 @@ public class CairnDialogsTest {
         View.MeasureSpec.makeMeasureSpec(393, View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY));
     decor.layout(0, 0, 393, 800);
-    return ((FrameLayout) dialog.findViewById(android.R.id.content)).getChildAt(0);
+    View swipe = ((FrameLayout) dialog.findViewById(android.R.id.content)).getChildAt(0);
+    float radius = 28 * activity.getResources().getDisplayMetrics().density;
+    assertArrayEquals(
+        new float[] {radius, radius, radius, radius, 0, 0, 0, 0},
+        ((android.graphics.drawable.GradientDrawable) swipe.getBackground()).getCornerRadii(),
+        0);
+    assertTrue(swipe.getClipToOutline());
+    return swipe;
   }
 
   private void touch(View view, int action, float x, float y) {

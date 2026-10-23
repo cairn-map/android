@@ -313,7 +313,7 @@ public class MapControlsTest {
       int previousRight = 0;
       for (String action :
           new String[] {
-            "Center selected", "Save offline corridor", "Export GPX", "Hide", "Edit route"
+            "Save offline corridor", "Export GPX", "Hide", "Center selected", "Edit route"
           }) {
         View icon = find(content, action);
         assertTrue(icon instanceof ImageButton);
@@ -343,6 +343,10 @@ public class MapControlsTest {
         assertTrue(point.lon > bounds[0] && point.lon < bounds[2]);
         assertTrue(point.lat > bounds[1] && point.lat < bounds[3]);
       }
+      android.graphics.Rect centerBefore = new android.graphics.Rect();
+      android.graphics.Rect editBefore = new android.graphics.Rect();
+      find(content, "Center selected").getGlobalVisibleRect(centerBefore);
+      find(content, "Edit route").getGlobalVisibleRect(editBefore);
       find(content, "Edit route").performClick();
       drain(activity);
       assertTrue(map.editing);
@@ -350,9 +354,48 @@ public class MapControlsTest {
       for (String oldAction : List.of("Route", "More", "Undo"))
         assertNull(find(content, oldAction));
       savePreview(content, 786, 1550, "route-edit-toggle");
+      android.graphics.Rect centerAfter = new android.graphics.Rect();
+      android.graphics.Rect editAfter = new android.graphics.Rect();
+      find(content, "Center selected").getGlobalVisibleRect(centerAfter);
+      find(content, "Finish editing").getGlobalVisibleRect(editAfter);
+      assertEquals(centerBefore, centerAfter);
+      assertEquals(editBefore, editAfter);
+      assertEquals(136, map.scaleBottomOverlay);
       find(content, "Finish editing").performClick();
       assertFalse(map.editing);
       assertEquals(id, store.selectedLibraryId());
+    }
+  }
+
+  @Test
+  public void routingPreferencesDeferQueuedRoutingUntilTheDrawerCloses() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      View root = activity.getWindow().getDecorView();
+      find(root, "Create route").performClick();
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      map.onLongPress.at(new Point(45, 6));
+      map.onLongPress.at(new Point(45.01, 6.01));
+      find(root, "Routing preferences").performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      AlertDialog preferences = (AlertDialog) field(activity, "routingPreferencesDialog");
+      CheckBox elevation =
+          (CheckBox) find(preferences.getWindow().getDecorView(), "Prefer less climbing");
+      elevation.setChecked(true);
+      elevation.setChecked(false);
+      elevation.setChecked(true);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
+      assertTrue(preferences.isShowing());
+      assertNull(field(activity, "routingPrompt"));
+      assertEquals(false, field(activity, "calculationRunning"));
+      preferences.cancel();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertNull(field(activity, "routingPreferencesDialog"));
+      AlertDialog prompt = (AlertDialog) field(activity, "routingPrompt");
+      assertNotNull("Closing the drawer resumes routing and asks for missing data", prompt);
+      prompt.dismiss();
     }
   }
 
