@@ -52,6 +52,7 @@ public class EmbeddedRouterTest {
   private void calculate() throws Exception {
     router.calculate(
         waypoints(),
+        RoutingPreferences.read(context.getSharedPreferences("settings", 0)),
         (points, message) -> {
           result = points;
           error = message;
@@ -72,6 +73,41 @@ public class EmbeddedRouterTest {
     assertTrue(Geo.distance(result.get(0), waypoints().get(0)) < 100);
     assertTrue(Geo.distance(result.get(result.size() - 1), waypoints().get(1)) < 100);
     assertTrue(Geo.length(result) > Geo.distance(waypoints().get(0), waypoints().get(1)));
+  }
+
+  @Test
+  public void calculationCopiesTheSuppliedPreferencesBeforeTheWorkerRuns() throws Exception {
+    Field workerField = EmbeddedRouter.class.getDeclaredField("worker");
+    workerField.setAccessible(true);
+    ExecutorService worker = (ExecutorService) workerField.get(router);
+    CountDownLatch release = new CountDownLatch(1);
+    worker.submit(
+        () -> {
+          try {
+            release.await(15, TimeUnit.SECONDS);
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+          }
+        });
+    Map<String, String> parameters =
+        RoutingPreferences.read(context.getSharedPreferences("settings", 0));
+    try {
+      router.calculate(
+          waypoints(),
+          parameters,
+          (points, message) -> {
+            result = points;
+            error = message;
+          });
+      // This would fail profile parsing if the worker retained the caller's mutable map.
+      parameters.put("SAC_scale_limit", "invalid-number");
+    } finally {
+      release.countDown();
+    }
+    worker.submit(() -> {}).get(15, TimeUnit.SECONDS);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertNull(error);
+    assertTrue(result.size() > 2);
   }
 
   @Test

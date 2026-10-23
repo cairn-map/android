@@ -30,6 +30,23 @@ Only explicit calculations run. Time is bounded to 60 seconds and working-memory
 
 BRouter may discover an additional region while searching a detour. Its error identifies missing data; adjust the planning nodes toward the neighboring area to request that data, then retry the intended route. The selected GPX and other library files remain intact.
 
+## Routing preferences
+
+**Saved maps → Default routing preferences** controls the defaults for future routing.
+A new or imported route copies them when routing is first used, or when its routing
+preferences are opened. Each routed route saves its own parameters with its geometry
+and planning nodes. Reopening, editing, or recreating the editor retains those parameters;
+changing global defaults leaves existing route parameters and geometry unchanged.
+
+The editor's **Routing preferences** action applies only to that route. Changes invalidate
+its calculated geometry and recalculate after the preferences drawer closes. **Use current
+defaults** explicitly copies the latest global settings into the route and recalculates;
+route changes never overwrite the global defaults. Recording edits do not use routing.
+
+On upgrading older databases, existing routes receive a snapshot of the current global
+preferences without recalculation. Their historical calculation settings were not recorded
+and cannot be recovered. Newly imported GPX geometry remains untouched until edited.
+
 ## Verification
 
 A small genuine OSM fixture was compiled with BRouter's own map compiler into two RD5 graphs crossing latitude 50°. The embedded application worker successfully calculated a walking route through both graphs in an Android framework simulation, with no companion installed or network routing call. Tests also cover missing graphs, header/name validation and explicit offline calculations during recording without extra location requests.

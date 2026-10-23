@@ -29,6 +29,73 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void routePreferencesSurviveReopeningAndStayIndependentOfDefaultsAndOtherRoutes() {
+    Map<String, String> first, second;
+    String a, b;
+    try (Store store = new Store(context)) {
+      first = RoutingPreferences.read(store.prefs);
+      a = store.saveRoute("route-a", points(45), "A", points(45), first);
+      store.prefs.edit().putBoolean("brouter.consider_forest", true).commit();
+      second = RoutingPreferences.read(store.prefs);
+      b = store.saveRoute("route-b", points(46), "B", points(46), second);
+      String imported = store.saveRoute(points(47), "Imported");
+      assertNull(store.routePreferences(imported));
+      store.updateRoute(a, points(45.1), points(45.1));
+      assertEquals(first, store.routePreferences(a));
+    }
+    try (Store store = new Store(context)) {
+      assertEquals(first, store.routePreferences(a));
+      assertEquals(second, store.routePreferences(b));
+      store.updateRoute(a, points(48), points(48), second);
+      assertEquals(second, store.routePreferences(a));
+      store.prefs.edit().putBoolean("brouter.allow_steps", false).commit();
+      assertEquals(second, store.routePreferences(a));
+      assertEquals(second, store.routePreferences(b));
+      store.deleteRoute(a);
+      assertNull(store.routePreferences(a));
+      assertEquals(second, store.routePreferences(b));
+    }
+  }
+
+  @Test
+  public void versionTwoUpgradeFreezesDefaultsAndPreservesRouteGeometryNodesAndGuidance() {
+    context
+        .getSharedPreferences("settings", 0)
+        .edit()
+        .putInt("brouter.SAC_scale_limit", 2)
+        .putBoolean("brouter.allow_steps", false)
+        .commit();
+    try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
+      db.execSQL(
+          "CREATE TABLE points(id INTEGER PRIMARY KEY,collection TEXT,lat REAL,lon REAL,"
+              + "elevation REAL,time INTEGER,accuracy REAL,segment INTEGER)");
+      db.execSQL("CREATE TABLE treks(id TEXT PRIMARY KEY,title TEXT)");
+      db.execSQL(
+          "CREATE TABLE routes(id TEXT PRIMARY KEY,title TEXT NOT NULL,"
+              + "visible INTEGER NOT NULL DEFAULT 1,created INTEGER NOT NULL)");
+      db.execSQL("INSERT INTO routes VALUES('old','Weekend',0,123)");
+      db.execSQL(
+          "INSERT INTO points VALUES(1,'old',45,6,NULL,0,0,0),"
+              + "(2,'nodes:old',45,6,NULL,0,0,0),(3,'route',45,6,NULL,0,0,0)");
+      db.setVersion(2);
+    }
+    Map<String, String> frozen;
+    try (Store store = new Store(context)) {
+      assertEquals("Weekend", store.routes().get(0).title);
+      assertFalse(store.routes().get(0).visible);
+      assertEquals(45, store.read("old").get(0).lat, 0);
+      assertEquals(45, store.routeNodes("old").get(0).lat, 0);
+      assertEquals(45, store.read("route").get(0).lat, 0);
+      frozen = store.routePreferences("old");
+      assertEquals(RoutingPreferences.read(store.prefs), frozen);
+      store.prefs.edit().putInt("brouter.SAC_scale_limit", 6).commit();
+    }
+    try (Store store = new Store(context)) {
+      assertEquals(frozen, store.routePreferences("old"));
+    }
+  }
+
+  @Test
   public void retryingAnInterruptedDraftSaveDoesNotCreateADuplicateRouteOrNodes() {
     try (Store store = new Store(context)) {
       String id = "route-test-draft";
@@ -179,6 +246,8 @@ public class RouteLibraryTest {
     }
     try (Store store = new Store(context)) {
       assertEquals(1, store.routes().size());
+      assertEquals(
+          RoutingPreferences.read(store.prefs), store.routePreferences("route-legacy"));
       assertEquals(2, store.read("route-legacy").size());
       assertEquals(2, store.read("route").size());
       assertEquals(1, store.read("trek-old").size());
