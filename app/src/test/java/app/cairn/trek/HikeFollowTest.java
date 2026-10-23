@@ -6,8 +6,10 @@ import android.content.*;
 import android.location.LocationManager;
 import android.os.*;
 import android.view.MotionEvent;
+import android.view.View;
 import java.lang.reflect.*;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.concurrent.*;
 import org.junit.*;
 import org.junit.runner.RunWith;
@@ -89,6 +91,14 @@ public class HikeFollowTest {
     assertEquals(lon, map.center().lon, 0.000001);
   }
 
+  private void clickGps() {
+    ArrayList<View> buttons = new ArrayList<>();
+    activity.getWindow().getDecorView().findViewsWithText(
+        buttons, "Find my location", View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+    assertEquals(1, buttons.size());
+    buttons.get(0).performClick();
+  }
+
   @Test
   public void followsEveryRecordingFixWithoutChangingZoomOrRequestingLocation() throws Exception {
     fix(45, 6);
@@ -156,10 +166,20 @@ public class HikeFollowTest {
     touch(MotionEvent.ACTION_UP);
     fix(46, 7);
     assertCenter(45, 6);
-    invoke("locate");
+    clickGps();
     assertCenter(46, 7);
     fix(47, 8);
     assertCenter(47, 8);
+  }
+
+  @Test
+  public void gpsButtonBeforeTheFirstFixResumesWithTheNextScheduledFix() throws Exception {
+    touch(MotionEvent.ACTION_DOWN);
+    touch(MotionEvent.ACTION_UP);
+    clickGps();
+    fix(45, 6);
+    assertCenter(45, 6);
+    assertNull(field("manualLocation"));
   }
 
   @Test
