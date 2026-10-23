@@ -210,6 +210,20 @@ public class HikeFollowTest {
   }
 
   @Test
+  public void screenOffSleepCountsTowardTheIdleDelayWithoutRunningACallback() throws Exception {
+    fix(45, 6);
+    touch(MotionEvent.ACTION_DOWN);
+    touch(MotionEvent.ACTION_UP);
+    fix(46, 7);
+    controller.pause();
+    org.robolectric.shadows.ShadowSystemClock.simulateDeepSleep(Duration.ofSeconds(35));
+    assertCenter(45, 6);
+    controller.resume().windowFocusChanged(true);
+    settle();
+    assertCenter(46, 7);
+  }
+
+  @Test
   public void recreationPreservesTheRemainingInteractionDelay() throws Exception {
     fix(45, 6);
     touch(MotionEvent.ACTION_DOWN);

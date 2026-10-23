@@ -1828,7 +1828,7 @@ public final class MainActivity extends Activity {
       followTouching =
           event.getActionMasked() != MotionEvent.ACTION_UP
               && event.getActionMasked() != MotionEvent.ACTION_CANCEL;
-      followResumeAt = SystemClock.uptimeMillis() + FOLLOW_RESUME_DELAY;
+      followResumeAt = SystemClock.elapsedRealtime() + FOLLOW_RESUME_DELAY;
       main.removeCallbacks(resumeFollow);
       if (!followTouching) main.postDelayed(resumeFollow, FOLLOW_RESUME_DELAY);
     }
@@ -1855,7 +1855,7 @@ public final class MainActivity extends Activity {
         || planning
         || followTouching
         || !hasWindowFocus()) return;
-    long remaining = followResumeAt - SystemClock.uptimeMillis();
+    long remaining = followResumeAt - SystemClock.elapsedRealtime();
     if (remaining > 0) main.postDelayed(resumeFollow, remaining);
     else if (map.position != null) {
       Point center = map.center();
