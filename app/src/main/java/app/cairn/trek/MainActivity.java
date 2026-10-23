@@ -146,6 +146,19 @@ public final class MainActivity extends Activity {
       if (coordinates != null)
         for (int i = 0; i + 1 < coordinates.length; i += 2)
           waypoints.add(new Point(coordinates[i], coordinates[i + 1]));
+      if (editingRecording()) {
+        try {
+          if (!state.getBoolean("recordingDraft")) throw new IOException("Draft unavailable");
+          waypoints.addAll(RecordingDraft.read(this, newRouteId));
+        } catch (IOException | RuntimeException error) {
+          waypoints.clear();
+          waypoints.addAll(store.read(editingEntry.id));
+          editDirty = false;
+          main.post(() -> message("Could not restore edits. The saved recording is unchanged."));
+        }
+        plannedRoute = new ArrayList<>(waypoints);
+        calculatedRevision = editRevision;
+      }
       routingRequest = state.getString("routingRequest");
       if (routingRequest != null) pendingRoute = new ArrayList<>(waypoints);
     }
@@ -254,12 +267,21 @@ public final class MainActivity extends Activity {
       state.putString("editingTitle", editingEntry.title);
       state.putBoolean("editingRecording", editingEntry.recording);
     }
-    double[] coordinates = new double[waypoints.size() * 2];
-    for (int i = 0; i < waypoints.size(); i++) {
-      coordinates[i * 2] = waypoints.get(i).lat;
-      coordinates[i * 2 + 1] = waypoints.get(i).lon;
+    if (editingRecording()) {
+      try {
+        RecordingDraft.write(this, newRouteId, waypoints);
+        state.putBoolean("recordingDraft", true);
+      } catch (IOException | RuntimeException error) {
+        message("Could not preserve unsaved edits. Finish editing before leaving this screen.");
+      }
+    } else {
+      double[] coordinates = new double[waypoints.size() * 2];
+      for (int i = 0; i < waypoints.size(); i++) {
+        coordinates[i * 2] = waypoints.get(i).lat;
+        coordinates[i * 2 + 1] = waypoints.get(i).lon;
+      }
+      state.putDoubleArray("planningPoints", coordinates);
     }
-    state.putDoubleArray("planningPoints", coordinates);
     state.putString("routingRequest", routingRequest);
   }
 
@@ -306,7 +328,8 @@ public final class MainActivity extends Activity {
                 if (destroyed || !resumed || generation != dataGeneration) return;
                 long last =
                     loadedTrack.isEmpty() ? 0 : loadedTrack.get(loadedTrack.size() - 1).time;
-                for (Point point : track) if (point.time > last) loadedTrack.add(point);
+                if (TrackingService.running)
+                  for (Point point : track) if (point.time > last) loadedTrack.add(point);
                 if (revision == routeRevision) route = loadedRoute;
                 track = loadedTrack;
                 trackLength = Geo.length(track);
@@ -678,7 +701,8 @@ public final class MainActivity extends Activity {
     selectionPanel.removeAllViews();
     selectionPanel.setVisibility(View.VISIBLE);
     if (planning) {
-      addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
+      if (!editingRecording())
+        addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
       addSelectionAction(
           MapIcon.CENTER,
           "Center selected",
@@ -708,7 +732,8 @@ public final class MainActivity extends Activity {
       // Keep Center and Edit beside GPS in both modes, with secondary actions to the left.
       addSelectionAction(
           MapIcon.CENTER, "Center selected", () -> map.fitRoute(selectionSnapshot()));
-      if (!entry.recording) addSelectionAction(MapIcon.EDIT, "Edit route", this::toggleEditing);
+      addSelectionAction(
+          MapIcon.EDIT, entry.recording ? "Edit recording" : "Edit route", this::toggleEditing);
     } else {
       addSelectionAction(MapIcon.EDIT, "Create route", this::toggleEditing);
     }
@@ -730,12 +755,20 @@ public final class MainActivity extends Activity {
         leaveEditing();
         return;
       }
+      if (editingRecording()) {
+        if (waypoints.isEmpty()) {
+          message("Keep at least one point in the recording.");
+          return;
+        }
+        saveEditedPath();
+        return;
+      }
       if (waypoints.size() < 2) {
         leaveEditing();
         return;
       }
       finishEditing = true;
-      if (calculatedRevision == editRevision && !plannedRoute.isEmpty()) saveEditedRoute();
+      if (calculatedRevision == editRevision && !plannedRoute.isEmpty()) saveEditedPath();
       else {
         refreshPlanning();
         calculate();
@@ -747,11 +780,16 @@ public final class MainActivity extends Activity {
       return;
     }
     Store.LibraryEntry entry = selectedEntry;
+    if (recordingActive(entry)) {
+      message("Finish recording before editing this hike.");
+      return;
+    }
     List<Point> geometry = selectionSnapshot();
     io.execute(
         () -> {
-          List<Point> nodes = store.routeNodes(entry.id);
-          if (nodes.isEmpty()) nodes = RouteNodes.fromGeometry(geometry);
+          List<Point> loaded = entry.recording ? store.read(entry.id) : geometry;
+          List<Point> nodes = entry.recording ? loaded : store.routeNodes(entry.id);
+          if (nodes.isEmpty() && !entry.recording) nodes = RouteNodes.fromGeometry(loaded);
           List<Point> anchors = nodes;
           main.post(
               () -> {
@@ -759,7 +797,8 @@ public final class MainActivity extends Activity {
                     && resumed
                     && !planning
                     && selectedEntry != null
-                    && entry.id.equals(selectedEntry.id)) startEditing(entry, geometry, anchors);
+                    && entry.id.equals(selectedEntry.id)
+                    && !recordingActive(entry)) startEditing(entry, loaded, anchors);
               });
         });
   }
@@ -777,8 +816,22 @@ public final class MainActivity extends Activity {
     showPage("Map");
   }
 
+  private boolean editingRecording() {
+    return editingEntry != null && editingEntry.recording;
+  }
+
+  private boolean recordingActive(Store.LibraryEntry entry) {
+    return entry.recording
+        && TrackingService.running
+        && entry.id.equals(store.prefs.getString("currentTrek", ""));
+  }
+
   private void addNode(int index, Point point) {
     if (!planning || pendingRoute != null || finishEditing || savingEdit) return;
+    if (editingRecording() && !waypoints.isEmpty()) {
+      int segment = waypoints.get(index > 0 ? index - 1 : 0).segment;
+      point = new Point(point.lat, point.lon, point.elevation, point.time, point.accuracy, segment);
+    }
     waypoints.add(index, point);
     nodesChanged();
   }
@@ -786,9 +839,15 @@ public final class MainActivity extends Activity {
   private void nodesChanged() {
     editDirty = true;
     editRevision++;
+    main.removeCallbacks(autoRoute);
+    if (editingRecording()) {
+      plannedRoute = new ArrayList<>(waypoints);
+      calculatedRevision = editRevision;
+      refreshPlanning();
+      return;
+    }
     if (waypoints.size() < 2) plannedRoute = Collections.emptyList();
     refreshPlanning();
-    main.removeCallbacks(autoRoute);
     if (routingPreferencesDialog == null) main.postDelayed(autoRoute, 250);
   }
 
@@ -823,7 +882,8 @@ public final class MainActivity extends Activity {
   }
 
   private void autoCalculate() {
-    if (resumed
+    if (!editingRecording()
+        && resumed
         && routingPreferencesDialog == null
         && planning
         && editDirty
@@ -835,6 +895,7 @@ public final class MainActivity extends Activity {
   private void leaveEditing() {
     main.removeCallbacks(autoRoute);
     cancelRoutingDownload();
+    if (editingRecording()) RecordingDraft.delete(this, newRouteId);
     planning = finishEditing = savingEdit = false;
     editingEntry = null;
     waypoints.clear();
@@ -843,7 +904,7 @@ public final class MainActivity extends Activity {
     showPage("Map");
   }
 
-  private void saveEditedRoute() {
+  private void saveEditedPath() {
     if (savingEdit) return;
     savingEdit = true;
     refreshPlanning();
@@ -859,13 +920,25 @@ public final class MainActivity extends Activity {
             if (entry == null) id = store.saveRoute(draftId, geometry, name, nodes);
             else {
               id = entry.id;
-              store.updateRoute(id, geometry, nodes);
+              if (entry.recording) store.updateTrek(id, geometry);
+              else store.updateRoute(id, geometry, nodes);
             }
             root.post(
                 () -> {
                   if (destroyed) return;
+                  if (entry != null
+                      && entry.recording
+                      && id.equals(store.prefs.getString("currentTrek", ""))) {
+                    dataGeneration++;
+                    track = new ArrayList<>(geometry);
+                    trackLength = Geo.length(track);
+                    map.track = track;
+                    map.position = track.get(track.size() - 1);
+                  }
                   leaveEditing();
-                  showLibrarySelection(new Store.LibraryEntry(id, name, false, true), geometry);
+                  showLibrarySelection(
+                      new Store.LibraryEntry(id, name, entry != null && entry.recording, true),
+                      geometry);
                 });
           } catch (RuntimeException error) {
             root.post(
@@ -873,7 +946,10 @@ public final class MainActivity extends Activity {
                   if (destroyed) return;
                   savingEdit = finishEditing = false;
                   refreshPlanning();
-                  message("Could not save route: " + error.getMessage());
+                  message(
+                      "Could not save "
+                          + (entry != null && entry.recording ? "recording: " : "route: ")
+                          + error.getMessage());
                 });
           }
         });
@@ -1928,7 +2004,7 @@ public final class MainActivity extends Activity {
     if (planStatus != null)
       planStatus.setText(
           savingEdit
-              ? "Saving route…"
+              ? editingRecording() ? "Saving recording…" : "Saving route…"
               : pendingRoute != null
                   ? routingProgress == null ? "Downloading routing data…" : routingProgress
                   : calculationRunning
@@ -1940,6 +2016,7 @@ public final class MainActivity extends Activity {
 
   private void calculate() {
     if (!planning
+        || editingRecording()
         || !resumed
         || routingPreferencesDialog != null
         || routingBusy()
@@ -2079,7 +2156,7 @@ public final class MainActivity extends Activity {
           plannedRoute = points;
           calculatedRevision = revision;
           refreshPlanning();
-          if (finishEditing) saveEditedRoute();
+          if (finishEditing) saveEditedPath();
         });
   }
 
@@ -2360,6 +2437,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onDestroy() {
     destroyed = true;
+    if (isFinishing() && editingRecording()) RecordingDraft.delete(this, newRouteId);
     if (routingPreferencesDialog != null) routingPreferencesDialog.dismiss();
     if (libraryDialog != null) libraryDialog.dismiss();
     appUpdates.close();

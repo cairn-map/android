@@ -110,7 +110,7 @@ public class UnifiedLibraryTest {
       assertNull(find(root, trekTitle));
       LinearLayout actions = (LinearLayout) field(activity, "selectionPanel");
       assertNull(actions.getBackground());
-      assertEquals(4, actions.getChildCount());
+      assertEquals(5, actions.getChildCount());
       assertEquals(LinearLayout.HORIZONTAL, actions.getOrientation());
       assertEquals(0, ((ViewGroup) actions.getParent()).indexOfChild(actions));
       for (String action : List.of("Save offline corridor", "Export GPX", "Hide")) {
