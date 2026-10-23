@@ -211,7 +211,8 @@ public class MapControlsTest {
       assertNull(query.getHint());
       assertEquals(
           0,
-          dialog.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+          dialog.getWindow().getAttributes().flags
+              & WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
       savePreview(decor, 786, 1400, "empty-search-drawer");
       query.setText("Thabor");
       assertEquals(View.VISIBLE, clear.getVisibility());
@@ -290,24 +291,20 @@ public class MapControlsTest {
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.layout(0, 0, 786, 1400);
       map.restoreCamera(new double[] {48, 2, 18});
-      java.lang.reflect.Method actions =
-          MainActivity.class.getDeclaredMethod("routeActions", Store.RouteEntry.class);
-      actions.setAccessible(true);
-      actions.invoke(activity, store.routes().get(0));
-      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      ListAdapter menu = dialog.getListView().getAdapter();
-      assertEquals(6, menu.getCount());
-      String[] expected = {
-        "Show and select",
-        "Save offline corridor",
-        "Export GPX",
-        "Show on map",
-        "Rename",
-        "Remove from library"
-      };
-      for (int i = 0; i < expected.length; i++) assertEquals(expected[i], menu.getItem(i));
-      dialog.getListView().performItemClick(null, 0, 0);
+      java.lang.reflect.Method reload = MainActivity.class.getDeclaredMethod("reloadLibrary");
+      reload.setAccessible(true);
+      reload.invoke(activity);
       drain(activity);
+      ((View) field(activity, "libraryButton")).performClick();
+      AlertDialog library = (AlertDialog) field(activity, "libraryDialog");
+      find(library.getWindow().getDecorView(), "Mountain loop · hidden").performClick();
+      drain(activity);
+      map.layout(0, 0, 786, 1400);
+      View content = activity.getWindow().getDecorView();
+      assertNotNull(find(content, "Save offline corridor"));
+      assertNotNull(find(content, "Export GPX"));
+      assertNotNull(find(content, "Hide"));
+      assertEquals(id, map.selectedPathId);
       assertEquals(id, store.prefs.getString("activeRouteId", ""));
       assertTrue(store.prefs.getBoolean("follow", false));
       assertTrue(store.routes().get(0).visible);
@@ -351,7 +348,7 @@ public class MapControlsTest {
       assertNull(find(content, "Routing data"));
       assertNotNull(find(content, "Weekend route · selected"));
       String title = ((Store) field(activity, "store")).treks().get(hike);
-      assertNotNull(find(content, title + "  ↗"));
+      assertNotNull(find(content, title));
       assertSame(parent, map.getParent());
       library.cancel();
       Shadows.shadowOf(Looper.getMainLooper()).idle();

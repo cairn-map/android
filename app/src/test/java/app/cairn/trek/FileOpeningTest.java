@@ -63,7 +63,12 @@ public class FileOpeningTest {
       TrekMapView map = map(activity.getWindow().getDecorView());
       assertNotNull(map);
       assertEquals(2, map.route.size());
-      assertEquals(48.1, map.center().lat, 0.000001);
+      map.layout(0, 0, 786, 1400);
+      double[] bounds = map.bounds();
+      for (Point point : map.route) {
+        assertTrue(point.lon > bounds[0] && point.lon < bounds[2]);
+        assertTrue(point.lat > bounds[1] && point.lat < bounds[3]);
+      }
       assertEquals(1, map.track.size());
     }
   }

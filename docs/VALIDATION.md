@@ -171,3 +171,13 @@ This historical validation record did not establish field reliability. Its propo
 Regression coverage includes requests beginning during pan/zoom momentum, retaining useful in-flight tiles during a drag, selective cancellation of obsolete HTTP transfers, exact round-tripping of all 1–3600-second GPS settings, top-centered transient feedback, and clickable source/update/licence links through map information. Native Canvas previews of the map controls, feedback and GPS drawer were visually inspected.
 
 Search tests cover a `Thabor` query with a `Mont Thabor` natural-feature response, map-center bias without a hard geographic filter, invalid-coordinate rejection, deduplication, memory caching, bounded HTTP responses, service failures, device-geocoder fallback, cancellation and late responses. These are controlled responses, not a live Photon coverage check. Photon availability and the live ordering/coverage of `Thabor`, accented names and typos still need checking on a device, along with tile-loading smoothness over a real mobile connection.
+
+## Unified routes and recordings
+
+Routes and recordings use the same tap-to-select map flow, shared highlight and selected-item
+corridor/export/hide controls. Robolectric regressions cover full-path fitting clear of controls,
+map taps, hidden-item reselection and visibility across resume, recording geometry in GPX exports
+and offline corridors, either-direction swipe handling, and protection of the current recording.
+Native Canvas checks cover the selected outline above overlapping paths, single-point recordings
+and hiding the current trail. The required Actions comparison reports baseline, previous main and
+the exact PR head performance; no physical-device test is required.

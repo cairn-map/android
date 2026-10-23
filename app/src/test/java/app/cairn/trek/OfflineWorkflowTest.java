@@ -117,10 +117,7 @@ public class OfflineWorkflowTest {
         drain(activity);
         View root = activity.getWindow().getDecorView();
         root = openLibrary(activity);
-        find(root, "Width check · " + (width.equals("0.2") ? "selected" : "following"))
-            .performClick();
-        AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-        actions.getListView().performItemClick(null, 1, 1);
+        find(root, "Save offline corridor").performClick();
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         ((EditText) find(form.getWindow().getDecorView(), "1.0")).setText(width);
@@ -232,9 +229,9 @@ public class OfflineWorkflowTest {
     java.lang.reflect.Field field = MainActivity.class.getDeclaredField("libraryButton");
     field.setAccessible(true);
     ((View) field.get(activity)).performClick();
-    return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
-        .getWindow()
-        .getDecorView();
+    java.lang.reflect.Field dialog = MainActivity.class.getDeclaredField("libraryDialog");
+    dialog.setAccessible(true);
+    return ((AlertDialog) dialog.get(activity)).getWindow().getDecorView();
   }
 
   private TextView find(View view, String text) {

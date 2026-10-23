@@ -74,13 +74,13 @@ public class RecordedHikesTest {
       assertEquals(1, ((TrekMapView) field(activity, "map")).track.size());
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
-      View recording = find(library, title + "  ↗");
+      View recording = find(library, title);
       SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
       swipe.layout(0, 0, 400, 96);
-      View remove = find(swipe, "Remove");
+      View remove = find(swipe, "Delete");
       assertEquals(View.INVISIBLE, remove.getVisibility());
       AlertDialog previousDialog = ShadowAlertDialog.getLatestAlertDialog();
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
@@ -93,7 +93,7 @@ public class RecordedHikesTest {
       assertFalse(store.treks().containsKey(id));
       assertTrue(store.read(id).isEmpty());
       assertTrue(((TrekMapView) field(activity, "map")).track.isEmpty());
-      assertNull(find(library, title + "  ↗"));
+      assertNull(find(library, title));
     }
   }
 
@@ -105,7 +105,7 @@ public class RecordedHikesTest {
       drain(activity);
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
-      View recording = find(library, title + "  ↗");
+      View recording = find(library, title);
       SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
@@ -123,7 +123,7 @@ public class RecordedHikesTest {
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_CANCEL, 100, 32);
       assertEquals(0, recording.getTranslationX(), 0);
-      assertEquals(View.INVISIBLE, find(swipe, "Remove").getVisibility());
+      assertEquals(View.INVISIBLE, find(swipe, "Delete").getVisibility());
       assertEquals(1, ((Store) field(activity, "store")).treks().size());
     }
   }
@@ -137,7 +137,7 @@ public class RecordedHikesTest {
       TrackingService.running = true;
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
-      View recording = find(library, title + "  ↗");
+      View recording = find(library, title);
       assertFalse(recording.getParent() instanceof SwipeToRemoveView);
     } finally {
       TrackingService.running = false;

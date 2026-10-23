@@ -106,6 +106,7 @@ public final class MainActivity extends Activity {
               track.add(p);
             }
             map.track = track;
+            map.liveTrackId = store.prefs.getString("currentTrek", "");
             map.position = p;
             map.invalidate();
           }
@@ -161,6 +162,15 @@ public final class MainActivity extends Activity {
             waypoints.add(p);
             refreshPlanning();
           }
+        };
+    map.onPathSelected =
+        id -> {
+          if (planning) return;
+          for (Store.LibraryEntry entry : libraryEntries)
+            if (entry.id.equals(id)) {
+              selectLibraryEntry(entry);
+              break;
+            }
         };
     showPage("Map");
     File file = new File(getFilesDir(), "offline.mbtiles");
@@ -382,6 +392,7 @@ public final class MainActivity extends Activity {
     controls.addView(intervalChip, gpsParams);
     controls.setGravity(Gravity.END | Gravity.BOTTOM);
     ScrollView controlRail = new ScrollView(this);
+    mapControlRail = controlRail;
     controlRail.setFillViewport(true);
     controlRail.setVerticalScrollBarEnabled(false);
     controlRail.addView(controls);
@@ -496,6 +507,11 @@ public final class MainActivity extends Activity {
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(planning ? (compactPlanning ? 160 : 260) : 0);
+    selectionPanel = new FrameLayout(this);
+    FrameLayout.LayoutParams selectionParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+    selectionParams.setMargins(dp(12), 0, dp(12), dp(80));
+    frame.addView(selectionPanel, selectionParams);
+    updateSelectionActions();
   }
 
   private LinearLayout libraryContent() {
@@ -511,29 +527,54 @@ public final class MainActivity extends Activity {
     return content;
   }
 
-  private List<Store.RouteEntry> routeEntries = new ArrayList<>();
+  private List<Store.LibraryEntry> libraryEntries = new ArrayList<>();
+  private Store.LibraryEntry selectedEntry;
+  private List<Point> selectedPoints = Collections.emptyList();
+  private FrameLayout selectionPanel;
+  private ScrollView mapControlRail;
+  private int libraryGeneration;
   private AlertDialog mapDialog;
 
   private void reloadLibrary() {
     if (destroyed) return;
+    int generation = ++libraryGeneration;
     io.execute(
         () -> {
-          List<Store.RouteEntry> entries = store.routes();
+          List<Store.LibraryEntry> entries = store.library();
+          List<TrekMapView.LibraryPath> paths = new ArrayList<>();
           List<List<Point>> overlays = new ArrayList<>();
+          String selected = store.selectedLibraryId();
           String active = store.prefs.getString("activeRouteId", "");
+          String current = store.prefs.getString("currentTrek", "");
+          Store.LibraryEntry selection = null;
+          List<Point> selectionPoints = Collections.emptyList();
           boolean activeVisible = true;
-          for (Store.RouteEntry entry : entries) {
+          for (Store.LibraryEntry entry : entries) {
+            List<Point> points = entry.visible ? store.read(entry.id) : Collections.emptyList();
+            paths.add(new TrekMapView.LibraryPath(entry, points));
+            if (entry.id.equals(selected) && entry.visible) {
+              selection = entry;
+              selectionPoints = points;
+            }
             if (entry.id.equals(active)) activeVisible = entry.visible;
-            else if (entry.visible) overlays.add(store.read(entry.id));
+            else if (!entry.recording && entry.visible) overlays.add(points);
           }
+          Store.LibraryEntry loadedSelection = selection;
+          List<Point> loadedPoints = selectionPoints;
           boolean showActive = activeVisible;
           main.post(
               () -> {
-                if (destroyed || !resumed) return;
-                routeEntries = entries;
+                if (destroyed || !resumed || generation != libraryGeneration) return;
+                libraryEntries = entries;
+                selectedEntry = loadedSelection;
+                selectedPoints = loadedPoints;
+                map.libraryPaths = paths;
+                map.selectedPathId = loadedSelection == null ? "" : loadedSelection.id;
+                map.liveTrackId = current;
                 map.otherRoutes = overlays;
                 map.route = showActive ? route : Collections.emptyList();
                 map.invalidate();
+                updateSelectionActions();
                 if ("Routes".equals(currentPage)) showPage("Routes");
               });
         });
@@ -559,8 +600,9 @@ public final class MainActivity extends Activity {
         new LinearLayout.LayoutParams(0, dp(52), 1));
     content.addView(actions);
     content.addView(spacer(20));
+    content.addView(label("Tap to select · swipe left or right to delete", 12, MUTED, false));
     content.addView(label("SAVED ROUTES", 11, MUTED, true));
-    if (routeEntries.isEmpty())
+    if (libraryEntries.stream().noneMatch(entry -> !entry.recording))
       content.addView(
           label(
               "Open GPX files with Cairn from Android, or use Add files. Each file stays in your"
@@ -568,170 +610,190 @@ public final class MainActivity extends Activity {
               14,
               MUTED,
               false));
-    String active = store.prefs.getString("activeRouteId", "");
-    for (Store.RouteEntry entry : routeEntries) {
-      String detail =
-          entry.id.equals(active)
-              ? (store.prefs.getBoolean("follow", false) ? " · following" : " · selected")
-              : "";
-      content.addView(
-          button(
-              entry.title + detail + (entry.visible ? "" : " · hidden"),
-              false,
-              () -> routeActions(entry)));
-    }
+    for (Store.LibraryEntry entry : libraryEntries)
+      if (!entry.recording) addLibraryEntry(content, entry);
     content.addView(spacer(24));
     content.addView(label("RECORDED HIKES", 11, MUTED, true));
-    LinkedHashMap<String, String> treks = store.treks();
-    if (treks.isEmpty())
-      content.addView(label("Your recordings will appear here.", 14, MUTED, false));
-    if (!treks.isEmpty())
-      content.addView(label("Swipe left on a hike to remove it · tap to export", 12, MUTED, false));
-    for (Map.Entry<String, String> trek : treks.entrySet()) {
-      TextView recording =
-          button(
-              trek.getValue() + "  ↗",
-              false,
-              () ->
-                  io.execute(
-                      () -> {
-                        List<Point> points = store.read(trek.getKey());
-                        main.post(
-                            () -> {
-                              if (!destroyed) export(points, trek.getKey() + ".gpx");
-                            });
-                      }));
-      if (TrackingService.running
-          && trek.getKey().equals(store.prefs.getString("currentTrek", ""))) {
-        content.addView(recording);
-      } else {
-        Runnable remove = () -> removeTrek(trek.getKey());
-        TextView removeButton = button("Remove", false, remove);
-        removeButton.setContentDescription("Remove " + trek.getValue());
-        SwipeToRemoveView swipe = new SwipeToRemoveView(this, recording, removeButton, remove);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(8);
-        content.addView(swipe, params);
-      }
+    boolean hasRecordings = false;
+    for (Store.LibraryEntry entry : libraryEntries) {
+      if (!entry.recording) continue;
+      hasRecordings = true;
+      addLibraryEntry(content, entry);
     }
+    if (!hasRecordings)
+      content.addView(label("Your recordings will appear here.", 14, MUTED, false));
     content.addView(attributionFooter());
   }
 
-  private void removeTrek(String id) {
+  private void addLibraryEntry(LinearLayout content, Store.LibraryEntry entry) {
+    boolean selected = entry.id.equals(store.selectedLibraryId()) && entry.visible;
+    TextView item =
+        button(
+            entry.title + (selected ? " · selected" : "") + (entry.visible ? "" : " · hidden"),
+            selected,
+            () -> selectLibraryEntry(entry));
+    item.setSelected(selected);
+    if (!entry.recording)
+      item.setOnLongClickListener(
+          v -> {
+            renameRoute(entry);
+            return true;
+          });
+    boolean recordingNow =
+        entry.recording
+            && TrackingService.running
+            && entry.id.equals(store.prefs.getString("currentTrek", ""));
+    if (recordingNow) content.addView(item);
+    else {
+      Runnable remove = () -> removeLibraryEntry(entry);
+      TextView removeButton = button("Delete", false, remove);
+      removeButton.setContentDescription("Delete " + entry.title);
+      SwipeToRemoveView swipe = new SwipeToRemoveView(this, item, removeButton, remove);
+      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+      params.topMargin = dp(8);
+      content.addView(swipe, params);
+    }
+    if (selected) content.addView(libraryActions(entry));
+  }
+
+  private List<Point> selectionSnapshot() {
+    return new ArrayList<>(
+        selectedEntry != null
+                && selectedEntry.recording
+                && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
+            ? track
+            : selectedPoints);
+  }
+
+  private LinearLayout libraryActions(Store.LibraryEntry entry) {
+    LinearLayout actions = row();
+    TextView corridor =
+        button("Save offline corridor", false, () -> prepareDownload(true, selectionSnapshot()));
+    TextView export =
+        button("Export GPX", false, () -> export(selectionSnapshot(), entry.title + ".gpx"));
+    TextView hide = button("Hide", false, () -> hideLibraryEntry(entry));
+    for (TextView action : new TextView[] {corridor, export, hide}) {
+      action.setTextSize(12);
+      action.setPadding(dp(4), 0, dp(4), 0);
+      actions.addView(action, new LinearLayout.LayoutParams(0, dp(52), 1));
+    }
+    return actions;
+  }
+
+  private void updateSelectionActions() {
+    if (selectionPanel == null) return;
+    selectionPanel.removeAllViews();
+    boolean visible = selectedEntry != null && !planning;
+    selectionPanel.setVisibility(visible ? View.VISIBLE : View.GONE);
+    if (!visible) {
+      if (!planning) map.bottomOverlay = 0;
+    } else {
+      LinearLayout card = column();
+      card.setPadding(dp(8), dp(4), dp(8), dp(4));
+      card.setBackground(surface(SURFACE, OUTLINE, 16));
+      TextView title = label(selectedEntry.title, 14, TEXT, true);
+      title.setSingleLine(true);
+      title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+      card.addView(title);
+      card.addView(libraryActions(selectedEntry));
+      selectionPanel.addView(card);
+      map.bottomOverlay = dp(176);
+    }
+    if (!planning && mapControlRail != null) {
+      FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) mapControlRail.getLayoutParams();
+      params.bottomMargin = dp(visible ? 196 : 92);
+      mapControlRail.setLayoutParams(params);
+    }
+  }
+
+  private void selectLibraryEntry(Store.LibraryEntry entry) {
+    libraryGeneration++;
     io.execute(
         () -> {
           try {
-            boolean current = id.equals(store.prefs.getString("currentTrek", ""));
-            store.deleteTrek(id);
+            List<Point> points = store.select(entry);
+            main.post(
+                () -> {
+                  if (destroyed || !resumed) return;
+                  showLibrarySelection(entry, points);
+                });
+          } catch (RuntimeException error) {
+            main.post(() -> message("Could not select: " + error.getMessage()));
+          }
+        });
+  }
+
+  private void showLibrarySelection(Store.LibraryEntry entry, List<Point> points) {
+    selectedEntry = new Store.LibraryEntry(entry.id, entry.title, entry.recording, true);
+    selectedPoints = points;
+    if (!entry.recording) {
+      routeRevision++;
+      route = points;
+      map.route = points;
+      updateService();
+    }
+    map.selectedPathId = entry.id;
+    showPage("Map");
+    map.fitRoute(points);
+    reloadLibrary();
+  }
+
+  private void hideLibraryEntry(Store.LibraryEntry entry) {
+    libraryGeneration++;
+    io.execute(
+        () -> {
+          store.libraryVisible(entry, false);
+          main.post(this::reloadLibrary);
+        });
+  }
+
+  private void removeLibraryEntry(Store.LibraryEntry entry) {
+    libraryGeneration++;
+    io.execute(
+        () -> {
+          try {
+            if (entry.recording) store.deleteTrek(entry.id);
+            else store.deleteRoute(entry.id);
             main.post(
                 () -> {
                   if (destroyed) return;
-                  if (current && !store.prefs.contains("currentTrek")) {
+                  if (entry.recording && entry.id.equals(map.liveTrackId)) {
                     track = new ArrayList<>();
                     trackLength = 0;
                     map.track = track;
-                    map.invalidate();
                   }
                   loadPoints();
-                  if ("Routes".equals(currentPage)) showPage("Routes");
+                  reloadLibrary();
+                  updateService();
                 });
           } catch (RuntimeException error) {
             main.post(
                 () -> {
-                  if (destroyed) return;
-                  if ("Routes".equals(currentPage)) showPage("Routes");
+                  reloadLibrary();
                   message(error.getMessage());
                 });
           }
         });
   }
 
-  private void routeActions(Store.RouteEntry entry) {
-    CairnDialogs.drawer(this)
-        .setTitle(entry.title)
-        .setItems(
-            new String[] {
-              "Show and select",
-              "Save offline corridor",
-              "Export GPX",
-              entry.visible ? "Hide on map" : "Show on map",
-              "Rename",
-              "Remove from library"
-            },
-            (d, which) -> {
-              if (which <= 1) {
+  private void renameRoute(Store.LibraryEntry entry) {
+    EditText title = new EditText(this);
+    title.setSingleLine(true);
+    title.setText(entry.title);
+    CairnDialogs.dialog(this)
+        .setTitle("Route name")
+        .setView(title)
+        .setNegativeButton("Cancel", null)
+        .setPositiveButton(
+            "Save",
+            (a, b) -> {
+              String name = title.getText().toString().trim();
+              if (!name.isEmpty())
                 io.execute(
                     () -> {
-                      List<Point> points = store.activateRoute(entry.id);
-                      store.routeVisible(entry.id, true);
-                      main.post(
-                          () -> {
-                            if (destroyed) return;
-                            routeRevision++;
-                            route = points;
-                            map.route = points;
-                            updateService();
-                            showPage("Map");
-                            map.fitRoute(points);
-                            reloadLibrary();
-                            if (which == 1) prepareDownload(true);
-                          });
-                    });
-              } else if (which == 2)
-                io.execute(
-                    () -> {
-                      List<Point> points = store.read(entry.id);
-                      main.post(
-                          () -> {
-                            if (!destroyed) export(points, entry.title + ".gpx");
-                          });
-                    });
-              else if (which == 3)
-                io.execute(
-                    () -> {
-                      store.routeVisible(entry.id, !entry.visible);
+                      store.renameRoute(entry.id, name);
                       main.post(this::reloadLibrary);
                     });
-              else if (which == 4) {
-                EditText title = new EditText(this);
-                title.setSingleLine(true);
-                title.setText(entry.title);
-                CairnDialogs.dialog(this)
-                    .setTitle("Route name")
-                    .setView(title)
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton(
-                        "Save",
-                        (a, b) -> {
-                          String name = title.getText().toString().trim();
-                          if (!name.isEmpty())
-                            io.execute(
-                                () -> {
-                                  store.renameRoute(entry.id, name);
-                                  main.post(this::reloadLibrary);
-                                });
-                        })
-                    .show();
-              } else
-                CairnDialogs.dialog(this)
-                    .setTitle("Remove " + entry.title + "?")
-                    .setMessage(
-                        "Remove this saved route from Cairn? Your original file stays in Android.")
-                    .setNegativeButton("Keep", null)
-                    .setPositiveButton(
-                        "Remove",
-                        (a, b) ->
-                            io.execute(
-                                () -> {
-                                  store.deleteRoute(entry.id);
-                                  main.post(
-                                      () -> {
-                                        loadPoints();
-                                        reloadLibrary();
-                                        updateService();
-                                      });
-                                }))
-                    .show();
             })
         .show();
   }
@@ -1032,13 +1094,13 @@ public final class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
-  private void prepareDownload(boolean corridor) {
+  private void prepareDownload(boolean corridor, List<Point> corridorPoints) {
     if (TrackingService.running) {
       message("Finish recording before downloading maps.");
       return;
     }
-    if (corridor && route.isEmpty()) {
-      message("Import or create a GPX route first.");
+    if (corridor && corridorPoints.isEmpty()) {
+      message("Select a route or recording with points first.");
       return;
     }
     if (!corridor && (map.getWidth() == 0 || map.getHeight() == 0)) {
@@ -1065,7 +1127,7 @@ public final class MainActivity extends Activity {
         android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
     width.setText("1.0");
     if (corridor) {
-      content.addView(label("Kilometres on each side of the route", 14, TEXT, true));
+      content.addView(label("Kilometres on each side of the path", 14, TEXT, true));
       content.addView(width);
     }
     content.addView(
@@ -1079,7 +1141,7 @@ public final class MainActivity extends Activity {
             false));
     AlertDialog dialog =
         CairnDialogs.drawer(this)
-            .setTitle(corridor ? "Save route corridor" : "Save map area")
+            .setTitle(corridor ? "Save offline corridor" : "Save map area")
             .setView(content)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Estimate download", null)
@@ -1108,7 +1170,7 @@ public final class MainActivity extends Activity {
                       if (title.length() > 80) title = title.substring(0, 80);
                       String savedTitle = title;
                       double[] bounds = map.bounds();
-                      List<Point> points = new ArrayList<>(route);
+                      List<Point> points = new ArrayList<>(corridorPoints);
                       int zoom = new int[] {16, 17, 19}[detail.getSelectedItemPosition()];
                       dialog.dismiss();
                       io.execute(
@@ -1222,6 +1284,7 @@ public final class MainActivity extends Activity {
     if (destroyed || !resumed) return;
     if ("Map".equals(currentPage) && !planning && renderedRecording != TrackingService.running) {
       showPage("Map");
+      reloadLibrary();
       return;
     }
     if (intervalChip != null)
@@ -1587,17 +1650,12 @@ public final class MainActivity extends Activity {
   }
 
   private void importRoute(List<Point> loaded, String title) {
-    store.saveRoute(loaded, title.isEmpty() ? "Imported route" : title);
+    String name = title.isEmpty() ? "Imported route" : title;
+    String id = store.saveRoute(loaded, name);
     main.post(
         () -> {
           if (destroyed) return;
-          routeRevision++;
-          route = loaded;
-          map.route = route;
-          map.center(route.get(0));
-          updateService();
-          showPage("Map");
-          reloadLibrary();
+          showLibrarySelection(new Store.LibraryEntry(id, name, false, true), loaded);
         });
   }
 
@@ -1847,19 +1905,15 @@ public final class MainActivity extends Activity {
           io.execute(
               () -> {
                 try {
-                  store.saveRoute(points, "Planned route " + java.time.LocalDate.now());
+                  String name = "Planned route " + java.time.LocalDate.now();
+                  String id = store.saveRoute(points, name);
                   main.post(
                       () -> {
                         if (destroyed) return;
-                        routeRevision++;
-                        route = points;
-                        map.route = route;
                         waypoints.clear();
                         planning = false;
                         map.waypoints = waypoints;
-                        updateService();
-                        showPage("Map");
-                        reloadLibrary();
+                        showLibrarySelection(new Store.LibraryEntry(id, name, false, true), points);
                       });
                 } catch (RuntimeException e) {
                   main.post(
