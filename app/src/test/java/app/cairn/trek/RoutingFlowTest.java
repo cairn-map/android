@@ -175,6 +175,47 @@ public class RoutingFlowTest {
   }
 
   @Test
+  public void undoReversesInsertionAndDeletionAndRestoresTheOriginalRoute() throws Exception {
+    TrekMapView map = (TrekMapView) field("map");
+    List<Point> original = new ArrayList<>(points());
+    set("plannedRoute", original);
+    set("calculatedRevision", field("editRevision"));
+    invoke("refreshPlanning", new Class<?>[0]);
+    assertFalse(find(activity.getWindow().getDecorView(), "Undo last edit").isEnabled());
+    map.onNodeAdded.accept(1, new Point(50, 8.722));
+    map.onNodeDeleted.accept(0);
+    assertTrue(find(activity.getWindow().getDecorView(), "Undo last edit").isEnabled());
+    tap("Undo last edit");
+    assertSame(original.get(0), points().get(0));
+    assertEquals(3, points().size());
+    tap("Undo last edit");
+    assertEquals(original, points());
+    assertSame(original, field("plannedRoute"));
+    assertEquals(field("editRevision"), field("calculatedRevision"));
+    assertFalse((boolean) field("editDirty"));
+    assertFalse(find(activity.getWindow().getDecorView(), "Undo last edit").isEnabled());
+    tap("Finish editing");
+    assertNull(find(activity.getWindow().getDecorView(), "Undo last edit"));
+  }
+
+  @Test
+  public void undoDuringCalculationRejectsItsObsoleteGeometry() throws Exception {
+    installGraphs();
+    TrekMapView map = (TrekMapView) field("map");
+    List<Point> original = new ArrayList<>(points());
+    set("plannedRoute", original);
+    set("calculatedRevision", field("editRevision"));
+    map.onNodeAdded.accept(1, new Point(50, 8.722));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+    assertTrue((boolean) field("calculationRunning"));
+    tap("Undo last edit");
+    drain();
+    assertEquals(original, points());
+    assertSame(original, field("plannedRoute"));
+    assertFalse((boolean) field("editDirty"));
+  }
+
+  @Test
   public void deletingNodesInvalidatesTheCalculatedRouteAndCannotDeleteOutsideEditing()
       throws Exception {
     TrekMapView map = (TrekMapView) field("map");

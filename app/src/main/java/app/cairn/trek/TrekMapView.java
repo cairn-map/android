@@ -15,6 +15,8 @@ public final class TrekMapView extends View {
 
   public LongPress onLongPress;
   public boolean editing;
+  public boolean showRouteStarts = true;
+  // Move callbacks receive the original point, after the completed drag updates waypoints.
   public java.util.function.BiConsumer<Integer, Point> onNodeAdded, onNodeMoved;
   public java.util.function.IntConsumer onNodeDeleted;
   public List<Point> editRoute = Collections.emptyList();
@@ -54,6 +56,7 @@ public final class TrekMapView extends View {
   private float downX, downY;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+  private final Path startArrow = new Path();
   private final RectF tileRect = new RectF();
   private final IdentityHashMap<List<Point>, ProjectedLine> projectedLines =
       new IdentityHashMap<>();
@@ -768,7 +771,7 @@ public final class TrekMapView extends View {
       if (e.getActionMasked() == MotionEvent.ACTION_UP) {
         draggedNode = -1;
         if (nodeMoved) {
-          if (onNodeMoved != null) onNodeMoved.accept(index, waypoints.get(index));
+          if (onNodeMoved != null) onNodeMoved.accept(index, originalNode);
         } else if (onNodeDeleted != null) onNodeDeleted.accept(index);
         performClick();
       } else if (e.getActionMasked() == MotionEvent.ACTION_CANCEL
@@ -1064,6 +1067,7 @@ public final class TrekMapView extends View {
     }
     line(c, editRoute, Color.WHITE, 9);
     line(c, editRoute, 0xff235D4D, 5);
+    if (showRouteStarts && !editing) drawRouteStarts(c);
     projectedLines.values().removeIf(line -> line.frame != lineFrame);
     paint.setStyle(Paint.Style.FILL);
     for (int i = 0; i < waypoints.size(); i++) {
@@ -1305,6 +1309,60 @@ public final class TrekMapView extends View {
     return path.entry.id.equals(liveTrackId) ? track : path.points;
   }
 
+  private void drawRouteStarts(Canvas canvas) {
+    if (libraryPaths == null) {
+      int[] colors = {0xff647BAC, 0xffA079A3, 0xffA27D37};
+      for (int i = 0; i < otherRoutes.size(); i++)
+        routeStart(canvas, otherRoutes.get(i), colors[i % colors.length]);
+      routeStart(canvas, route, 0xff235D4D);
+      routeStart(canvas, track, 0xffC36C39);
+      return;
+    }
+    LibraryPath selected = null;
+    boolean liveIncluded = false;
+    for (LibraryPath path : libraryPaths) {
+      if (path.entry.id.equals(liveTrackId)) liveIncluded = true;
+      if (!path.entry.visible || path.entry.id.equals(editingPathId)) continue;
+      if (path.entry.id.equals(selectedPathId)) selected = path;
+      else routeStart(canvas, pathPoints(path), path.entry.recording ? 0xffC36C39 : 0xff647BAC);
+    }
+    if (!liveIncluded) routeStart(canvas, track, 0xffC36C39);
+    if (selected != null) routeStart(canvas, pathPoints(selected), 0xff235D4D);
+  }
+
+  private void routeStart(Canvas canvas, List<Point> points, int color) {
+    ProjectedLine line = projectedLines.get(points);
+    if (line == null || line.first == null || line.frame != lineFrame) return;
+    float x = px(line.first.lon), y = py(line.first.lat), radius = dp(16);
+    if (x < -radius || y < -radius || x > getWidth() + radius || y > getHeight() + radius) return;
+    if (!line.startDirectionFound) {
+      paint.setStyle(Paint.Style.FILL);
+      paint.setColor(Color.WHITE);
+      canvas.drawCircle(x, y, dp(10), paint);
+      paint.setColor(color);
+      canvas.drawCircle(x, y, dp(7), paint);
+      return;
+    }
+    int save = canvas.save();
+    canvas.translate(x, y);
+    canvas.rotate(line.startAngle);
+    startArrow.rewind();
+    startArrow.moveTo(dp(12), 0);
+    startArrow.lineTo(dp(-9), dp(-9));
+    startArrow.lineTo(dp(-5), 0);
+    startArrow.lineTo(dp(-9), dp(9));
+    startArrow.close();
+    paint.setStyle(Paint.Style.STROKE);
+    paint.setStrokeJoin(Paint.Join.ROUND);
+    paint.setStrokeWidth(dp(4));
+    paint.setColor(Color.WHITE);
+    canvas.drawPath(startArrow, paint);
+    paint.setStyle(Paint.Style.FILL);
+    paint.setColor(color);
+    canvas.drawPath(startArrow, paint);
+    canvas.restoreToCount(save);
+  }
+
   /** Hit-test only on a confirmed tap; no per-frame or per-fix geometry work. */
   String libraryPathAt(float x, float y) {
     if (libraryPaths == null) return null;
@@ -1344,6 +1402,8 @@ public final class TrekMapView extends View {
     int count;
     Point first, last;
     long frame;
+    float startAngle;
+    boolean startDirectionFound, startSegmentEnded;
 
     void update(List<Point> points) {
       // Route edits replace their lists; the live track is append-only. Also handle clears,
@@ -1353,11 +1413,28 @@ public final class TrekMapView extends View {
         path.rewind();
         count = 0;
         last = null;
+        first = null;
+        startAngle = 0;
+        startDirectionFound = false;
+        startSegmentEnded = false;
       }
       double centerY = Geo.y(lat, zoom);
       float size = scaledTileSize();
       for (int i = count; i < points.size(); i++) {
         Point point = points.get(i);
+        if (i == 0) first = point;
+        else if (!startDirectionFound && !startSegmentEnded) {
+          if (point.segment != first.segment) startSegmentEnded = true;
+          else if (point.lat != first.lat || point.lon != first.lon) {
+            startAngle =
+                (float)
+                    Math.toDegrees(
+                        Math.atan2(
+                            Geo.y(point.lat, zoom) - Geo.y(first.lat, zoom),
+                            Geo.x(point.lon, zoom) - Geo.x(first.lon, zoom)));
+            startDirectionFound = true;
+          }
+        }
         float x = px(point.lon);
         float y = (float) (getHeight() / 2f + (Geo.y(point.lat, zoom) - centerY) * size);
         if (last == null || point.segment != last.segment) {
