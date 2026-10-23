@@ -37,7 +37,7 @@ public final class MainActivity extends Activity {
   private EmbeddedRouter router;
   private FrameLayout root;
   private LinearLayout pages;
-  private TextView intervalChip, status, recordButton, planStatus;
+  private TextView intervalChip, status, recordButton;
   private ImageButton editButton;
   private Store.LibraryEntry editingEntry;
   private String newRouteId = "route-" + UUID.randomUUID();
@@ -410,6 +410,7 @@ public final class MainActivity extends Activity {
     map.stopMotion();
     if (ignMap.online()) setMapOnline(false);
     currentPage = "Routes";
+    map.setPhoneDirectionEnabled(false);
     libraryBody = new FrameLayout(this);
     showRoutes();
     AlertDialog popout =
@@ -435,7 +436,7 @@ public final class MainActivity extends Activity {
   private boolean renderedRecording;
 
   private void showMap() {
-    status = recordButton = planStatus = null;
+    status = recordButton = null;
     renderedRecording = TrackingService.running;
     if (map.getParent() != null) ((ViewGroup) map.getParent()).removeView(map);
     FrameLayout frame = new FrameLayout(this);
@@ -485,15 +486,6 @@ public final class MainActivity extends Activity {
     bottomActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
     selectionPanel = row();
     selectionPanel.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
-    selectionPanel.addOnLayoutChangeListener(
-        (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-          int actionsLeft = left + dp(12); // Include the action strip's map margin.
-          int offset = planning ? dp(actionsLeft >= dp(136) ? 68 : 136) : 0;
-          if (map.scaleBottomOverlay != offset) {
-            map.scaleBottomOverlay = offset;
-            map.invalidate();
-          }
-        });
     bottomActions.addView(selectionPanel, new LinearLayout.LayoutParams(-2, dp(48)));
     gpsParams.leftMargin = dp(8);
     bottomActions.addView(intervalChip, gpsParams);
@@ -529,14 +521,6 @@ public final class MainActivity extends Activity {
         });
 
     if (planning) {
-      planStatus = label("Tap to add nodes · drag nodes to move", 13, TEXT, false);
-      planStatus.setMaxLines(2);
-      planStatus.setGravity(Gravity.CENTER);
-      planStatus.setPadding(dp(12), dp(8), dp(12), dp(8));
-      planStatus.setBackground(surface(SURFACE, OUTLINE, 16));
-      FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-      params.setMargins(dp(12), 0, dp(12), dp(16));
-      frame.addView(planStatus, params);
       refreshPlanning();
     } else {
       LinearLayout hike = row();
@@ -567,7 +551,7 @@ public final class MainActivity extends Activity {
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(136);
-    map.scaleBottomOverlay = planning ? dp(68) : 0;
+    map.scaleBottomOverlay = 0;
     updateSelectionActions();
   }
 
@@ -1618,6 +1602,8 @@ public final class MainActivity extends Activity {
 
   private void refreshStatus() {
     if (destroyed || !resumed) return;
+    map.setPhoneDirectionEnabled(
+        "Map".equals(currentPage) && store.prefs.getBoolean("phoneDirection", false));
     if (followingRecording != TrackingService.running) {
       followPosition();
     }
@@ -1681,6 +1667,28 @@ public final class MainActivity extends Activity {
         });
     content.addView(seconds, new LinearLayout.LayoutParams(-1, dp(64)));
     content.addView(label(getString(R.string.gps_interval_guidance), 13, MUTED, false));
+    Switch direction = new Switch(this);
+    direction.setText(R.string.phone_direction);
+    direction.setMinHeight(dp(56));
+    direction.setChecked(store.prefs.getBoolean("phoneDirection", false));
+    PhoneHeading compass =
+        new PhoneHeading(getSystemService(android.hardware.SensorManager.class), () -> 0, h -> {});
+    direction.setEnabled(compass.available());
+    direction.setOnCheckedChangeListener(
+        (button, checked) -> {
+          store.prefs.edit().putBoolean("phoneDirection", checked).apply();
+          refreshStatus();
+        });
+    content.addView(direction);
+    content.addView(
+        label(
+            getString(
+                compass.available()
+                    ? R.string.phone_direction_hint
+                    : R.string.phone_direction_unavailable),
+            13,
+            MUTED,
+            false));
     Switch alerts = new Switch(this);
     alerts.setText(R.string.off_route_alerts);
     alerts.setMinHeight(dp(56));
@@ -2144,16 +2152,14 @@ public final class MainActivity extends Activity {
     map.editRoute = planning ? plannedRoute : Collections.emptyList();
     map.editingPathId = planning && editingEntry != null ? editingEntry.id : "";
     map.invalidate();
-    if (planStatus != null)
-      planStatus.setText(
-          savingEdit
-              ? editingRecording() ? "Saving recording…" : "Saving route…"
-              : pendingRoute != null
-                  ? routingProgress == null ? "Downloading routing data…" : routingProgress
-                  : calculationRunning
-                      ? "Calculating on this device…"
-                      : waypoints.size()
-                          + " nodes · tap map to add · tap node to delete · drag to move");
+    feedback.planningProgress(
+        !planning
+            ? ""
+            : savingEdit
+                ? editingRecording() ? "Saving recording…" : "Saving route…"
+                : pendingRoute != null
+                    ? routingProgress == null ? "Downloading routing data…" : routingProgress
+                    : calculationRunning ? "Calculating on this device…" : "");
     updateSelectionActions();
   }
 

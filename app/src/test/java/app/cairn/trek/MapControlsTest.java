@@ -104,7 +104,11 @@ public class MapControlsTest {
         dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         slider = findType(dialog.getWindow().getDecorView(), SeekBar.class);
         slider.setProgress(GpsInterval.progress(seconds));
-        findType(dialog.getWindow().getDecorView(), Switch.class).setChecked(false);
+        ((Switch)
+                find(
+                    dialog.getWindow().getDecorView(),
+                    activity.getString(R.string.off_route_alerts)))
+            .setChecked(false);
         dialog.cancel();
         assertFalse(dialog.isShowing());
         assertEquals(seconds * 1000L, store.intervalMillis());
@@ -391,8 +395,10 @@ public class MapControlsTest {
       find(content, "Finish editing").getGlobalVisibleRect(editAfter);
       assertEquals(centerBefore, centerAfter);
       assertEquals(editBefore, editAfter);
-      // Undo widens the toolbar into the scale's horizontal area, so the scale moves above it.
-      assertEquals(272, map.scaleBottomOverlay);
+      // Editing has no permanent instruction banner; the scale stays at bottom left.
+      assertEquals(0, map.scaleBottomOverlay);
+      assertNull(find(content, "Tap to add nodes · drag nodes to move"));
+      assertNull(find(content, "2 nodes · tap map to add · tap node to delete · drag to move"));
       find(content, "Finish editing").performClick();
       assertFalse(map.editing);
       assertEquals(id, store.selectedLibraryId());

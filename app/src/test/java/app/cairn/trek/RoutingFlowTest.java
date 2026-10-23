@@ -349,7 +349,8 @@ public class RoutingFlowTest {
       throws Exception {
     Intent start = confirm();
     event(start.getStringExtra("request"), false, false, "Routing data · 1/2 · 50% · 10/20 MB");
-    assertEquals("Routing data · 1/2 · 50% · 10/20 MB", ((TextView) field("planStatus")).getText());
+    assertEquals(
+        "Routing data · 1/2 · 50% · 10/20 MB", ((AppFeedback) field("feedback")).view().getText());
     assertNull(find(activity.getWindow().getDecorView(), "Undo"));
     ((TrekMapView) field("map")).onLongPress.at(new Point(48, 6));
     assertEquals(2, points().size());

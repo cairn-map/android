@@ -21,7 +21,7 @@ final class AppFeedback implements AutoCloseable {
   private FrameLayout overlay;
   private Window overlayHost;
   private Notice current;
-  private String progress = "", lastUpdate = "";
+  private String progress = "", planningProgress = "", lastUpdate = "";
   private final Runnable advance =
       () -> {
         current = null;
@@ -94,6 +94,12 @@ final class AppFeedback implements AutoCloseable {
     render();
   }
 
+  void planningProgress(String text) {
+    if (planningProgress.equals(text)) return;
+    planningProgress = text;
+    render();
+  }
+
   private void next() {
     current = queue.pollFirst();
     render();
@@ -113,7 +119,8 @@ final class AppFeedback implements AutoCloseable {
 
   private void render() {
     Window window = windows.get(windows.size() - 1);
-    String text = current == null ? progress : current.text;
+    String text =
+        current != null ? current.text : planningProgress.isEmpty() ? progress : planningProgress;
     banner.setText(text);
     banner.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
     // A subwindow inherits its parent drawer's frame even with LAYOUT_IN_SCREEN.
@@ -194,6 +201,7 @@ final class AppFeedback implements AutoCloseable {
     current = null;
     queue.clear();
     progress = "";
+    planningProgress = "";
     render();
   }
 
