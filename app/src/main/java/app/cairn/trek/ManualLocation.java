@@ -55,7 +55,6 @@ final class ManualLocation {
     if (best != null) {
       hasResult = true;
       callback.found(point(best), true);
-      if (ageMillis(best) <= 30000 && best.getAccuracy() <= 50) return;
     }
     if (providers.isEmpty()) {
       if (!hasResult)

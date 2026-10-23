@@ -1228,11 +1228,6 @@ public final class MainActivity extends Activity {
   }
 
   private void setMapOnline(boolean value) {
-    if (value && TrackingService.running) {
-      message(
-          "Online preview stays off during recording. Finish the hike before preparing new maps.");
-      return;
-    }
     ignMap.online(value);
     if (value) {
       if (RoutingDownloadService.running)
@@ -1578,7 +1573,6 @@ public final class MainActivity extends Activity {
       return;
     }
     cancelLocate();
-    cancelSearch();
     cancelRoutingDownload();
     router.cancel();
     dataGeneration++;
@@ -1586,7 +1580,6 @@ public final class MainActivity extends Activity {
     trackLength = 0;
     map.track = track;
     map.position = null;
-    setMapOnline(false);
     if (DownloadService.running) stopService(new Intent(this, DownloadService.class));
     stopService(new Intent(this, RoutingDownloadService.class));
     try {
@@ -2091,10 +2084,6 @@ public final class MainActivity extends Activity {
   }
 
   private void searchPlaces() {
-    if (TrackingService.running) {
-      message("Search unavailable while recording");
-      return;
-    }
     cancelSearch();
     placeSearch.near(map.center());
     LinearLayout content = column();
@@ -2165,7 +2154,7 @@ public final class MainActivity extends Activity {
         new PlaceSearch.Callback() {
           @Override
           public void results(List<Address> places) {
-            if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+            if (!dialog.isShowing() || destroyed) return;
             results.removeAllViews();
             showSearchStatus.accept(places.isEmpty() ? "No results" : "");
             for (Address place : places) {
@@ -2187,7 +2176,7 @@ public final class MainActivity extends Activity {
 
           @Override
           public void unavailable(String reason) {
-            if (!dialog.isShowing() || destroyed || TrackingService.running) return;
+            if (!dialog.isShowing() || destroyed) return;
             showSearchStatus.accept(reason);
           }
         };

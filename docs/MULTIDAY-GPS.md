@@ -17,7 +17,7 @@ It establishes neither days of battery endurance nor superiority to another app.
 | Distance status | Every visible fix recalculated the entire hike length | Add only the new segment distance; rebuild the total when loading a recording; reset for a new/deleted hike |
 | Hidden map | Lifecycle already suppresses hidden drawing, tile reads and gesture loops | Preserve and rerun the complete virtual matrix |
 | Storage | Accepted fixes are written immediately to SQLite with WAL | Preserve process-death resilience; no memory-only multi-minute buffer or relaxed durability |
-| Network | Online preparation, downloads and search are already disabled during recording | Preserve offline operation; no accounts, sync or telemetry |
+| Network | Search and online map viewing are user-controlled during recording; bulk map/graph downloads remain blocked | Offline map viewing makes no tile requests; search only runs when used, and hidden map/search work is canceled. No accounts, sync or telemetry |
 
 Guidance still computes the same minimum as `Geo.routeDistance`, including disconnected segments,
 backtracking, poles and the dateline. Bounds cover both the spherical vertex distance and the

@@ -6,6 +6,8 @@ import android.content.*;
 import android.database.sqlite.SQLiteDatabase;
 import android.graphics.*;
 import java.io.*;
+import java.net.HttpURLConnection;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import org.robolectric.*;
@@ -26,7 +28,10 @@ public class TilePyramidTest {
     store = new PlanIgnStore(context);
   }
 
-  @After public void close() { store.close(); }
+  @After public void close() {
+    TrackingService.running = false;
+    store.close();
+  }
 
   private byte[] png(int color) {
     Bitmap bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
@@ -39,6 +44,35 @@ public class TilePyramidTest {
 
   private void save(int z, int x, int y, int color) {
     store.save(new TilePlanner.Tile(z, x, y), new IgnClient.Result(png(color), null, null));
+  }
+
+  @Test public void recordingFetchesMissingTilesOnlyWhenOnlineAndReusesSavedTiles() {
+    TrackingService.running = true;
+    AtomicInteger requests = new AtomicInteger();
+    byte[] bytes = png(Color.BLUE);
+    IgnClient client = new IgnClient(url -> {
+      requests.incrementAndGet();
+      return new HttpURLConnection(url) {
+        public void connect() {}
+        public void disconnect() {}
+        public boolean usingProxy() { return false; }
+        public int getResponseCode() { return 200; }
+        public InputStream getInputStream() { return new ByteArrayInputStream(bytes); }
+      };
+    });
+    try (IgnMap map = new IgnMap(context, client)) {
+      assertNull(map.tile(10, 512, 512));
+      assertEquals(0, requests.get());
+      map.online(true);
+      Bitmap fetched = map.tile(10, 512, 512);
+      assertNotNull(fetched);
+      assertEquals(Color.BLUE, fetched.getPixel(32, 32));
+      assertEquals(1, requests.get());
+      map.online(false);
+      assertNotNull(map.tile(10, 512, 512));
+      assertNull(map.tile(10, 513, 512));
+      assertEquals(1, requests.get());
+    }
   }
 
   @Test public void firstOfflineReadUsesSavedChildrenAndKeepsOverviewInGaps() {
