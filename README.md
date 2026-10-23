@@ -53,6 +53,8 @@ The app holds no continuous wake lock, screen-on request, map animation loop or 
 
 Hidden recording persists every accepted fix without sending unused UI broadcasts; notification timestamps refresh on received fixes at most every five minutes while hidden. Route guidance skips provably distant route blocks, and map checks reuse projected paths instead of repeatedly projecting the accumulated track. The GPS drawer explains 20–30-second trekking, 5–10-second switchback and 60-second sparse-recording choices. The default remains 20 seconds. See the [multi-day efficiency audit and reproducible interval study](docs/MULTIDAY-GPS.md).
 
+Offline transfers sleep while waiting for completions, server retry deadlines or transfer capacity; cancellation wakes them immediately. Map redraws reuse viewport metadata and attribution, download progress preserves useful pending reads, and the library shares the live recording geometry. Route guidance copies and tile refreshes avoid redundant point binding and PNG reads. See the [app efficiency audit](docs/OPTIMIZATION-AUDIT.md).
+
 If Android kills the recording process, committed points remain but recording does not automatically resume. Reopen Cairn, inspect/export the previous hike, and explicitly start a new recording. Turn alerts are not implemented; off-route alerts use existing fixes and can be delayed by long intervals.
 
 ## Build and validation

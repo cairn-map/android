@@ -86,6 +86,31 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void guidanceCopiesPreservePointOrderGapsAndNullableElevation() {
+    List<Point> geometry =
+        List.of(
+            new Point(45, 6, Double.NaN, 3000, 4, 0),
+            new Point(45.01, 6.02, 1200, 1000, 5, 2),
+            new Point(45.02, 6.03, Double.NaN, 1000, 6, 2));
+    try (Store store = new Store(context)) {
+      String id = store.saveRoute(geometry, "Segments");
+      store.saveRoute(points(46), "Other");
+      store.activateRoute(id);
+      List<Point> guidance = store.read("route");
+      assertEquals(geometry.size(), guidance.size());
+      for (int i = 0; i < geometry.size(); i++) {
+        Point expected = geometry.get(i), actual = guidance.get(i);
+        assertEquals(expected.lat, actual.lat, 0);
+        assertEquals(expected.lon, actual.lon, 0);
+        assertEquals(expected.elevation, actual.elevation, 0);
+        assertEquals(expected.time, actual.time);
+        assertEquals(expected.accuracy, actual.accuracy, 0);
+        assertEquals(expected.segment, actual.segment);
+      }
+    }
+  }
+
+  @Test
   public void deletingTheSelectedRouteRetainsOtherGpxFilesAndRecordings() {
     try (Store store = new Store(context)) {
       String a = store.saveRoute(points(45), "A"), b = store.saveRoute(points(46), "B");

@@ -67,6 +67,49 @@ public class MapRenderingTest {
     return (ThreadPoolExecutor) field.get(view);
   }
 
+  @Test
+  public void unchangedDrawsReuseViewportAndAttributionButCameraChangesRefreshTiles()
+      throws Exception {
+    java.util.concurrent.atomic.AtomicInteger attributions =
+        new java.util.concurrent.atomic.AtomicInteger();
+    TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+    view.source(
+        new EmptySource() {
+          @Override
+          public String attribution() {
+            attributions.incrementAndGet();
+            return "<b>Saved map</b>";
+          }
+        });
+    Field visible = TrekMapView.class.getDeclaredField("visibleTiles");
+    visible.setAccessible(true);
+    try {
+      Bitmap initial = draw(view);
+      Object tiles = visible.get(view);
+      Bitmap unchanged = draw(view);
+      assertSame("An unchanged camera must reuse the ordered viewport", tiles, visible.get(view));
+      assertTrue(initial.sameAs(unchanged));
+      assertEquals(1, attributions.get());
+      view.zoom(1);
+      draw(view).recycle();
+      assertNotSame(tiles, visible.get(view));
+      Object zoomed = visible.get(view);
+      view.layout(0, 0, 500, 900);
+      Bitmap resized = Bitmap.createBitmap(500, 900, Bitmap.Config.ARGB_8888);
+      view.draw(new Canvas(resized));
+      assertNotSame(zoomed, visible.get(view));
+      view.setRenderingEnabled(false);
+      view.setRenderingEnabled(true);
+      view.draw(new Canvas(resized));
+      assertEquals(1, attributions.get());
+      initial.recycle();
+      unchanged.recycle();
+      resized.recycle();
+    } finally {
+      view.dispose();
+    }
+  }
+
   private void drain(TrekMapView view) throws Exception {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     while (executor(view).getActiveCount() != 0 || !executor(view).getQueue().isEmpty()) {
@@ -116,6 +159,52 @@ public class MapRenderingTest {
       drain(view);
       assertTrue(calls.get() > pausedCalls);
       assertTrue(cache(view).size() > 0);
+    } finally {
+      release.countDown();
+      view.dispose();
+    }
+  }
+
+  @Test
+  public void savedTileProgressKeepsPendingReadsAndRetriesPreviouslyMissingTiles()
+      throws Exception {
+    TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+    CountDownLatch started = new CountDownLatch(1), release = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicInteger cancellations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    view.source(
+        new EmptySource() {
+          public Bitmap tile(int z, int x, int y) {
+            started.countDown();
+            try {
+              assertTrue(release.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException error) {
+              Thread.currentThread().interrupt();
+            }
+            return null;
+          }
+
+          public void cancelRequests() {
+            cancellations.incrementAndGet();
+          }
+        });
+    try {
+      draw(view).recycle();
+      assertTrue(started.await(2, TimeUnit.SECONDS));
+      long tasks = executor(view).getTaskCount();
+      view.tilesAdded();
+      draw(view).recycle();
+      assertEquals(tasks, executor(view).getTaskCount());
+      assertEquals(0, cancellations.get());
+      release.countDown();
+      drain(view);
+      draw(view).recycle();
+      assertEquals(tasks, executor(view).getTaskCount());
+      view.tilesAdded();
+      draw(view).recycle();
+      drain(view);
+      assertTrue(executor(view).getTaskCount() > tasks);
+      assertEquals(0, cancellations.get());
     } finally {
       release.countDown();
       view.dispose();

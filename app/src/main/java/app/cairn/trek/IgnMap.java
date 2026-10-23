@@ -58,7 +58,10 @@ public final class IgnMap implements TileSource, AutoCloseable {
         synchronized (this) {
           if (closed) return null;
           store.save(tile, result);
-          cached = store.cached(tile);
+          cached =
+              result.bytes == null
+                  ? store.cached(tile)
+                  : new PlanIgnStore.Cached(result.bytes, result.etag, result.modified);
         }
         lastError = null;
       } catch (java.io.IOException | RuntimeException failure) {

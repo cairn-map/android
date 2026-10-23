@@ -139,7 +139,7 @@ public final class Store extends SQLiteOpenHelper {
       db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
       for (Point point : points) add(id, point);
       for (Point node : nodes) add("nodes:" + id, node);
-      replaceRoute(points);
+      copyGuidance(id);
       db.setTransactionSuccessful();
     } finally {
       db.endTransaction();
@@ -169,7 +169,7 @@ public final class Store extends SQLiteOpenHelper {
       db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
       for (Point point : points) add(id, point);
       for (Point node : nodes) add("nodes:" + id, node);
-      if (id.equals(prefs.getString("activeRouteId", ""))) replaceRoute(points);
+      if (id.equals(prefs.getString("activeRouteId", ""))) copyGuidance(id);
       db.setTransactionSuccessful();
     } finally {
       db.endTransaction();
@@ -179,7 +179,7 @@ public final class Store extends SQLiteOpenHelper {
   public List<Point> activateRoute(String id) {
     List<Point> points = read(id);
     if (points.isEmpty()) throw new IllegalArgumentException("This route has no points");
-    replaceRoute(points);
+    copyGuidance(id);
     prefs
         .edit()
         .putString("activeRouteId", id)
@@ -187,6 +187,23 @@ public final class Store extends SQLiteOpenHelper {
         .putBoolean("follow", true)
         .apply();
     return points;
+  }
+
+  private void copyGuidance(String id) {
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      db.delete("points", "collection=?", new String[] {"route"});
+      // Copy stored geometry in SQLite instead of constructing/binding every point again.
+      db.execSQL(
+          "INSERT INTO points(collection,lat,lon,elevation,time,accuracy,segment)"
+              + " SELECT 'route',lat,lon,elevation,time,accuracy,segment FROM points"
+              + " WHERE collection=? ORDER BY id",
+          new String[] {id});
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
   }
 
   public void routeVisible(String id, boolean visible) {

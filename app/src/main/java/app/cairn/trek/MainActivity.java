@@ -86,7 +86,8 @@ public final class MainActivity extends Activity {
           if (DownloadService.EVENT.equals(i.getAction())) {
             if (downloadStatus != null) downloadStatus.setText(i.getStringExtra("message"));
             boolean finished = i.getBooleanExtra("finished", false);
-            map.refreshTiles(finished);
+            if (finished) map.refreshTiles(true);
+            else map.tilesAdded();
             if (finished && "Routes".equals(currentPage)) showPage("Routes");
             if (finished && mapDialog != null && mapDialog.isShowing()) {
               mapDialog.dismiss();
@@ -525,7 +526,12 @@ public final class MainActivity extends Activity {
           List<Point> selectionPoints = Collections.emptyList();
           boolean activeVisible = true;
           for (Store.LibraryEntry entry : entries) {
-            List<Point> points = entry.visible ? store.read(entry.id) : Collections.emptyList();
+            // The current recording already has a live list, loaded by loadPoints().
+            // Rendering and selection use that list; do not read a second full copy here.
+            List<Point> points =
+                entry.visible && !entry.id.equals(current)
+                    ? store.read(entry.id)
+                    : Collections.emptyList();
             paths.add(new TrekMapView.LibraryPath(entry, points));
             if (entry.id.equals(selected) && entry.visible) {
               selection = entry;
@@ -1411,15 +1417,19 @@ public final class MainActivity extends Activity {
       return;
     }
     if (intervalChip != null)
-      intervalChip.setText(getString(R.string.gps_interval, store.intervalMillis() / 1000));
+      setStatusText(intervalChip, getString(R.string.gps_interval, store.intervalMillis() / 1000));
     if (status != null) {
       String text = String.format(Locale.getDefault(), "%.1f km", trackLength / 1000);
       if (map.position == null) text += "\nAwaiting GPS";
       else text += "\n±" + Math.round(map.position.accuracy) + " m";
-      status.setText(text);
+      setStatusText(status, text);
     }
     if (recordButton != null)
-      recordButton.setText(TrackingService.running ? "Finish" : "Start hike");
+      setStatusText(recordButton, TrackingService.running ? "Finish" : "Start hike");
+  }
+
+  private void setStatusText(TextView view, String text) {
+    if (!text.contentEquals(view.getText())) view.setText(text);
   }
 
   private void batterySettings() {
