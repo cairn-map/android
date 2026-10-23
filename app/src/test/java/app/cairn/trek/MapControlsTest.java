@@ -380,8 +380,10 @@ public class MapControlsTest {
       drain(activity);
       assertTrue(map.editing);
       assertTrue(find(content, "Finish editing").isSelected());
-      for (String oldAction : List.of("Route", "More", "Undo"))
+      for (String oldAction : List.of("Route", "More"))
         assertNull(find(content, oldAction));
+      assertNotNull(find(content, "Undo last edit"));
+      assertFalse(find(content, "Undo last edit").isEnabled());
       savePreview(content, 786, 1550, "route-edit-toggle");
       android.graphics.Rect centerAfter = new android.graphics.Rect();
       android.graphics.Rect editAfter = new android.graphics.Rect();
@@ -389,7 +391,8 @@ public class MapControlsTest {
       find(content, "Finish editing").getGlobalVisibleRect(editAfter);
       assertEquals(centerBefore, centerAfter);
       assertEquals(editBefore, editAfter);
-      assertEquals(136, map.scaleBottomOverlay);
+      // Undo widens the toolbar into the scale's horizontal area, so the scale moves above it.
+      assertEquals(272, map.scaleBottomOverlay);
       find(content, "Finish editing").performClick();
       assertFalse(map.editing);
       assertEquals(id, store.selectedLibraryId());

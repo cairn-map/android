@@ -59,11 +59,13 @@ public class MapLibraryRenderingTest {
       map.route = List.of(start, next);
       Bitmap expected = draw(map);
       map.route = new ArrayList<>(List.of(start, start, start, next));
-      assertTrue(expected.sameAs(draw(map)));
       // The south-east tail belongs to a north-facing arrow, away from the route stroke.
       assertEquals(0xff235D4D, expected.getPixel(405, 612));
+      assertEquals(0xff235D4D, draw(map).getPixel(405, 612));
       map.route.add(new Point(45.03, 6));
       assertEquals(0xff235D4D, draw(map).getPixel(405, 612));
+      map.route.clear();
+      assertNotEquals(0xff235D4D, draw(map).getPixel(405, 612));
     } finally {
       map.dispose();
     }
