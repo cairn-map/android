@@ -21,6 +21,72 @@ import org.robolectric.annotation.*;
 @SQLiteMode(SQLiteMode.Mode.LEGACY)
 public class DownloadServiceTest {
   @Test
+  public void stalledDownloadsSleepUntilCompletionAndPauseInterruptsTheCoordinator()
+      throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    context.deleteDatabase("plan-ign.mbtiles");
+    DownloadService.running = false;
+    TrackingService.running = false;
+    CountDownLatch started = new CountDownLatch(IgnClient.PARALLELISM);
+    CountDownLatch released = new CountDownLatch(1);
+    try (PlanIgnStore store = new PlanIgnStore(context)) {
+      Set<TilePlanner.Tile> tiles = new HashSet<>();
+      for (int x = 0; x < IgnClient.PARALLELISM; x++) tiles.add(new TilePlanner.Tile(17, x, 50000));
+      String id = store.create("Stalled", new TilePlanner.Plan(tiles, new Point(45, 6)));
+      ServiceController<DownloadService> controller =
+          Robolectric.buildService(DownloadService.class).create();
+      DownloadService service = controller.get();
+      service.client =
+          new IgnClient(
+              url ->
+                  new HttpURLConnection(url) {
+                    public int getResponseCode() throws IOException {
+                      started.countDown();
+                      try {
+                        released.await();
+                      } catch (InterruptedException error) {
+                        throw new InterruptedIOException();
+                      }
+                      throw new IOException("Canceled");
+                    }
+
+                    public void
+                        disconnect() {} // Simulate a transport that needs interruption to unblock.
+
+                    public void connect() {}
+
+                    public boolean usingProxy() {
+                      return false;
+                    }
+                  });
+      try {
+        service.onStartCommand(
+            new Intent(context, DownloadService.class).putExtra("pack", id), 0, 1);
+        assertTrue(started.await(3, TimeUnit.SECONDS));
+        java.lang.reflect.Field field = DownloadService.class.getDeclaredField("coordinator");
+        field.setAccessible(true);
+        Thread coordinator = (Thread) field.get(service);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (coordinator.getState() != Thread.State.WAITING && System.nanoTime() < deadline)
+          Thread.sleep(5);
+        assertEquals(
+            "No timed polling while transfers are stalled",
+            Thread.State.WAITING,
+            coordinator.getState());
+        service.onStartCommand(
+            new Intent(context, DownloadService.class).setAction(DownloadService.PAUSE), 0, 2);
+        awaitFinished();
+        assertEquals("paused", store.packs().get(0).state);
+        assertEquals(0, store.packs().get(0).done);
+      } finally {
+        released.countDown();
+        controller.destroy();
+        awaitFinished();
+      }
+    }
+  }
+
+  @Test
   public void stalledTileDoesNotHoldUpThePipelineAndPauseRemainsResumable() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
     context.deleteDatabase("plan-ign.mbtiles");

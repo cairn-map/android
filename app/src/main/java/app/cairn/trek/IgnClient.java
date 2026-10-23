@@ -8,8 +8,8 @@ import java.util.function.BooleanSupplier;
 public final class IgnClient {
   public static final String LAYER = "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2";
   public static final int PARALLELISM = 32;
-  private static final java.util.concurrent.Semaphore slots =
-      new java.util.concurrent.Semaphore(PARALLELISM, true);
+  private static final Object availability = new Object();
+  private static int transfers;
   private static volatile long retryAfterNanos;
   private final java.util.Map<HttpURLConnection, BooleanSupplier> active =
       new java.util.concurrent.ConcurrentHashMap<>();
@@ -57,25 +57,31 @@ public final class IgnClient {
       throw new InterruptedIOException("Download paused");
   }
 
-  private static void waitFor(long millis, BooleanSupplier cancelled) throws IOException {
-    long until = System.nanoTime() + millis * 1_000_000L;
-    while (System.nanoTime() < until) {
-      check(cancelled);
-      try {
-        Thread.sleep(Math.min(200, Math.max(1, (until - System.nanoTime()) / 1_000_000)));
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new InterruptedIOException("Download paused");
+  /** Sleep until capacity, the server deadline or cancellation changes; no polling wakeups. */
+  private static void awaitAvailability(BooleanSupplier cancelled, boolean acquire)
+      throws IOException {
+    synchronized (availability) {
+      while (true) {
+        check(cancelled);
+        long delay = retryAfterNanos - System.nanoTime();
+        if (delay <= 0 && (!acquire || transfers < PARALLELISM)) {
+          if (acquire) transfers++;
+          return;
+        }
+        try {
+          if (delay > 0) java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(availability, delay);
+          else availability.wait();
+        } catch (InterruptedException error) {
+          Thread.currentThread().interrupt();
+          throw new InterruptedIOException("Download paused");
+        }
       }
     }
   }
 
-  private static void awaitServer(BooleanSupplier cancelled) throws IOException {
-    while (true) {
-      check(cancelled);
-      long delay = (retryAfterNanos - System.nanoTime() + 999999) / 1_000_000;
-      if (delay <= 0) return;
-      waitFor(delay, cancelled);
+  private static void wakeWaiters() {
+    synchronized (availability) {
+      availability.notifyAll();
     }
   }
 
@@ -84,21 +90,14 @@ public final class IgnClient {
       throws IOException {
     int epoch = generation.get();
     BooleanSupplier stop = () -> cancelled.getAsBoolean() || epoch != generation.get();
-    boolean acquired = false;
+    awaitAvailability(stop, true);
     try {
-      while (!acquired) {
-        check(stop);
-        awaitServer(stop);
-        try {
-          acquired = slots.tryAcquire(100, java.util.concurrent.TimeUnit.MILLISECONDS);
-        } catch (InterruptedException error) {
-          Thread.currentThread().interrupt();
-          throw new InterruptedIOException("Download paused");
-        }
-      }
       return fetchWithSlot(tile, etag, modified, stop);
     } finally {
-      if (acquired) slots.release();
+      synchronized (availability) {
+        transfers--;
+        availability.notifyAll();
+      }
     }
   }
 
@@ -107,7 +106,7 @@ public final class IgnClient {
       throws IOException {
     for (int attempt = 0; attempt < 3; attempt++) {
       check(stop);
-      awaitServer(stop);
+      awaitAvailability(stop, false);
       HttpURLConnection connection = connections.open(new URL(url(tile)));
       active.put(connection, stop);
       connection.setConnectTimeout(10000);
@@ -123,7 +122,7 @@ public final class IgnClient {
         int code = connection.getResponseCode();
         if (code == 429 || code == 503) {
           long retry = retryDelayMillis(connection.getHeaderField("Retry-After"), attempt);
-          synchronized (IgnClient.class) {
+          synchronized (availability) {
             retryAfterNanos = Math.max(retryAfterNanos, System.nanoTime() + retry * 1_000_000L);
           }
           if (attempt == 2)
@@ -225,6 +224,7 @@ public final class IgnClient {
 
   /** Disconnect only transfers whose individual viewport request became obsolete. */
   public void cancelObsolete() {
+    wakeWaiters();
     active.forEach(
         (connection, stop) -> {
           if (stop.getAsBoolean()) connection.disconnect();
@@ -233,6 +233,7 @@ public final class IgnClient {
 
   public void cancel() {
     generation.incrementAndGet();
+    wakeWaiters();
     for (HttpURLConnection connection : active.keySet()) connection.disconnect();
   }
 }

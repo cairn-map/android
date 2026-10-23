@@ -90,10 +90,21 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public Cached cached(TilePlanner.Tile t) {
+    return cached(t, true);
+  }
+
+  /** Conditional requests need validators only, not another copy of the saved PNG. */
+  public Cached validators(TilePlanner.Tile t) {
+    return cached(t, false);
+  }
+
+  private Cached cached(TilePlanner.Tile t, boolean bytes) {
     try (Cursor c =
         getReadableDatabase()
             .rawQuery(
-                "SELECT tile_data,etag,modified FROM tiles WHERE zoom_level=? AND tile_column=? AND"
+                "SELECT "
+                    + (bytes ? "tile_data" : "NULL")
+                    + ",etag,modified FROM tiles WHERE zoom_level=? AND tile_column=? AND"
                     + " tile_row=?",
                 args(t))) {
       return c.moveToFirst() ? new Cached(c.getBlob(0), c.getString(1), c.getString(2)) : null;

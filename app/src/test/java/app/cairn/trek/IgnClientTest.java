@@ -151,6 +151,180 @@ public class IgnClientTest {
   }
 
   @Test
+  public void busyServerWaitDoesNotPollAndCancellationWakesItImmediately() throws Exception {
+    CountDownLatch busy = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicBoolean obsolete = new java.util.concurrent.atomic.AtomicBoolean();
+    java.util.concurrent.atomic.AtomicInteger checks =
+        new java.util.concurrent.atomic.AtomicInteger();
+    IgnClient client =
+        new IgnClient(
+            url ->
+                new HttpURLConnection(url) {
+                  public int getResponseCode() {
+                    return 503;
+                  }
+
+                  public String getHeaderField(String name) {
+                    if ("Retry-After".equals(name)) {
+                      busy.countDown();
+                      return "120";
+                    }
+                    return null;
+                  }
+
+                  public void disconnect() {}
+
+                  public void connect() {}
+
+                  public boolean usingProxy() {
+                    return false;
+                  }
+                });
+    ExecutorService worker = Executors.newSingleThreadExecutor();
+    try {
+      Future<?> result =
+          worker.submit(
+              () ->
+                  client.fetch(
+                      new TilePlanner.Tile(10, 0, 512),
+                      null,
+                      null,
+                      () -> {
+                        checks.incrementAndGet();
+                        return obsolete.get();
+                      }));
+      assertTrue(busy.await(2, TimeUnit.SECONDS));
+      assertThrows(TimeoutException.class, () -> result.get(350, TimeUnit.MILLISECONDS));
+      int asleep = checks.get();
+      assertThrows(TimeoutException.class, () -> result.get(500, TimeUnit.MILLISECONDS));
+      assertEquals("Backoff must not repeatedly wake to poll cancellation", asleep, checks.get());
+      obsolete.set(true);
+      client.cancelObsolete();
+      ExecutionException error =
+          assertThrows(ExecutionException.class, () -> result.get(2, TimeUnit.SECONDS));
+      assertTrue(error.getCause() instanceof InterruptedIOException);
+    } finally {
+      client.cancel();
+      worker.shutdownNow();
+      // The server deadline is global across clients; isolate this simulated busy server.
+      java.lang.reflect.Field deadline = IgnClient.class.getDeclaredField("retryAfterNanos");
+      deadline.setAccessible(true);
+      deadline.setLong(null, 0);
+    }
+  }
+
+  @Test
+  public void retryDeadlineResumesTheRequestWithoutPollingOrAnotherUserAction() throws Exception {
+    java.util.concurrent.atomic.AtomicInteger attempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    byte[] bytes = png();
+    IgnClient client =
+        new IgnClient(
+            url ->
+                new HttpURLConnection(url) {
+                  public int getResponseCode() {
+                    return attempts.getAndIncrement() == 0 ? 503 : 200;
+                  }
+
+                  public String getHeaderField(String name) {
+                    return "Retry-After".equals(name) ? "1" : null;
+                  }
+
+                  public String getContentType() {
+                    return "image/png";
+                  }
+
+                  public InputStream getInputStream() {
+                    return new ByteArrayInputStream(bytes);
+                  }
+
+                  public void disconnect() {}
+
+                  public void connect() {}
+
+                  public boolean usingProxy() {
+                    return false;
+                  }
+                });
+    ExecutorService worker = Executors.newSingleThreadExecutor();
+    long started = System.nanoTime();
+    try {
+      Future<IgnClient.Result> result =
+          worker.submit(
+              () -> client.fetch(new TilePlanner.Tile(10, 0, 512), null, null, () -> false));
+      assertArrayEquals(bytes, result.get(4, TimeUnit.SECONDS).bytes);
+      assertTrue(System.nanoTime() - started >= TimeUnit.SECONDS.toNanos(1));
+      assertEquals(2, attempts.get());
+    } finally {
+      client.cancel();
+      worker.shutdownNow();
+    }
+  }
+
+  @Test
+  public void cancellationWakesARequestWaitingForATransferSlot() throws Exception {
+    CountDownLatch full = new CountDownLatch(IgnClient.PARALLELISM);
+    CountDownLatch released = new CountDownLatch(1);
+    IgnClient client =
+        new IgnClient(
+            url ->
+                new HttpURLConnection(url) {
+                  public int getResponseCode() throws IOException {
+                    full.countDown();
+                    try {
+                      released.await();
+                    } catch (InterruptedException error) {
+                      throw new InterruptedIOException();
+                    }
+                    throw new IOException("Canceled transfer");
+                  }
+
+                  public void disconnect() {
+                    released.countDown();
+                  }
+
+                  public void connect() {}
+
+                  public boolean usingProxy() {
+                    return false;
+                  }
+                });
+    ExecutorService workers = Executors.newFixedThreadPool(IgnClient.PARALLELISM + 1);
+    List<Future<?>> requests = new ArrayList<>();
+    try {
+      for (int i = 0; i < IgnClient.PARALLELISM; i++)
+        requests.add(
+            workers.submit(
+                () -> client.fetch(new TilePlanner.Tile(10, 0, 512), null, null, () -> false)));
+      assertTrue(full.await(2, TimeUnit.SECONDS));
+      CountDownLatch waiting = new CountDownLatch(1);
+      Future<?> queued =
+          workers.submit(
+              () ->
+                  client.fetch(
+                      new TilePlanner.Tile(10, 1, 512),
+                      null,
+                      null,
+                      () -> {
+                        waiting.countDown();
+                        return false;
+                      }));
+      requests.add(queued);
+      assertTrue(waiting.await(2, TimeUnit.SECONDS));
+      assertFalse(queued.isDone());
+      client.cancel();
+      ExecutionException error =
+          assertThrows(ExecutionException.class, () -> queued.get(2, TimeUnit.SECONDS));
+      assertTrue(error.getCause() instanceof InterruptedIOException);
+    } finally {
+      client.cancel();
+      released.countDown();
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(3, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
   public void viewportCancellationDisconnectsObsoleteTransfersAndKeepsUsefulOnes()
       throws Exception {
     CountDownLatch started = new CountDownLatch(2);

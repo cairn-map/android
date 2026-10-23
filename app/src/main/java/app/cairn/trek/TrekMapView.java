@@ -70,6 +70,11 @@ public final class TrekMapView extends View {
   private final Map<String, TileRequest> pending = new HashMap<>();
   private final Set<String> missing = new HashSet<>();
   private Set<String> viewport = Collections.emptySet();
+  private Map<String, TilePlanner.Tile> visibleTiles = Collections.emptyMap();
+  private double visibleX = Double.NaN, visibleY;
+  private float visibleSize;
+  private int visibleZoom, visibleWidth, visibleHeight;
+  private String attribution = "";
   private final LruCache<String, Bitmap> cache =
       new LruCache<String, Bitmap>(12 * 1024 * 1024) {
         @Override
@@ -515,6 +520,13 @@ public final class TrekMapView extends View {
     executor.getQueue().clear();
     if (source != null) source.cancelRequests();
     source = value;
+    attribution =
+        value == null
+            ? ""
+            : android.text.Html.fromHtml(
+                    value.attribution(), android.text.Html.FROM_HTML_MODE_LEGACY)
+                .toString();
+    if (attribution.length() > 100) attribution = attribution.substring(0, 100) + "…";
     cache.evictAll();
     cacheChanged = true;
     cachedTiles.clear();
@@ -690,6 +702,12 @@ public final class TrekMapView extends View {
       previousTiles.clear();
     }
     invalidate();
+  }
+
+  /** Newly saved tiles can fill gaps without restarting useful viewport reads/transfers. */
+  public void tilesAdded() {
+    missing.clear();
+    if (canRender()) invalidate();
   }
 
   public void reloadOnlineTiles() {
@@ -962,10 +980,8 @@ public final class TrekMapView extends View {
         c.drawRect(destination, paint);
       }
     if (source != null && active) {
-      List<TilePlanner.Tile> visible =
-          TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), tileSize);
-      Set<String> keys = new HashSet<>();
-      for (TilePlanner.Tile tile : visible) keys.add(tile.z + "/" + tile.x + "/" + tile.y);
+      prepareVisibleTiles(cx, cy, tileSize);
+      Set<String> keys = visibleTiles.keySet();
       if (!keys.equals(viewport)) {
         viewport = keys;
         missing.retainAll(keys);
@@ -981,10 +997,11 @@ public final class TrekMapView extends View {
         source.cancelObsoleteRequests();
       }
       boolean complete = true;
-      for (TilePlanner.Tile tile : visible) {
-        String key = tile.z + "/" + tile.x + "/" + tile.y;
+      for (Map.Entry<String, TilePlanner.Tile> entry : visibleTiles.entrySet()) {
+        String key = entry.getKey();
         if (cache.get(key) == null) {
           complete = false;
+          TilePlanner.Tile tile = entry.getValue();
           request(key, tile.z, tile.x, tile.y);
         }
       }
@@ -1091,10 +1108,7 @@ public final class TrekMapView extends View {
     paint.setTextAlign(Paint.Align.LEFT);
     paint.setTextSize(dp(10));
     if (source != null && !(source instanceof IgnMap)) {
-      String text =
-          android.text.Html.fromHtml(source.attribution(), android.text.Html.FROM_HTML_MODE_LEGACY)
-              .toString();
-      if (text.length() > 100) text = text.substring(0, 100) + "…";
+      String text = attribution;
       float width = paint.measureText(text) + dp(16);
       paint.setColor(AppPalette.SURFACE);
       c.drawRect(dp(4), dp(5), Math.min(getWidth(), width), dp(26), paint);
@@ -1144,10 +1158,16 @@ public final class TrekMapView extends View {
     }
     int drawn = 0;
     double world = 1 << zoom;
-    List<CachedTile> backdrop = new ArrayList<>(previousTiles);
-    backdrop.addAll(cachedTiles);
-    backdrop.sort(Comparator.comparingInt(tile -> tile.z));
-    for (CachedTile tile : backdrop) {
+    // Both lists are sorted when their contents change. Merge them without allocating or
+    // sorting another list on every frame, keeping fresh tiles above old tiles at equal zoom.
+    int previous = 0, current = 0;
+    while (previous < previousTiles.size() || current < cachedTiles.size()) {
+      CachedTile tile =
+          current == cachedTiles.size()
+                  || previous < previousTiles.size()
+                      && previousTiles.get(previous).z <= cachedTiles.get(current).z
+              ? previousTiles.get(previous++)
+              : cachedTiles.get(current++);
       double factor = Math.scalb(1, zoom - tile.z);
       double dx = (tile.x + 0.5) * factor - cx;
       dx -= Math.rint(dx / world) * world;
@@ -1161,6 +1181,24 @@ public final class TrekMapView extends View {
       drawn++;
     }
     return drawn;
+  }
+
+  private void prepareVisibleTiles(double cx, double cy, float size) {
+    if (cx == visibleX
+        && cy == visibleY
+        && size == visibleSize
+        && zoom == visibleZoom
+        && getWidth() == visibleWidth
+        && getHeight() == visibleHeight) return;
+    visibleTiles = new LinkedHashMap<>();
+    for (TilePlanner.Tile tile : TileViewport.ordered(zoom, cx, cy, getWidth(), getHeight(), size))
+      visibleTiles.put(tile.z + "/" + tile.x + "/" + tile.y, tile);
+    visibleX = cx;
+    visibleY = cy;
+    visibleSize = size;
+    visibleZoom = zoom;
+    visibleWidth = getWidth();
+    visibleHeight = getHeight();
   }
 
   private static final class CachedTile {

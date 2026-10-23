@@ -10,6 +10,7 @@ public final class DownloadService extends Service {
   public static volatile boolean running = false;
   public static volatile String activePack;
   private volatile boolean cancelled = false;
+  private volatile Thread coordinator;
   IgnClient client = new IgnClient();
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
@@ -25,8 +26,7 @@ public final class DownloadService extends Service {
   @Override
   public int onStartCommand(Intent intent, int flags, int startId) {
     if (intent == null || PAUSE.equals(intent.getAction())) {
-      cancelled = true;
-      client.cancel();
+      cancelDownload();
       if (!running) stopSelf();
       return START_NOT_STICKY;
     }
@@ -45,6 +45,7 @@ public final class DownloadService extends Service {
   }
 
   private void download(String id) {
+    coordinator = Thread.currentThread();
     String outcome = "paused", error = null;
     int done = 0, total = 0;
     ExecutorService transfers = Executors.newFixedThreadPool(IgnClient.PARALLELISM);
@@ -69,7 +70,7 @@ public final class DownloadService extends Service {
               && !cancelled
               && !TrackingService.running) {
             TilePlanner.Tile tile = remaining.next();
-            PlanIgnStore.Cached cached = store.cached(tile);
+            PlanIgnStore.Cached cached = store.validators(tile);
             completed.submit(
                 () -> {
                   IgnClient.Result result =
@@ -84,8 +85,7 @@ public final class DownloadService extends Service {
             inFlight++;
           }
           if (inFlight == 0) break;
-          Future<Runnable> result = completed.poll(100, TimeUnit.MILLISECONDS);
-          if (result == null) continue;
+          Future<Runnable> result = completed.take();
           if (cancelled || TrackingService.running) break;
           result.get().run();
           inFlight--;
@@ -111,6 +111,7 @@ public final class DownloadService extends Service {
     } catch (Exception e) {
       error = e.getMessage();
     } finally {
+      coordinator = null;
       transfers.shutdownNow();
       String message =
           "complete".equals(outcome)
@@ -162,18 +163,23 @@ public final class DownloadService extends Service {
 
   @Override
   public void onTimeout(int startId, int type) {
-    cancelled = true;
-    client.cancel();
+    cancelDownload();
     stopSelf();
   }
 
   @Override
   public void onDestroy() {
-    cancelled = true;
-    client.cancel();
+    cancelDownload();
     worker.shutdown();
     stopForeground(STOP_FOREGROUND_REMOVE);
     super.onDestroy();
+  }
+
+  private void cancelDownload() {
+    cancelled = true;
+    Thread thread = coordinator;
+    if (thread != null) thread.interrupt();
+    client.cancel();
   }
 
   @Override

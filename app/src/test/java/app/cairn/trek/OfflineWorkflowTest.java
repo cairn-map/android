@@ -54,6 +54,21 @@ public class OfflineWorkflowTest {
   }
 
   @Test
+  public void conditionalRefreshReadsOnlyValidatorsAndKeepsTheSavedPngOnNotModified()
+      throws Exception {
+    TilePlanner.Tile tile = new TilePlanner.Tile(8, 132, 91);
+    byte[] png = IgnClientTest.png();
+    store.save(tile, new IgnClient.Result(png, "etag", "modified"));
+    PlanIgnStore.Cached validators = store.validators(tile);
+    assertNull(validators.bytes);
+    assertEquals("etag", validators.etag);
+    assertEquals("modified", validators.modified);
+    store.save(tile, new IgnClient.Result(null, validators.etag, validators.modified));
+    assertArrayEquals(png, store.cached(tile).bytes);
+    assertNull(store.validators(new TilePlanner.Tile(8, 133, 91)));
+  }
+
+  @Test
   public void parallelBatchesContainDistinctPendingTilesAndResumeOnlyUncommittedTiles()
       throws Exception {
     String id = store.create("Parallel", TilePlanner.area(6.86, 45.92, 6.88, 45.94, 17));

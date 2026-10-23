@@ -134,6 +134,26 @@ public class UnifiedLibraryTest {
   }
 
   @Test
+  public void currentRecordingUsesTheLiveTrackWithoutASecondLibraryCopy() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      TrekMapView.LibraryPath current =
+          map.libraryPaths.stream().filter(path -> path.entry.id.equals(trekId)).findFirst().get();
+      assertTrue(current.points.isEmpty());
+      assertEquals(recording.size(), map.track.size());
+      find(library(activity), trekTitle).performClick();
+      drain(activity);
+      controller.pause().resume();
+      drain(activity);
+      find(activity.getWindow().getDecorView(), "Export GPX").performClick();
+      assertEquals(recording.size(), ((List<?>) field(activity, "exportPoints")).size());
+    }
+  }
+
+  @Test
   public void hidingAndReselectingEitherKindPersistsVisibilityAndSelectionAcrossResume()
       throws Exception {
     try (ActivityController<MainActivity> controller =
