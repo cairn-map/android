@@ -79,6 +79,17 @@ jobs:
             const prior = comments.find(c => c.user.login === 'github-actions[bot]' && c.body.startsWith('<!-- cairn:virtual-power -->'));
             if (prior) await github.rest.issues.updateComment({...context.repo, comment_id: prior.id, body});
             else await github.rest.issues.createComment({...params, body});
+      # Auto-merge can be queued before checks finish. Performance must pass
+      # before this required job can succeed or produce reusable validation.
+      - name: Require passing virtual performance
+        if: ${{ always() }}
+        env:
+          PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
+        run: |
+          if [[ "$PERFORMANCE_OUTCOME" != 'success' ]]; then
+            echo '::error::Virtual performance did not pass; merging is blocked.'
+            exit 1
+          fi
       - name: Record the validated source and toolchain
         env:
           VALIDATED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

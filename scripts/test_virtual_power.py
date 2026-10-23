@@ -1,5 +1,11 @@
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+import io
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 import virtual_power as power
 
@@ -83,6 +89,36 @@ class VirtualPowerTest(unittest.TestCase):
             current["render_cpu"][0]["median_ms"] = value
             with self.assertRaises(ValueError):
                 power.compare(baseline, previous, current)
+
+    def test_command_exit_status_gates_required_checks(self):
+        _, previous = fixture()
+        work_regression = copy.deepcopy(previous)
+        work_regression["scenarios"][0]["hidden_draws"] = 1
+        cpu_regression = copy.deepcopy(previous)
+        cpu_regression["render_cpu"][0]["median_ms"] = 3
+        incomplete = copy.deepcopy(previous)
+        incomplete["scenarios"].pop()
+        cases = [(previous, 0, "PASS"), (work_regression, 1, "FAIL"),
+                 (cpu_regression, 1, "FAIL"), (incomplete, 2, "BLOCKED"),
+                 (subprocess.CalledProcessError(1, "gradlew"), 2, "BLOCKED"),
+                 (subprocess.TimeoutExpired("gradlew", 300), 2, "BLOCKED")]
+        for result, status, verdict in cases:
+            with self.subTest(status=status, verdict=verdict, result=type(result).__name__), \
+                    tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+                report = output / "performance.md"
+                report.write_text("PASS — stale result")
+                argv = ["virtual_power.py", "--previous", "a" * 40,
+                        "--current", "c" * 40, "--output", directory]
+                with mock.patch("sys.argv", argv), \
+                        mock.patch.object(power, "resolve", side_effect=lambda ref: ref), \
+                        mock.patch.object(power, "measure", side_effect=[previous, result]), \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(status, power.main())
+                self.assertIn(verdict, report.read_text())
+                self.assertNotIn("stale result", report.read_text())
+                if status:
+                    self.assertIn("merging is blocked", report.read_text())
 
 
 if __name__ == "__main__":

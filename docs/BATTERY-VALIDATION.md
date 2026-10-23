@@ -62,7 +62,7 @@ Work counts have no regression allowance: current must meet baseline and be no w
 main. Saved fixes/request cadence/visible workload must remain correct. CPU time is noisy even on
 the same runner: current median must meet its fixed maximum and be no more than **previous median
 x 1.30 + 1 ms**. This explicitly defined noise margin avoids claiming sub-millisecond differences
-are reliable. A failed CPU comparison keeps auto-merge off; investigate or rerun, do not silently
+are reliable. A failed CPU comparison fails the required action and blocks merging; investigate or rerun, do not silently
 raise budgets. p95 and raw samples remain diagnostic evidence rather than a hardware FPS guarantee.
 
 The same harness SHA-256, protocol, SDK, complete matrix and immutable revisions are required.
@@ -82,13 +82,17 @@ Actions always retains available logs, previous/current JSON, the exact baseline
 in a `virtual-performance-ATTEMPT` artifact. It writes the table to the job summary and updates one
 PR comment on same-repository PRs. Fork PRs retain read-only permissions; their author/agent links
 the summary/artifact in a PR description/comment. Never use a privileged `pull_request_target` job
-to execute fork code. Performance failure prevents recording successful validation evidence.
+to execute fork code. The comparison exits nonzero for regressions, incomplete results or benchmark
+errors, failing the required `checks` job. An explicit gate also requires a successful performance
+step before recording reusable validation evidence; skipped or cancelled comparisons cannot pass.
 
 Every PR needs **baseline / previous / current** results for its exact head. The Actions report is
 the normal reporting mechanism; an agent should link it and summarize any regression in the PR.
-No manual phone step or physical baseline exists. After reviewing the full diff, passing required
-virtual performance checks and normal CI are sufficient to enable native auto-merge under the
-standing authorization. Keep auto-merge off for failed, missing or stale virtual evidence.
+No manual phone step or physical baseline exists. After reviewing the full diff and verifying
+repository merge settings, enable native auto-merge immediately under the standing authorization,
+even while Actions and the virtual comparison are running. Do not wait for a completed report to
+queue auto-merge. It may remain queued while a failed check is fixed or rerun: GitHub waits for all
+required checks to pass on the current source before merging. Never bypass a failed or stale check.
 
 ## Local reproduction
 
