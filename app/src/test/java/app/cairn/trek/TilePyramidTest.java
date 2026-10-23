@@ -57,6 +57,7 @@ public class TilePyramidTest {
         public void disconnect() {}
         public boolean usingProxy() { return false; }
         public int getResponseCode() { return 200; }
+        public String getContentType() { return "image/png"; }
         public InputStream getInputStream() { return new ByteArrayInputStream(bytes); }
       };
     });
@@ -65,7 +66,7 @@ public class TilePyramidTest {
       assertEquals(0, requests.get());
       map.online(true);
       Bitmap fetched = map.tile(10, 512, 512);
-      assertNotNull(fetched);
+      assertNotNull(map.lastError(), fetched);
       assertEquals(Color.BLUE, fetched.getPixel(32, 32));
       assertEquals(1, requests.get());
       map.online(false);
