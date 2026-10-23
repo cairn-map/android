@@ -147,7 +147,7 @@ def compare(baseline, previous, current):
         lines.append(f"| {key} | {limit} | {before:.4f} | {after:.4f} |")
         if after > limit or after > before * baseline["cpu_regression_ratio"] + baseline["cpu_noise_floor_ms"]:
             failures.append(f"{key} points: CPU median exceeds baseline or previous noise margin")
-    lines += ["", "**" + ("FAIL — keep auto-merge off." if failures else "PASS — virtual budgets and previous comparison passed.") + "**"]
+    lines += ["", "**" + ("FAIL — required checks fail; merging is blocked." if failures else "PASS — virtual budgets and previous comparison passed.") + "**"]
     lines += ["- " + item for item in failures]
     return not failures, "\n".join(lines) + "\n"
 
@@ -161,7 +161,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     # Remove stale verdict before any operation that can fail.
     report_path = args.output / "performance.md"
-    report_path.write_text("<!-- cairn:virtual-power -->\n## Virtual performance\n\nBLOCKED: benchmark incomplete; keep auto-merge off.\n")
+    report_path.write_text("<!-- cairn:virtual-power -->\n## Virtual performance\n\nBLOCKED: benchmark incomplete; required checks fail and merging is blocked.\n")
     try:
         previous = measure(resolve(args.previous), args.output)
         current = measure(resolve(args.current), args.output)

@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {spawnSync} = require('node:child_process');
 const test = require('node:test');
 
 const root = path.join(__dirname, '..');
@@ -34,6 +35,24 @@ test('every PR compares virtual performance before recording reusable validation
   assert.match(checks, /always\(\) && steps\.performance\.outcome != 'skipped'/);
   assert.match(checks, /head\.repo\.full_name == github\.repository/);
   assert.doesNotMatch(checks, /continue-on-error|pull_request_target/);
+});
+
+test('required performance gate rejects unsuccessful or missing comparison outcomes', () => {
+  const checks = workflow('checks.yml');
+  const gate = checks.match(/      - name: Require passing virtual performance\n([\s\S]*?)(?=      - name:)/)?.[1];
+  assert.ok(gate, 'performance gate must precede validation evidence');
+  assert.match(gate, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(gate, /PERFORMANCE_OUTCOME: \$\{\{ steps\.performance\.outcome \}\}/);
+  assert.ok(checks.indexOf('Require passing virtual performance') < checks.indexOf('Record the validated source'));
+  const script = gate.split('        run: |\n')[1];
+  assert.ok(script);
+  for (const outcome of ['success', 'failure', 'skipped', 'cancelled', '']) {
+    const result = spawnSync('bash', ['-e', '-c', script], {
+      env: {...process.env, PERFORMANCE_OUTCOME: outcome}, encoding: 'utf8',
+    });
+    assert.equal(result.status, outcome === 'success' ? 0 : 1, outcome);
+    if (outcome !== 'success') assert.match(result.stdout, /::error::.*merging is blocked/);
+  }
 });
 
 test('native merge pushes to main and starts signed release normally', () => {

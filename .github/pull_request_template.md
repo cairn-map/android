@@ -24,4 +24,6 @@ Comparison verdict and Actions evidence:
 - [ ] Automated virtual comparison passes for the current head.
 - [ ] Current counts meet baseline/previous budgets; CPU timing meets its stated noise margin.
 
-**Keep auto-merge off on a failing, missing or stale virtual comparison.**
+**Enable native auto-merge after diff review, while Actions are still running.**
+The required `checks` job fails if the virtual comparison fails or is incomplete;
+GitHub waits for passing checks on the current source before merging. Link the report when available.
