@@ -19,6 +19,20 @@ public final class TrekMapView extends View {
       waypoints = Collections.emptyList();
   public Point position;
   public List<List<Point>> otherRoutes = Collections.emptyList();
+
+  public static final class LibraryPath {
+    final Store.LibraryEntry entry;
+    final List<Point> points;
+
+    LibraryPath(Store.LibraryEntry entry, List<Point> points) {
+      this.entry = entry;
+      this.points = points;
+    }
+  }
+
+  public List<LibraryPath> libraryPaths;
+  public String selectedPathId = "", liveTrackId = "";
+  public java.util.function.Consumer<String> onPathSelected;
   public int bottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
   private int zoom = 13;
@@ -34,7 +48,8 @@ public final class TrekMapView extends View {
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
   private final RectF tileRect = new RectF();
-  private final IdentityHashMap<List<Point>, ProjectedLine> projectedLines = new IdentityHashMap<>();
+  private final IdentityHashMap<List<Point>, ProjectedLine> projectedLines =
+      new IdentityHashMap<>();
   private long lineFrame;
   private double lineLat = Double.NaN, lineLon, lineScale;
   private int lineZoom, lineWidth, lineHeight;
@@ -103,6 +118,14 @@ public final class TrekMapView extends View {
             new GestureDetector.SimpleOnGestureListener() {
               @Override
               public boolean onDown(MotionEvent e) {
+                return true;
+              }
+
+              @Override
+              public boolean onSingleTapConfirmed(MotionEvent e) {
+                String id = libraryPathAt(e.getX(), e.getY());
+                if (id != null && !id.equals(selectedPathId) && onPathSelected != null)
+                  onPathSelected.accept(id);
                 return true;
               }
 
@@ -873,8 +896,12 @@ public final class TrekMapView extends View {
     }
     // Camera changes invalidate screen coordinates. GPS appends only project the new points;
     // the active route's outline and fill share one path.
-    if (lineLat != lat || lineLon != lon || lineZoom != zoom || lineScale != zoomScale
-        || lineWidth != getWidth() || lineHeight != getHeight()) {
+    if (lineLat != lat
+        || lineLon != lon
+        || lineZoom != zoom
+        || lineScale != zoomScale
+        || lineWidth != getWidth()
+        || lineHeight != getHeight()) {
       projectedLines.clear();
       lineLat = lat;
       lineLon = lon;
@@ -884,12 +911,28 @@ public final class TrekMapView extends View {
       lineHeight = getHeight();
     }
     lineFrame++;
-    int[] colors = {0xff647BAC, 0xffA079A3, 0xffA27D37};
-    for (int i = 0; i < otherRoutes.size(); i++)
-      line(c, otherRoutes.get(i), colors[i % colors.length], 3);
-    line(c, route, Color.WHITE, 8);
-    line(c, route, 0xff235D4D, 5);
-    line(c, track, 0xffC36C39, 3);
+    if (libraryPaths == null) {
+      int[] colors = {0xff647BAC, 0xffA079A3, 0xffA27D37};
+      for (int i = 0; i < otherRoutes.size(); i++)
+        line(c, otherRoutes.get(i), colors[i % colors.length], 3);
+      line(c, route, Color.WHITE, 8);
+      line(c, route, 0xff235D4D, 5);
+      line(c, track, 0xffC36C39, 3);
+    } else {
+      LibraryPath selected = null;
+      boolean liveIncluded = false;
+      for (LibraryPath path : libraryPaths) {
+        if (path.entry.id.equals(liveTrackId)) liveIncluded = true;
+        if (!path.entry.visible) continue;
+        if (path.entry.id.equals(selectedPathId)) selected = path;
+        else line(c, pathPoints(path), path.entry.recording ? 0xffC36C39 : 0xff647BAC, 3);
+      }
+      if (!liveIncluded) line(c, track, 0xffC36C39, 3);
+      if (selected != null) {
+        line(c, pathPoints(selected), Color.WHITE, 9);
+        line(c, pathPoints(selected), 0xff235D4D, 5);
+      }
+    }
     projectedLines.values().removeIf(line -> line.frame != lineFrame);
     paint.setStyle(Paint.Style.FILL);
     for (int i = 0; i < waypoints.size(); i++) {
@@ -1106,6 +1149,44 @@ public final class TrekMapView extends View {
     paint.setStyle(Paint.Style.FILL);
   }
 
+  private List<Point> pathPoints(LibraryPath path) {
+    return path.entry.id.equals(liveTrackId) ? track : path.points;
+  }
+
+  /** Hit-test only on a confirmed tap; no per-frame or per-fix geometry work. */
+  String libraryPathAt(float x, float y) {
+    if (libraryPaths == null) return null;
+    double nearest = dp(18) * dp(18);
+    String found = null;
+    for (LibraryPath path : libraryPaths) {
+      if (!path.entry.visible) continue;
+      Point previous = null;
+      float ax = 0, ay = 0;
+      for (Point point : pathPoints(path)) {
+        float bx = px(point.lon), by = py(point.lat);
+        double distance;
+        if (previous == null || previous.segment != point.segment) {
+          distance = (x - bx) * (x - bx) + (y - by) * (y - by);
+        } else {
+          double dx = bx - ax, dy = by - ay;
+          double length = dx * dx + dy * dy;
+          double fraction =
+              length == 0 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length));
+          double ex = x - ax - fraction * dx, ey = y - ay - fraction * dy;
+          distance = ex * ex + ey * ey;
+        }
+        if (distance < nearest || distance == nearest && path.entry.id.equals(selectedPathId)) {
+          nearest = distance;
+          found = path.entry.id;
+        }
+        previous = point;
+        ax = bx;
+        ay = by;
+      }
+    }
+    return found;
+  }
+
   private final class ProjectedLine {
     final Path path = new Path();
     int count;
@@ -1115,8 +1196,8 @@ public final class TrekMapView extends View {
     void update(List<Point> points) {
       // Route edits replace their lists; the live track is append-only. Also handle clears,
       // truncation and endpoint replacement without retaining an obsolete path.
-      if (count > points.size() || count > 0
-          && (first != points.get(0) || last != points.get(count - 1))) {
+      if (count > points.size()
+          || count > 0 && (first != points.get(0) || last != points.get(count - 1))) {
         path.rewind();
         count = 0;
         last = null;
@@ -1127,8 +1208,11 @@ public final class TrekMapView extends View {
         Point point = points.get(i);
         float x = px(point.lon);
         float y = (float) (getHeight() / 2f + (Geo.y(point.lat, zoom) - centerY) * size);
-        if (last == null || point.segment != last.segment) path.moveTo(x, y);
-        else path.lineTo(x, y);
+        if (last == null || point.segment != last.segment) {
+          path.moveTo(x, y);
+          // A round zero-length stroke keeps single-point recordings/segments visible.
+          path.lineTo(x, y);
+        } else path.lineTo(x, y);
         last = point;
         if (i == 0) first = point;
       }

@@ -6,7 +6,7 @@ import android.view.*;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.*;
 
-/** Swipe left to delete; short or cancelled swipes return to the resting position. */
+/** Swipe either way to delete; short or cancelled swipes return to the resting position. */
 final class SwipeToRemoveView extends FrameLayout {
   private final View foreground, remove;
   private final int slop;
@@ -31,7 +31,7 @@ final class SwipeToRemoveView extends FrameLayout {
             super.onInitializeAccessibilityNodeInfo(host, info);
             info.addAction(
                 new AccessibilityNodeInfo.AccessibilityAction(
-                    AccessibilityNodeInfo.ACTION_DISMISS, "Remove hike"));
+                    AccessibilityNodeInfo.ACTION_DISMISS, "Delete item"));
           }
 
           @Override
@@ -56,7 +56,7 @@ final class SwipeToRemoveView extends FrameLayout {
     } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
       float dx = event.getX() - downX, dy = event.getY() - downY;
       if (Math.abs(dy) > slop && Math.abs(dy) >= Math.abs(dx)) vertical = true;
-      if (!vertical && dx < -slop && Math.abs(dx) > Math.abs(dy)) {
+      if (!vertical && Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy)) {
         dragging = true;
         getParent().requestDisallowInterceptTouchEvent(true);
         dragTo(event.getX());
@@ -68,17 +68,23 @@ final class SwipeToRemoveView extends FrameLayout {
 
   private void offset(float value) {
     foreground.setTranslationX(value);
-    remove.setVisibility(value < 0 ? VISIBLE : INVISIBLE);
+    FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) remove.getLayoutParams();
+    int gravity = value > 0 ? Gravity.LEFT : Gravity.RIGHT;
+    if (params.gravity != gravity) {
+      params.gravity = gravity;
+      remove.setLayoutParams(params);
+    }
+    remove.setVisibility(value != 0 ? VISIBLE : INVISIBLE);
   }
 
   private void dragTo(float x) {
-    offset(Math.max(-getWidth(), Math.min(0, x - downX)));
+    offset(Math.max(-getWidth(), Math.min(getWidth(), x - downX)));
   }
 
   private void dismiss() {
     if (dismissed) return;
     dismissed = true;
-    offset(-getWidth());
+    offset(foreground.getTranslationX() > 0 ? getWidth() : -getWidth());
     onRemove.run();
   }
 
@@ -92,7 +98,8 @@ final class SwipeToRemoveView extends FrameLayout {
         break;
       case MotionEvent.ACTION_UP:
         dragTo(event.getX());
-        if (getWidth() > 0 && -foreground.getTranslationX() >= getWidth() * 0.4f) dismiss();
+        if (getWidth() > 0 && Math.abs(foreground.getTranslationX()) >= getWidth() * 0.4f)
+          dismiss();
         else offset(0);
         dragging = false;
         break;

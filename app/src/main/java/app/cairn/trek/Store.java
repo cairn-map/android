@@ -68,6 +68,55 @@ public final class Store extends SQLiteOpenHelper {
     return result;
   }
 
+  public static final class LibraryEntry {
+    public final String id, title;
+    public final boolean recording, visible;
+
+    LibraryEntry(String id, String title, boolean recording, boolean visible) {
+      this.id = id;
+      this.title = title;
+      this.recording = recording;
+      this.visible = visible;
+    }
+  }
+
+  public List<LibraryEntry> library() {
+    List<LibraryEntry> entries = new ArrayList<>();
+    for (RouteEntry route : routes())
+      entries.add(new LibraryEntry(route.id, route.title, false, route.visible));
+    for (Map.Entry<String, String> trek : treks().entrySet())
+      entries.add(
+          new LibraryEntry(
+              trek.getKey(),
+              trek.getValue(),
+              true,
+              !prefs.getBoolean("hiddenTrek:" + trek.getKey(), false)));
+    return entries;
+  }
+
+  public String selectedLibraryId() {
+    return prefs.getString("selectedLibraryId", prefs.getString("activeRouteId", ""));
+  }
+
+  public List<Point> select(LibraryEntry entry) {
+    List<Point> points = entry.recording ? read(entry.id) : activateRoute(entry.id);
+    if (points.isEmpty()) throw new IllegalArgumentException("This item has no points yet");
+    libraryVisible(entry, true);
+    prefs.edit().putString("selectedLibraryId", entry.id).apply();
+    return points;
+  }
+
+  public void libraryVisible(LibraryEntry entry, boolean visible) {
+    if (entry.recording) prefs.edit().putBoolean("hiddenTrek:" + entry.id, !visible).apply();
+    else routeVisible(entry.id, visible);
+    if (!visible && entry.id.equals(selectedLibraryId()))
+      prefs.edit().putString("selectedLibraryId", "").apply();
+  }
+
+  private void clearLibrarySelection(String id) {
+    if (id.equals(selectedLibraryId())) prefs.edit().putString("selectedLibraryId", "").apply();
+  }
+
   public String saveRoute(List<Point> points, String title) {
     String id = "route-" + UUID.randomUUID();
     SQLiteDatabase db = getWritableDatabase();
@@ -85,7 +134,12 @@ public final class Store extends SQLiteOpenHelper {
     } finally {
       db.endTransaction();
     }
-    prefs.edit().putString("activeRouteId", id).putBoolean("follow", false).apply();
+    prefs
+        .edit()
+        .putString("activeRouteId", id)
+        .putString("selectedLibraryId", id)
+        .putBoolean("follow", false)
+        .apply();
     return id;
   }
 
@@ -93,7 +147,12 @@ public final class Store extends SQLiteOpenHelper {
     List<Point> points = read(id);
     if (points.isEmpty()) throw new IllegalArgumentException("This route has no points");
     replaceRoute(points);
-    prefs.edit().putString("activeRouteId", id).putBoolean("follow", true).apply();
+    prefs
+        .edit()
+        .putString("activeRouteId", id)
+        .putString("selectedLibraryId", id)
+        .putBoolean("follow", true)
+        .apply();
     return points;
   }
 
@@ -121,6 +180,7 @@ public final class Store extends SQLiteOpenHelper {
     } finally {
       db.endTransaction();
     }
+    clearLibrarySelection(id);
     if (active) prefs.edit().remove("activeRouteId").putBoolean("follow", false).apply();
   }
 
@@ -206,6 +266,8 @@ public final class Store extends SQLiteOpenHelper {
     } finally {
       db.endTransaction();
     }
+    clearLibrarySelection(id);
+    prefs.edit().remove("hiddenTrek:" + id).apply();
     if (id.equals(prefs.getString("currentTrek", ""))) prefs.edit().remove("currentTrek").apply();
   }
 
