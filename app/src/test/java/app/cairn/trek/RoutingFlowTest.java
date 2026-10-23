@@ -231,6 +231,124 @@ public class RoutingFlowTest {
     assertEquals(1, points().size());
   }
 
+  @SuppressWarnings("unchecked")
+  private Map<String, String> parameters() throws Exception {
+    return (Map<String, String>) field("routingParameters");
+  }
+
+  @Test
+  public void globalDefaultsDoNotChangeTheCurrentRouteAndNewRoutesUseTheLatestDefaults()
+      throws Exception {
+    installGraphs();
+    Store store = (Store) field("store");
+    store.prefs.edit().putInt("brouter.SAC_scale_limit", 2).commit();
+    changeNodes();
+    drain();
+    Map<String, String> original = new LinkedHashMap<>(parameters());
+    Object revision = field("editRevision");
+    List<?> geometry = (List<?>) field("plannedRoute");
+    invoke("defaultRoutingPreferences", new Class<?>[0]);
+    AlertDialog defaults = (AlertDialog) field("routingPreferencesDialog");
+    ((android.widget.CheckBox) find(defaults.getWindow().getDecorView(), "Prefer less climbing"))
+        .setChecked(true);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertEquals("1", RoutingPreferences.read(store.prefs).get("consider_elevation"));
+    assertEquals(original, parameters());
+    assertEquals(revision, field("editRevision"));
+    assertSame(geometry, field("plannedRoute"));
+    defaults.dismiss();
+    changeNodes();
+    drain();
+    assertEquals(original, parameters());
+    assertSavedRoute();
+    String id = store.routes().get(0).id;
+    assertEquals(original, store.routePreferences(id));
+    tap("Edit route");
+    drain();
+    assertEquals(original, parameters());
+    invoke("leaveEditing", new Class<?>[0]);
+    invoke(
+        "startEditing",
+        new Class<?>[] {Store.LibraryEntry.class, List.class, List.class},
+        null,
+        Collections.emptyList(),
+        Collections.emptyList());
+    assertNull(parameters());
+    points().add(new Point(50.002515, 8.720897));
+    points().add(new Point(49.997510, 8.723658));
+    store.prefs.edit().putBoolean("brouter.consider_noise", true).commit();
+    changeNodes();
+    drain();
+    assertEquals(RoutingPreferences.read(store.prefs), parameters());
+    assertEquals(original, store.routePreferences(id));
+  }
+
+  @Test
+  public void routeChangesAndUseCurrentDefaultsRecalculateWithoutChangingGlobalDefaults()
+      throws Exception {
+    installGraphs();
+    changeNodes();
+    drain();
+    Store store = (Store) field("store");
+    Map<String, String> defaults = RoutingPreferences.read(store.prefs);
+    tap("Routing preferences");
+    AlertDialog preferences = (AlertDialog) field("routingPreferencesDialog");
+    ((android.widget.CheckBox) find(preferences.getWindow().getDecorView(), "Allow ferries"))
+        .setChecked(false);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertEquals(defaults, RoutingPreferences.read(store.prefs));
+    assertEquals("0", parameters().get("allow_ferries"));
+    assertNotEquals(field("editRevision"), field("calculatedRevision"));
+    preferences.dismiss();
+    drain();
+    assertEquals(field("editRevision"), field("calculatedRevision"));
+    Map<String, String> custom = new LinkedHashMap<>(parameters());
+    assertSavedRoute();
+    String id = store.routes().get(0).id;
+    tap("Edit route");
+    drain();
+    assertEquals(custom, parameters());
+    store.prefs.edit().putBoolean("brouter.consider_forest", true).commit();
+    tap("Routing preferences");
+    preferences = (AlertDialog) field("routingPreferencesDialog");
+    preferences.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertTrue(preferences.isShowing());
+    assertEquals(RoutingPreferences.read(store.prefs), parameters());
+    assertNotEquals(field("editRevision"), field("calculatedRevision"));
+    preferences.dismiss();
+    drain();
+    tap("Finish editing");
+    drain();
+    assertEquals(1, store.routes().size());
+    assertEquals(RoutingPreferences.read(store.prefs), store.routePreferences(id));
+  }
+
+  @Test
+  public void recreationPreservesUnsavedRoutePreferencesDespiteChangedDefaults() throws Exception {
+    installGraphs();
+    changeNodes();
+    drain();
+    tap("Routing preferences");
+    AlertDialog preferences = (AlertDialog) field("routingPreferencesDialog");
+    ((android.widget.CheckBox) find(preferences.getWindow().getDecorView(), "Prefer forest"))
+        .setChecked(true);
+    preferences.dismiss();
+    drain();
+    Map<String, String> custom = new LinkedHashMap<>(parameters());
+    ((Store) field("store")).prefs.edit().putInt("brouter.SAC_scale_limit", 5).commit();
+    controller.recreate();
+    activity = controller.get();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+    drain();
+    assertEquals(custom, parameters());
+    assertEquals(field("editRevision"), field("calculatedRevision"));
+    tap("Finish editing");
+    drain();
+    Store store = (Store) field("store");
+    assertEquals(custom, store.routePreferences(store.routes().get(0).id));
+  }
+
   @Test
   public void preferencesPauseAnActiveCalculationAndRecalculateOnceClosed() throws Exception {
     installGraphs();
@@ -242,6 +360,9 @@ public class RoutingFlowTest {
         (android.widget.CheckBox)
             find(preferences.getWindow().getDecorView(), "Prefer less climbing");
     elevation.setChecked(true);
+    assertEquals(
+        "0", RoutingPreferences.read(((Store) field("store")).prefs).get("consider_elevation"));
+    assertEquals("1", parameters().get("consider_elevation"));
     drain();
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
     assertTrue(preferences.isShowing());

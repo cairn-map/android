@@ -42,6 +42,7 @@ public final class MainActivity extends Activity {
   private Store.LibraryEntry editingEntry;
   private String newRouteId = "route-" + UUID.randomUUID();
   private List<Point> plannedRoute = Collections.emptyList();
+  private Map<String, String> routingParameters;
   private int editRevision, calculatedRevision = -1;
   private boolean editDirty, finishEditing, savingEdit;
   private final Deque<NodeUndo> nodeUndo = new ArrayDeque<>();
@@ -159,6 +160,7 @@ public final class MainActivity extends Activity {
     if (state != null && state.getBoolean("planning")) {
       planning = true;
       editDirty = state.getBoolean("editDirty");
+      routingParameters = RoutingPreferences.decode(state.getString("routingParameters"));
       newRouteId = state.getString("newRouteId", newRouteId);
       String editingId = state.getString("editingId");
       if (editingId != null)
@@ -307,6 +309,7 @@ public final class MainActivity extends Activity {
     state.putBoolean("planning", planning);
     state.putBoolean("editDirty", editDirty);
     state.putString("newRouteId", newRouteId);
+    state.putString("routingParameters", RoutingPreferences.encode(routingParameters));
     if (editingEntry != null) {
       state.putString("editingId", editingEntry.id);
       state.putString("editingTitle", editingEntry.title);
@@ -827,6 +830,8 @@ public final class MainActivity extends Activity {
 
   private void startEditing(Store.LibraryEntry entry, List<Point> geometry, List<Point> nodes) {
     editingEntry = entry;
+    routingParameters =
+        entry == null || entry.recording ? null : store.routePreferences(entry.id);
     newRouteId = "route-" + UUID.randomUUID();
     planning = true;
     editDirty = finishEditing = savingEdit = false;
@@ -910,8 +915,26 @@ public final class MainActivity extends Activity {
     nodesChanged();
   }
 
-  private void routingPreferences() {
+  private void defaultRoutingPreferences() {
     if (routingPreferencesDialog != null) return;
+    routingPreferencesDialog =
+        RoutingPreferences.show(
+            this,
+            store.prefs,
+            () -> {},
+            () -> {
+              routingPreferencesDialog = null;
+              if (!destroyed) autoCalculate();
+            });
+  }
+
+  private Map<String, String> routeParameters() {
+    if (routingParameters == null) routingParameters = RoutingPreferences.read(store.prefs);
+    return routingParameters;
+  }
+
+  private void routingPreferences() {
+    if (!planning || editingRecording() || routingPreferencesDialog != null) return;
     if (pendingRoute != null || finishEditing || savingEdit) {
       message("Finish or pause the current operation before changing routing preferences.");
       return;
@@ -924,18 +947,20 @@ public final class MainActivity extends Activity {
     routingPreferencesDialog =
         RoutingPreferences.show(
             this,
-            store.prefs,
-            () -> {
-              if (planning) {
-                // Node undo must retain newer routing preferences and recalculate with them.
-                for (NodeUndo undo : nodeUndo) {
-                  undo.dirty = true;
-                  undo.calculated = false;
-                  undo.geometry = Collections.emptyList();
-                }
-                nodesChanged();
+            "Routing preferences for this route",
+            routeParameters(),
+            values -> {
+              routingParameters = values;
+              // Node undo must retain newer routing preferences and recalculate with them.
+              for (NodeUndo undo : nodeUndo) {
+                undo.dirty = true;
+                undo.calculated = false;
+                undo.geometry = Collections.emptyList();
               }
+              nodesChanged();
             },
+            "Use current defaults",
+            () -> RoutingPreferences.read(store.prefs),
             () -> {
               routingPreferencesDialog = null;
               if (!destroyed) autoCalculate();
@@ -959,6 +984,7 @@ public final class MainActivity extends Activity {
     if (editingRecording()) RecordingDraft.delete(this, newRouteId);
     planning = finishEditing = savingEdit = false;
     editingEntry = null;
+    routingParameters = null;
     nodeUndo.clear();
     waypoints.clear();
     plannedRoute = Collections.emptyList();
@@ -972,6 +998,8 @@ public final class MainActivity extends Activity {
     refreshPlanning();
     Store.LibraryEntry entry = editingEntry;
     String draftId = newRouteId;
+    Map<String, String> parameters =
+        routingParameters == null ? null : new LinkedHashMap<>(routingParameters);
     List<Point> geometry = new ArrayList<>(plannedRoute), nodes = new ArrayList<>(waypoints);
     io.execute(
         () -> {
@@ -979,11 +1007,11 @@ public final class MainActivity extends Activity {
             String name =
                 entry == null ? "Planned route " + java.time.LocalDate.now() : entry.title;
             String id;
-            if (entry == null) id = store.saveRoute(draftId, geometry, name, nodes);
+            if (entry == null) id = store.saveRoute(draftId, geometry, name, nodes, parameters);
             else {
               id = entry.id;
               if (entry.recording) store.updateTrek(id, geometry);
-              else store.updateRoute(id, geometry, nodes);
+              else store.updateRoute(id, geometry, nodes, parameters);
             }
             root.post(
                 () -> {
@@ -1250,7 +1278,7 @@ public final class MainActivity extends Activity {
                   .show();
             }));
     content.addView(button("Clear all routing data", false, this::clearRoutingData));
-    content.addView(button("Routing preferences", false, this::routingPreferences));
+    content.addView(button("Default routing preferences", false, this::defaultRoutingPreferences));
     content.addView(attributionFooter());
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
@@ -2223,6 +2251,7 @@ public final class MainActivity extends Activity {
     refreshPlanning();
     router.calculate(
         requested,
+        routeParameters(),
         (points, error) -> {
           if (destroyed) return;
           calculationRunning = false;

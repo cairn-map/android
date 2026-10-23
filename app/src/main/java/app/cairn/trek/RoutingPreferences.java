@@ -6,8 +6,10 @@ import android.content.SharedPreferences;
 import android.view.View;
 import android.widget.*;
 import java.util.*;
+import java.util.function.*;
+import org.json.*;
 
-/** Saved overrides for the bundled BRouter hiking profile. */
+/** Defaults and route-owned parameters for the bundled BRouter hiking profile. */
 final class RoutingPreferences {
   private static final String PREFIX = "brouter.";
   static final String[] DIFFICULTIES = {
@@ -43,9 +45,65 @@ final class RoutingPreferences {
     return values;
   }
 
+  static String encode(Map<String, String> values) {
+    return values == null ? null : new JSONObject(values).toString();
+  }
+
+  static Map<String, String> decode(String encoded) {
+    if (encoded == null) return null;
+    try {
+      JSONObject json = new JSONObject(encoded);
+      Map<String, String> values = new LinkedHashMap<>();
+      Iterator<String> keys = json.keys();
+      while (keys.hasNext()) {
+        String key = keys.next();
+        values.put(key, json.getString(key));
+      }
+      return values;
+    } catch (JSONException error) {
+      throw new IllegalArgumentException("Invalid routing preferences", error);
+    }
+  }
+
   static AlertDialog show(
       Context context, SharedPreferences prefs, Runnable changed, Runnable closed) {
-    Map<String, String> values = read(prefs);
+    return show(
+        context,
+        "Default routing preferences",
+        read(prefs),
+        values -> {
+          SharedPreferences.Editor edit = prefs.edit();
+          edit.putInt(PREFIX + "SAC_scale_limit", Integer.parseInt(values.get("SAC_scale_limit")));
+          edit.putInt(
+              PREFIX + "SAC_scale_preferred", Integer.parseInt(values.get("SAC_scale_preferred")));
+          edit.putFloat(
+              PREFIX + "hiking_routes_preference",
+              Float.parseFloat(values.get("hiking_routes_preference")));
+          for (String flag : FLAGS) edit.putBoolean(PREFIX + flag, "1".equals(values.get(flag)));
+          edit.apply();
+          changed.run();
+        },
+        "Reset defaults",
+        () -> {
+          Map<String, String> defaults = new LinkedHashMap<>();
+          defaults.put("SAC_scale_limit", "3");
+          defaults.put("SAC_scale_preferred", "1");
+          defaults.put("hiking_routes_preference", "0.2");
+          for (String flag : FLAGS) defaults.put(flag, flag.startsWith("allow_") ? "1" : "0");
+          return defaults;
+        },
+        closed);
+  }
+
+  static AlertDialog show(
+      Context context,
+      String title,
+      Map<String, String> initial,
+      Consumer<Map<String, String>> changed,
+      String resetLabel,
+      Supplier<Map<String, String>> resetValues,
+      Runnable closed) {
+    Map<String, String> values = new LinkedHashMap<>(initial);
     float density = context.getResources().getDisplayMetrics().density;
     LinearLayout content = new LinearLayout(context);
     content.setOrientation(LinearLayout.VERTICAL);
@@ -85,18 +143,26 @@ final class RoutingPreferences {
     }
     ScrollView scroll = new ScrollView(context);
     scroll.addView(content);
+    boolean[] resetting = {false};
     Runnable save =
         () -> {
-          Map<String, String> before = read(prefs);
-          SharedPreferences.Editor edit = prefs.edit();
-          edit.putInt(PREFIX + "SAC_scale_limit", limit.getSelectedItemPosition());
-          edit.putInt(PREFIX + "SAC_scale_preferred", preferred.getSelectedItemPosition());
-          edit.putFloat(
-              PREFIX + "hiking_routes_preference", hikingValues[hiking.getSelectedItemPosition()]);
+          if (resetting[0]) return;
+          Map<String, String> next = new LinkedHashMap<>();
+          int maximum = limit.getSelectedItemPosition();
+          next.put("SAC_scale_limit", Integer.toString(maximum));
+          next.put(
+              "SAC_scale_preferred",
+              Integer.toString(Math.min(maximum, preferred.getSelectedItemPosition())));
+          next.put(
+              "hiking_routes_preference",
+              Float.toString(hikingValues[hiking.getSelectedItemPosition()]));
           for (int i = 0; i < FLAGS.length; i++)
-            edit.putBoolean(PREFIX + FLAGS[i], checks.get(i).isChecked());
-          edit.apply();
-          if (!before.equals(read(prefs))) changed.run();
+            next.put(FLAGS[i], checks.get(i).isChecked() ? "1" : "0");
+          if (!values.equals(next)) {
+            values.clear();
+            values.putAll(next);
+            changed.accept(new LinkedHashMap<>(values));
+          }
         };
     // Keep the preferred level within the selected maximum in both directions,
     // including in saved preferences before the other spinner's callback runs.
@@ -129,31 +195,32 @@ final class RoutingPreferences {
     for (CheckBox check : checks) check.setOnCheckedChangeListener((button, checked) -> save.run());
     AlertDialog dialog =
         CairnDialogs.drawer(context)
-            .setTitle("Routing preferences")
+            .setTitle(title)
             .setView(scroll)
-            .setNeutralButton("Reset defaults", null)
+            .setNeutralButton(resetLabel, null)
             .create();
     dialog.setOnDismissListener(d -> closed.run());
     dialog.setOnShowListener(
         d ->
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(
-                button -> {
-                  // Updating all controls first keeps their listeners from saving a partial reset.
-                  for (CheckBox check : checks) check.setOnCheckedChangeListener(null);
-                  Map<String, String> before = read(prefs);
-                  SharedPreferences.Editor edit = prefs.edit();
-                  for (String key : values.keySet()) edit.remove(PREFIX + key);
-                  edit.apply();
-                  limit.setSelection(3);
-                  preferred.setSelection(1);
-                  hiking.setSelection(1);
-                  for (int i = 0; i < FLAGS.length; i++) {
-                    CheckBox check = checks.get(i);
-                    check.setChecked(FLAGS[i].startsWith("allow_"));
-                    check.setOnCheckedChangeListener((view, checked) -> save.run());
-                  }
-                  if (!before.equals(read(prefs))) changed.run();
-                }));
+            dialog
+                .getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(
+                    button -> {
+                      Map<String, String> defaults = resetValues.get();
+                      resetting[0] = true;
+                      limit.setSelection(Integer.parseInt(defaults.get("SAC_scale_limit")));
+                      preferred.setSelection(Integer.parseInt(defaults.get("SAC_scale_preferred")));
+                      float target = Float.parseFloat(defaults.get("hiking_routes_preference"));
+                      int nearest = 0;
+                      for (int i = 1; i < hikingValues.length; i++)
+                        if (Math.abs(hikingValues[i] - target)
+                            < Math.abs(hikingValues[nearest] - target)) nearest = i;
+                      hiking.setSelection(nearest);
+                      for (int i = 0; i < FLAGS.length; i++)
+                        checks.get(i).setChecked("1".equals(defaults.get(FLAGS[i])));
+                      resetting[0] = false;
+                      save.run();
+                    }));
     dialog.show();
     return dialog;
   }

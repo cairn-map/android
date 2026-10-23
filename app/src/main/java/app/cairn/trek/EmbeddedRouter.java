@@ -24,15 +24,14 @@ public final class EmbeddedRouter implements AutoCloseable {
     this.context = context.getApplicationContext();
   }
 
-  void calculate(List<Point> points, Callback callback) {
+  void calculate(List<Point> points, Map<String, String> preferences, Callback callback) {
     if (closed || busy) {
       callback.done(null, "A route calculation is already running");
       return;
     }
     busy = true;
     canceled = false;
-    Map<String, String> parameters =
-        RoutingPreferences.read(context.getSharedPreferences("settings", Context.MODE_PRIVATE));
+    Map<String, String> parameters = new LinkedHashMap<>(preferences);
     worker.execute(
         () -> {
           List<Point> result = null;

@@ -9,7 +9,7 @@ public final class Store extends SQLiteOpenHelper {
   public final SharedPreferences prefs;
 
   public Store(Context c) {
-    super(c, "treks.db", null, 2);
+    super(c, "treks.db", null, 3);
     prefs = c.getSharedPreferences("settings", Context.MODE_PRIVATE);
     setWriteAheadLoggingEnabled(true);
   }
@@ -27,22 +27,30 @@ public final class Store extends SQLiteOpenHelper {
   private void createRoutes(SQLiteDatabase db) {
     db.execSQL(
         "CREATE TABLE routes(id TEXT PRIMARY KEY,title TEXT NOT NULL,visible INTEGER NOT NULL"
-            + " DEFAULT 1,created INTEGER NOT NULL)");
+            + " DEFAULT 1,created INTEGER NOT NULL,routing_preferences TEXT)");
   }
 
   @Override
   public void onUpgrade(SQLiteDatabase db, int oldV, int newV) {
-    if (oldV == 1 && newV == 2) {
+    if (newV != 3 || oldV < 1 || oldV > 2)
+      throw new IllegalStateException("Unsupported database version");
+    if (oldV == 1) {
       createRoutes(db);
       db.execSQL(
-          "INSERT INTO routes SELECT 'route-legacy','Imported route',1,0 WHERE EXISTS(SELECT 1 FROM"
-              + " points WHERE collection='route')");
+          "INSERT INTO routes(id,title,visible,created) SELECT 'route-legacy','Imported route',1,0"
+              + " WHERE EXISTS(SELECT 1 FROM points WHERE collection='route')");
       db.execSQL(
           "INSERT INTO points(collection,lat,lon,elevation,time,accuracy,segment) SELECT"
               + " 'route-legacy',lat,lon,elevation,time,accuracy,segment FROM points WHERE"
               + " collection='route'");
       prefs.edit().putString("activeRouteId", "route-legacy").apply();
-    } else throw new IllegalStateException("Unsupported database version");
+    } else {
+      db.execSQL("ALTER TABLE routes ADD COLUMN routing_preferences TEXT");
+    }
+    // Historical parameters were not recorded. Freeze the current defaults without rerouting.
+    ContentValues values = new ContentValues();
+    values.put("routing_preferences", RoutingPreferences.encode(RoutingPreferences.read(prefs)));
+    db.update("routes", values, null, null);
   }
 
   public static final class RouteEntry {
@@ -127,6 +135,16 @@ public final class Store extends SQLiteOpenHelper {
 
   /** A stable draft ID makes retrying an interrupted editor save idempotent. */
   String saveRoute(String id, List<Point> points, String title, List<Point> nodes) {
+    return saveRoute(
+        id, points, title, nodes, nodes.isEmpty() ? null : RoutingPreferences.read(prefs));
+  }
+
+  String saveRoute(
+      String id,
+      List<Point> points,
+      String title,
+      List<Point> nodes,
+      Map<String, String> routingPreferences) {
     SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
     try {
@@ -139,6 +157,9 @@ public final class Store extends SQLiteOpenHelper {
       db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
       for (Point point : points) add(id, point);
       for (Point node : nodes) add("nodes:" + id, node);
+      ContentValues parameters = new ContentValues();
+      parameters.put("routing_preferences", RoutingPreferences.encode(routingPreferences));
+      db.update("routes", parameters, "id=?", new String[] {id});
       copyGuidance(id);
       db.setTransactionSuccessful();
     } finally {
@@ -157,13 +178,27 @@ public final class Store extends SQLiteOpenHelper {
     return read("nodes:" + id);
   }
 
+  public Map<String, String> routePreferences(String id) {
+    try (Cursor cursor =
+        getReadableDatabase()
+            .rawQuery("SELECT routing_preferences FROM routes WHERE id=?", new String[] {id})) {
+      return cursor.moveToFirst() ? RoutingPreferences.decode(cursor.getString(0)) : null;
+    }
+  }
+
   /** Replace an edited route and its guidance copy atomically, preserving its identity. */
   public void updateRoute(String id, List<Point> points, List<Point> nodes) {
+    updateRoute(id, points, nodes, routePreferences(id));
+  }
+
+  public void updateRoute(
+      String id, List<Point> points, List<Point> nodes, Map<String, String> routingPreferences) {
     SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
     try {
       ContentValues value = new ContentValues();
       value.put("visible", 1);
+      value.put("routing_preferences", RoutingPreferences.encode(routingPreferences));
       if (db.update("routes", value, "id=?", new String[] {id}) != 1)
         throw new IllegalArgumentException("This route no longer exists");
       db.delete("points", "collection IN (?,?)", new String[] {id, "nodes:" + id});
