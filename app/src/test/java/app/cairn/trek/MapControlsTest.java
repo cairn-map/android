@@ -246,7 +246,7 @@ public class MapControlsTest {
   }
 
   @Test
-  public void onlineToggleChangesItsFillAndIconContrastAndRejectedToggleStaysOff()
+  public void onlineToggleChangesItsFillAndIconContrastIncludingDuringRecording()
       throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
@@ -266,9 +266,38 @@ public class MapControlsTest {
       assertNull(preview.getImageTintList());
       TrackingService.running = true;
       preview.performClick();
+      assertTrue(preview.isSelected());
+      assertTrue(((IgnMap) field(activity, "ignMap")).online());
+      assertEquals(AppPalette.PRIMARY, fill(preview));
+      preview.performClick();
       assertFalse(preview.isSelected());
+      assertFalse(((IgnMap) field(activity, "ignMap")).online());
     } finally {
       TrackingService.running = false;
+    }
+  }
+
+  @Test
+  public void startingAHikePreservesTheOnlineChoiceAndGpsInterval() throws Exception {
+    Shadows.shadowOf(RuntimeEnvironment.getApplication())
+        .grantPermissions(android.Manifest.permission.ACCESS_FINE_LOCATION);
+    for (boolean online : new boolean[] {false, true}) {
+      try (ActivityController<MainActivity> controller =
+          Robolectric.buildActivity(MainActivity.class).setup()) {
+        MainActivity activity = controller.get();
+        Store store = (Store) field(activity, "store");
+        store.prefs.edit().putInt("intervalSeconds", 137).commit();
+        android.location.LocationManager manager =
+            activity.getSystemService(android.location.LocationManager.class);
+        Shadows.shadowOf(manager)
+            .setProviderEnabled(android.location.LocationManager.GPS_PROVIDER, true);
+        if (online) ((ImageButton) field(activity, "previewButton")).performClick();
+        find(activity.getWindow().getDecorView(), "Start hike").performClick();
+        assertEquals(TrackingService.class.getName(),
+            Shadows.shadowOf(activity).getNextStartedService().getComponent().getClassName());
+        assertEquals(online, ((IgnMap) field(activity, "ignMap")).online());
+        assertEquals(137000L, store.intervalMillis());
+      }
     }
   }
 

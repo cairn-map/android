@@ -5,13 +5,18 @@ import android.graphics.*;
 
 public final class IgnMap implements TileSource, AutoCloseable {
   private final PlanIgnStore store;
-  private final IgnClient client = new IgnClient();
+  private final IgnClient client;
   private volatile boolean online = false, closed = false;
   private volatile String lastError;
   private volatile int generation;
 
   public IgnMap(Context context) {
+    this(context, new IgnClient());
+  }
+
+  IgnMap(Context context, IgnClient client) {
     store = new PlanIgnStore(context);
+    this.client = client;
   }
 
   public void online(boolean value) {
@@ -42,7 +47,7 @@ public final class IgnMap implements TileSource, AutoCloseable {
       if (closed) return null;
       cached = store.cached(tile);
     }
-    if (cached == null && online && !TrackingService.running) {
+    if (cached == null && online) {
       try {
         IgnClient.Result result =
             client.fetch(
@@ -53,8 +58,7 @@ public final class IgnMap implements TileSource, AutoCloseable {
                     obsolete.getAsBoolean()
                         || request != generation
                         || !online
-                        || closed
-                        || TrackingService.running);
+                        || closed);
         synchronized (this) {
           if (closed) return null;
           store.save(tile, result);

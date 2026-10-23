@@ -22,12 +22,14 @@ public class ManualLocationTest {
   private ManualLocation locate;
   private int found, failed;
   private Point point;
+  private boolean cachedResult;
   private final ManualLocation.Callback callback =
       new ManualLocation.Callback() {
         @Override
         public void found(Point result, boolean cached) {
           found++;
           point = result;
+          cachedResult = cached;
         }
 
         @Override
@@ -76,13 +78,42 @@ public class ManualLocationTest {
   }
 
   @Test
-  public void recentCachedNetworkLocationIsUsedAndOldPositionsRejected() {
+  public void recentCachedPositionIsShownWhileAFreshPositionIsRequested() {
     Shadows.shadowOf(manager)
         .setLastKnownLocation(
             LocationManager.NETWORK_PROVIDER, location(LocationManager.NETWORK_PROVIDER, 30, 10));
     locate.start(callback);
     assertEquals(1, found);
+    assertTrue(cachedResult);
+    assertFalse(Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
+    assertFalse(
+        Shadows.shadowOf(manager).getLocationRequests(LocationManager.NETWORK_PROVIDER).isEmpty());
+    Location fresh = location(LocationManager.GPS_PROVIDER, 5, 0);
+    fresh.setLatitude(48.9);
+    Shadows.shadowOf(manager).simulateLocation(fresh);
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+    assertEquals(2, found);
+    assertFalse(cachedResult);
+    assertEquals(48.9, point.lat, 0);
+    assertTrue(Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
+    assertTrue(
+        Shadows.shadowOf(manager).getLocationRequests(LocationManager.NETWORK_PROVIDER).isEmpty());
     assertFalse(ManualLocation.usable(location(LocationManager.GPS_PROVIDER, 3, 300)));
+  }
+
+  @Test
+  public void cachedPositionDoesNotKeepRequestsAlivePastTheTimeout() {
+    Shadows.shadowOf(manager)
+        .setLastKnownLocation(
+            LocationManager.NETWORK_PROVIDER, location(LocationManager.NETWORK_PROVIDER, 30, 16));
+    locate.start(callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(31));
+    assertEquals(1, found);
+    assertTrue(cachedResult);
+    assertEquals(0, failed);
+    assertTrue(Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
+    assertTrue(
+        Shadows.shadowOf(manager).getLocationRequests(LocationManager.NETWORK_PROVIDER).isEmpty());
   }
 
   @Test

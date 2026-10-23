@@ -35,7 +35,7 @@ application wake lock. Guidance already indexes route blocks, and unchanged-came
 reuse projected geometry. No recorder behavior or performance budget is weakened here.
 
 Location fallback, search, graph preparation, route calculations and app updates remain bounded
-and triggered by user actions. Map work stops when hidden; preparation traffic stops during a hike.
+and triggered by user actions. Map work stops when hidden. Search and online map viewing remain user-controlled during a hike; bulk map/graph downloads remain blocked.
 There is no compass loop, analytics, sync job, automatic update polling or screen-on request to remove.
 
 Full track/library reloads on resume remain a candidate for a separate persistence change. Safe

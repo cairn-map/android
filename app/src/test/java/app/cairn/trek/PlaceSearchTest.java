@@ -511,17 +511,36 @@ public class PlaceSearchTest {
   }
 
   @Test
-  public void recordingBlocksOnlineSearchWithoutSubmittingAQuery() {
+  public void recordingAllowsSearchAndResultSelectionWithoutEnablingOnlineMaps() throws Exception {
+    SearchGeocoder.answer = Collections.singletonList(place("Paris, France", 48.8566, 2.3522));
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       TrackingService.running = true;
-      find(controller.get().getWindow().getDecorView(), "Search places").performClick();
+      MainActivity activity = controller.get();
+      Field searchField = MainActivity.class.getDeclaredField("placeSearch");
+      searchField.setAccessible(true);
+      ((PlaceSearch) searchField.get(activity)).close();
+      searchField.set(
+          activity, new PlaceSearch(activity, (queryText, center) -> Collections.emptyList()));
+      Store store = (Store) field(activity, "store");
+      store.prefs.edit().putInt("intervalSeconds", 137).commit();
+      find(activity.getWindow().getDecorView(), "Search places").performClick();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertNotNull(
-          find(
-              controller.get().getWindow().getDecorView(),
-              "Search unavailable while recording"));
-      assertNull(SearchGeocoder.query);
+      AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+      assertTrue(dialog.isShowing());
+      EditText query = (EditText) find(dialog.getWindow().getDecorView(), "Place name or address");
+      query.setText("Paris");
+      query.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+      drain((PlaceSearch) field(activity, "placeSearch"));
+      assertEquals("Paris", SearchGeocoder.query);
+      find(dialog.getWindow().getDecorView(), "Paris, France").performClick();
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      assertEquals(48.8566, map.center().lat, 1e-6);
+      assertEquals(2.3522, map.center().lon, 1e-6);
+      assertFalse(((IgnMap) field(activity, "ignMap")).online());
+      assertEquals(137000L, store.intervalMillis());
+      assertTrue(TrackingService.running);
+      assertFalse(dialog.isShowing());
     } finally {
       TrackingService.running = false;
     }
