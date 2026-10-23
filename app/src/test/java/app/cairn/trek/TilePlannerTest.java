@@ -102,6 +102,22 @@ public class TilePlannerTest {
   }
 
   @Test
+  public void everyDetailLevelProducesCoverageIncludingWorldOverview() {
+    Point point = new Point(45, 6);
+    for (int zoom = 0; zoom <= 19; zoom++) {
+      TilePlanner.Plan plan = TilePlanner.corridor(List.of(point), 100, zoom);
+      assertTrue(contains(plan, point, zoom));
+      for (TilePlanner.Tile tile : plan.tiles) {
+        assertTrue(tile.z <= zoom);
+        assertTrue(tile.z >= Math.min(zoom, TilePlanner.MIN_ZOOM));
+      }
+      assertFalse(TilePlanner.area(6, 45, 6.00001, 45.00001, zoom).tiles.isEmpty());
+    }
+    assertEquals(
+        List.of(new TilePlanner.Tile(0, 0, 0)), TilePlanner.corridor(List.of(point), 100, 0).tiles);
+  }
+
+  @Test
   public void invalidSelectionsFailClearly() {
     assertThrows(IllegalArgumentException.class, () -> TilePlanner.corridor(List.of(), 1000, 17));
     assertThrows(IllegalArgumentException.class, () -> TilePlanner.area(0, 0, 1, 1, 20));

@@ -139,7 +139,10 @@ public class OfflineWorkflowTest {
         find(root, "Save offline corridor").performClick();
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-        ((EditText) find(form.getWindow().getDecorView(), "1.0")).setText(width);
+        SeekBar widthSlider =
+            form.getWindow().getDecorView().findViewWithTag("Kilometres on each side");
+        widthSlider.setProgress((int) Math.round(Double.parseDouble(width) * 10) - 1);
+        assertEquals(99, widthSlider.getMax());
         form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         drain(activity);
         AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
@@ -160,11 +163,73 @@ public class OfflineWorkflowTest {
     }
   }
 
+  @Test
+  public void corridorSlidersSaveEveryPlanIgnDetailWithoutAskingForAName() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    List<Point> points = List.of(new Point(45.9, 6.8), new Point(45.9001, 6.8001));
+    try (Store routes = new Store(context)) {
+      routes.saveRoute(points, "All details");
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      for (int zoom = 0; zoom <= 19; zoom++) {
+        drain(activity);
+        java.lang.reflect.Method prepare =
+            MainActivity.class.getDeclaredMethod("prepareDownload", List.class, String.class);
+        prepare.setAccessible(true);
+        prepare.invoke(activity, points, "All details");
+        drain(activity);
+        AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        View decor = form.getWindow().getDecorView();
+        assertFalse(hasEditText(decor));
+        SeekBar detail = decor.findViewWithTag("Map detail");
+        SeekBar width = decor.findViewWithTag("Kilometres on each side");
+        assertEquals(19, detail.getMax());
+        assertEquals(17, detail.getProgress());
+        assertEquals(1, detail.getKeyProgressIncrement());
+        width.setProgress(zoom % 2 == 0 ? 0 : 99);
+        assertEquals(
+            zoom % 2 == 0 ? "0.1 km on each side" : "10.0 km on each side",
+            width.getContentDescription());
+        width.setProgress(0);
+        detail.setProgress(zoom);
+        assertEquals("Map detail · zoom " + zoom, detail.getContentDescription());
+        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        drain(activity);
+        AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        drain(activity);
+        java.lang.reflect.Field mapsField = MainActivity.class.getDeclaredField("mapStore");
+        mapsField.setAccessible(true);
+        PlanIgnStore maps = (PlanIgnStore) mapsField.get(activity);
+        PlanIgnStore.Pack pack = maps.packs().get(0);
+        assertEquals("All details · corridor", pack.name);
+        assertEquals(
+            new HashSet<>(TilePlanner.corridor(points, 100, zoom).tiles),
+            new HashSet<>(maps.next(pack.id, TilePlanner.MAX_TILES)));
+        maps.remove(pack.id);
+      }
+    }
+  }
+
+  private boolean hasEditText(View view) {
+    if (view instanceof EditText) return true;
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++)
+        if (hasEditText(group.getChildAt(i))) return true;
+    }
+    return false;
+  }
+
   private void drain(MainActivity activity) throws Exception {
-    Shadows.shadowOf(Looper.getMainLooper()).idle();
     java.lang.reflect.Field field = MainActivity.class.getDeclaredField("io");
     field.setAccessible(true);
-    ((ExecutorService) field.get(activity)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    for (int i = 0; i < 3; i++) {
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      ((ExecutorService) field.get(activity)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+    }
     Shadows.shadowOf(Looper.getMainLooper()).idle();
   }
 
@@ -212,13 +277,11 @@ public class OfflineWorkflowTest {
           org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
               .getWindow()
               .getDecorView();
-      find(maps, "Routing data").performClick();
+      assertNull(find(maps, "Routing data"));
+      find(maps, "Clear all routing data").performClick();
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      assertTrue(
-          ((TextView) dialog.findViewById(android.R.id.message))
-              .getText()
-              .toString()
-              .contains("Walking engine is included"));
+      assertNotNull(find(dialog.getWindow().getDecorView(), "Clear all routing data?"));
+      assertEquals("Clear", dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
       dialog.dismiss();
     }
   }

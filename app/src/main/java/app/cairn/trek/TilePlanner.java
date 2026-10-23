@@ -57,7 +57,7 @@ public final class TilePlanner {
   private TilePlanner() {}
 
   private static void detail(int z) {
-    if (z < MIN_ZOOM || z > 19) throw new IllegalArgumentException("Invalid map detail");
+    if (z < 0 || z > 19) throw new IllegalArgumentException("Invalid map detail");
   }
 
   private static void add(Set<Tile> result, int z, int x, int y) {
@@ -83,7 +83,7 @@ public final class TilePlanner {
       throw new IllegalArgumentException("Choose a valid map area between 85° south and north");
     if (east < west) east += 360;
     Set<Tile> result = new HashSet<>();
-    for (int z = MIN_ZOOM; z <= maxZoom; z++) {
+    for (int z = Math.min(MIN_ZOOM, maxZoom); z <= maxZoom; z++) {
       int x0 = (int) Math.floor(Geo.x(west, z)), x1 = (int) Math.floor(Geo.x(east, z));
       int y0 = Math.max(0, (int) Math.floor(Geo.y(north, z))),
           y1 = Math.min((1 << z) - 1, (int) Math.floor(Geo.y(south, z)));
@@ -131,7 +131,7 @@ public final class TilePlanner {
     }
     Set<Tile> all = new HashSet<>();
     for (Tile t : highest)
-      for (int z = MIN_ZOOM; z <= maxZoom; z++)
+      for (int z = Math.min(MIN_ZOOM, maxZoom); z <= maxZoom; z++)
         add(all, z, t.x >> (maxZoom - z), t.y >> (maxZoom - z));
     return new Plan(all, route.get(0));
   }

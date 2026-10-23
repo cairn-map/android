@@ -13,6 +13,22 @@ final class RoutingData {
     return file;
   }
 
+  /** Remove only geographic graphs and their partial-transfer files; keep the built-in profile. */
+  static void clear(Context context) throws IOException {
+    File[] files = directory(context).listFiles();
+    if (files == null) throw new IOException("Cannot read routing data directory");
+    boolean failed = false;
+    for (File file : files) {
+      String region = file.getName().split("\\.rd5", 2)[0] + ".rd5";
+      if (validName(region)
+          && file.getName()
+              .matches("[EW][0-9]+_[NS][0-9]+\\.rd5(\\.(part|resume|resume\\.tmp|import))?")) {
+        if (!file.delete() && file.exists()) failed = true;
+      }
+    }
+    if (failed) throw new IOException("Some files could not be removed");
+  }
+
   static File profiles(Context context) {
     return new File(context.getFilesDir(), "routing/profiles-1.7.9");
   }

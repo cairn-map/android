@@ -205,7 +205,8 @@ public class UnifiedLibraryTest {
       find(activity.getWindow().getDecorView(), "Save offline corridor").performClick();
       drain(activity);
       AlertDialog form = ShadowAlertDialog.getLatestAlertDialog();
-      ((EditText) find(form.getWindow().getDecorView(), "1.0")).setText("0.2");
+      ((SeekBar) form.getWindow().getDecorView().findViewWithTag("Kilometres on each side"))
+          .setProgress(1);
       form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
       drain(activity);
       AlertDialog estimate = ShadowAlertDialog.getLatestAlertDialog();
@@ -273,6 +274,40 @@ public class UnifiedLibraryTest {
       drain(activity);
       assertEquals(trekId, map.selectedPathId);
       assertEquals(trekId, ((Store) field(activity, "store")).selectedLibraryId());
+    }
+  }
+
+  @Test
+  public void blankMapTapDeselectsAndKeepsVisibleRouteAndGuidance() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      Store store = (Store) field(activity, "store");
+      assertEquals(routeId, map.selectedPathId);
+      List<Point> guidance = map.route;
+      map.layout(0, 0, 786, 1400);
+      map.restoreCamera(new double[] {40, 0, 12});
+      long time = android.os.SystemClock.uptimeMillis();
+      for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+        MotionEvent event = MotionEvent.obtain(time, time + action * 20, action, 393, 700, 0);
+        map.onTouchEvent(event);
+        event.recycle();
+      }
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350));
+      drain(activity);
+      assertEquals("", map.selectedPathId);
+      assertEquals("", store.selectedLibraryId());
+      assertNull(field(activity, "selectedEntry"));
+      assertTrue(
+          store.library().stream().anyMatch(entry -> entry.id.equals(routeId) && entry.visible));
+      assertSame(guidance, map.route);
+      assertNull(find(activity.getWindow().getDecorView(), "Save offline corridor"));
+      assertNotNull(find(activity.getWindow().getDecorView(), "Create route"));
+      View library = library(activity);
+      assertNull(find(library, "Create route"));
+      assertNotNull(find(library, "Add files"));
     }
   }
 }
