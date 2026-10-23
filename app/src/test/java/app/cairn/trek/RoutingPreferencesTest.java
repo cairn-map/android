@@ -43,41 +43,62 @@ public class RoutingPreferencesTest {
   }
 
   @Test
-  public void applyPersistsOverridesCancelDiscardsAndResetRestoresProfileDefaults() {
+  public void controlsApplyImmediatelyAndResetStaysOpenUntilDismissed() {
     try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
-      int[] changes = {0};
-      RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++);
+      int[] changes = {0}, closed = {0};
+      RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++, () -> closed[0]++);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       View root = dialog.getWindow().getDecorView();
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility());
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+      assertEquals(0, changes[0]);
       ((Spinner) find(root, "Maximum difficulty")).setSelection(2);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       ((Spinner) find(root, "Preferred difficulty")).setSelection(2);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
+      ((Spinner) find(root, "Marked hiking route preference")).setSelection(3);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       ((CheckBox) find(root, "Prefer less climbing")).setChecked(true);
       ((CheckBox) find(root, "Allow ferries")).setChecked(false);
-      dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
-      Shadows.shadowOf(Looper.getMainLooper()).idle();
       Map<String, String> values = RoutingPreferences.read(prefs);
       assertEquals("2", values.get("SAC_scale_limit"));
       assertEquals("2", values.get("SAC_scale_preferred"));
+      assertEquals("2.0", values.get("hiking_routes_preference"));
       assertEquals("1", values.get("consider_elevation"));
       assertEquals("0", values.get("allow_ferries"));
-      assertEquals(1, changes[0]);
-      RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++);
-      dialog = ShadowAlertDialog.getLatestAlertDialog();
-      ((Spinner) find(dialog.getWindow().getDecorView(), "Maximum difficulty")).setSelection(6);
-      dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+      assertTrue(changes[0] > 0);
+      assertTrue(dialog.isShowing());
+      assertEquals(0, closed[0]);
+      dialog.cancel();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       assertEquals(values, RoutingPreferences.read(prefs));
-      assertEquals(1, changes[0]);
-      RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++);
-      ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+      assertEquals(1, closed[0]);
+      RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++, () -> closed[0]++);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
+      dialog = ShadowAlertDialog.getLatestAlertDialog();
+      root = dialog.getWindow().getDecorView();
+      // Raising the preferred level also raises the maximum; lowering the maximum clamps both.
+      ((Spinner) find(root, "Preferred difficulty")).setSelection(6);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertEquals("6", RoutingPreferences.read(prefs).get("SAC_scale_limit"));
+      ((Spinner) find(root, "Maximum difficulty")).setSelection(0);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertEquals("0", RoutingPreferences.read(prefs).get("SAC_scale_preferred"));
+      dialog.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertTrue(dialog.isShowing());
+      assertEquals(1, closed[0]);
       assertEquals("3", RoutingPreferences.read(prefs).get("SAC_scale_limit"));
       assertEquals("1", RoutingPreferences.read(prefs).get("SAC_scale_preferred"));
       assertEquals("1", RoutingPreferences.read(prefs).get("allow_ferries"));
-      assertEquals(2, changes[0]);
+      assertEquals(3, ((Spinner) find(root, "Maximum difficulty")).getSelectedItemPosition());
+      assertFalse(((CheckBox) find(root, "Prefer less climbing")).isChecked());
+      ((CheckBox) find(root, "Prefer less climbing")).setChecked(true);
+      assertEquals("1", RoutingPreferences.read(prefs).get("consider_elevation"));
+      dialog.dismiss();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertEquals(2, closed[0]);
     }
   }
 

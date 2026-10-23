@@ -45,7 +45,7 @@ public final class MainActivity extends Activity {
   private int editRevision, calculatedRevision = -1;
   private boolean editDirty, finishEditing, savingEdit;
   private final Runnable autoRoute = this::autoCalculate;
-  private AlertDialog routingPrompt;
+  private AlertDialog routingPrompt, routingPreferencesDialog;
   private List<Point> pendingRoute;
   private String routingRequest, routingProgress;
   private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -419,6 +419,15 @@ public final class MainActivity extends Activity {
     bottomActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
     selectionPanel = row();
     selectionPanel.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
+    selectionPanel.addOnLayoutChangeListener(
+        (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+          int actionsLeft = left + dp(12); // Include the action strip's map margin.
+          int offset = planning ? dp(actionsLeft >= dp(136) ? 68 : 136) : 0;
+          if (map.scaleBottomOverlay != offset) {
+            map.scaleBottomOverlay = offset;
+            map.invalidate();
+          }
+        });
     bottomActions.addView(selectionPanel, new LinearLayout.LayoutParams(-2, dp(48)));
     gpsParams.leftMargin = dp(8);
     bottomActions.addView(intervalChip, gpsParams);
@@ -426,6 +435,9 @@ public final class MainActivity extends Activity {
     actionStrip.setHorizontalScrollBarEnabled(false);
     actionStrip.setFillViewport(true);
     actionStrip.addView(bottomActions);
+    bottomActions.addOnLayoutChangeListener(
+        (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+            actionStrip.scrollTo(bottomActions.getWidth(), 0));
     FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM);
     stripParams.setMargins(dp(12), 0, dp(12), dp(80));
     frame.addView(actionStrip, stripParams);
@@ -489,7 +501,7 @@ public final class MainActivity extends Activity {
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(136);
-    map.scaleBottomOverlay = planning ? dp(136) : 0;
+    map.scaleBottomOverlay = planning ? dp(68) : 0;
     updateSelectionActions();
   }
 
@@ -666,6 +678,7 @@ public final class MainActivity extends Activity {
     selectionPanel.removeAllViews();
     selectionPanel.setVisibility(View.VISIBLE);
     if (planning) {
+      addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
       addSelectionAction(
           MapIcon.CENTER,
           "Center selected",
@@ -683,11 +696,8 @@ public final class MainActivity extends Activity {
       ((MapIcon) editButton.getDrawable()).colors(SELECTION, ON_SELECTION);
       editButton.setBackground(buttonBackground(ON_SELECTION, SELECTION_BORDER, 16));
       editButton.setEnabled(!savingEdit);
-      addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
     } else if (selectedEntry != null) {
       Store.LibraryEntry entry = selectedEntry;
-      addSelectionAction(
-          MapIcon.CENTER, "Center selected", () -> map.fitRoute(selectionSnapshot()));
       addSelectionAction(
           MapIcon.SAVE_MAP,
           "Save offline corridor",
@@ -695,6 +705,9 @@ public final class MainActivity extends Activity {
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
       addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
+      // Keep Center and Edit beside GPS in both modes, with secondary actions to the left.
+      addSelectionAction(
+          MapIcon.CENTER, "Center selected", () -> map.fitRoute(selectionSnapshot()));
       if (!entry.recording) addSelectionAction(MapIcon.EDIT, "Edit route", this::toggleEditing);
     } else {
       addSelectionAction(MapIcon.EDIT, "Create route", this::toggleEditing);
@@ -776,7 +789,7 @@ public final class MainActivity extends Activity {
     if (waypoints.size() < 2) plannedRoute = Collections.emptyList();
     refreshPlanning();
     main.removeCallbacks(autoRoute);
-    main.postDelayed(autoRoute, 250);
+    if (routingPreferencesDialog == null) main.postDelayed(autoRoute, 250);
   }
 
   private void deleteNode(int index) {
@@ -786,20 +799,32 @@ public final class MainActivity extends Activity {
   }
 
   private void routingPreferences() {
+    if (routingPreferencesDialog != null) return;
     if (pendingRoute != null || finishEditing || savingEdit) {
       message("Finish or pause the current operation before changing routing preferences.");
       return;
     }
-    RoutingPreferences.show(
-        this,
-        store.prefs,
-        () -> {
-          if (planning) nodesChanged();
-        });
+    main.removeCallbacks(autoRoute);
+    if (calculationRunning) {
+      editRevision++;
+      router.cancel();
+    }
+    routingPreferencesDialog =
+        RoutingPreferences.show(
+            this,
+            store.prefs,
+            () -> {
+              if (planning) nodesChanged();
+            },
+            () -> {
+              routingPreferencesDialog = null;
+              if (!destroyed) autoCalculate();
+            });
   }
 
   private void autoCalculate() {
     if (resumed
+        && routingPreferencesDialog == null
         && planning
         && editDirty
         && calculatedRevision != editRevision
@@ -1923,6 +1948,7 @@ public final class MainActivity extends Activity {
   private void calculate() {
     if (!planning
         || !resumed
+        || routingPreferencesDialog != null
         || routingBusy()
         || savingEdit
         || (routingPrompt != null && routingPrompt.isShowing())) return;
@@ -2035,6 +2061,7 @@ public final class MainActivity extends Activity {
   }
 
   private void calculate(List<Point> requested) {
+    if (routingPreferencesDialog != null) return;
     int revision = editRevision;
     calculationRunning = true;
     refreshPlanning();
@@ -2344,6 +2371,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onDestroy() {
     destroyed = true;
+    if (routingPreferencesDialog != null) routingPreferencesDialog.dismiss();
     if (libraryDialog != null) libraryDialog.dismiss();
     appUpdates.close();
     feedback.close();
