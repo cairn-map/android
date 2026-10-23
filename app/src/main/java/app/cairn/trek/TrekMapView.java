@@ -14,6 +14,12 @@ public final class TrekMapView extends View {
   }
 
   public LongPress onLongPress;
+  public boolean editing;
+  public java.util.function.BiConsumer<Integer, Point> onNodeAdded, onNodeMoved;
+  public List<Point> editRoute = Collections.emptyList();
+  private int draggedNode = -1;
+  private Point originalNode;
+  private boolean nodeMoved, consumeNodeContacts;
   public List<Point> route = Collections.emptyList(),
       track = Collections.emptyList(),
       waypoints = Collections.emptyList();
@@ -31,7 +37,7 @@ public final class TrekMapView extends View {
   }
 
   public List<LibraryPath> libraryPaths;
-  public String selectedPathId = "", liveTrackId = "";
+  public String selectedPathId = "", liveTrackId = "", editingPathId = "";
   public java.util.function.Consumer<String> onPathSelected;
   public int bottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
@@ -123,6 +129,36 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (editing) {
+                  if (nodeAt(e.getX(), e.getY()) < 0 && onNodeAdded != null) {
+                    Point point = pointAt(e.getX(), e.getY());
+                    int insert = waypoints.size();
+                    double nearest = dp(24);
+                    for (int i = 1; i < waypoints.size(); i++) {
+                      Point a = waypoints.get(i - 1), b = waypoints.get(i);
+                      double ax = px(a.lon),
+                          ay = py(a.lat),
+                          dx = px(b.lon) - ax,
+                          dy = py(b.lat) - ay;
+                      double t =
+                          dx * dx + dy * dy == 0
+                              ? 0
+                              : Math.max(
+                                  0,
+                                  Math.min(
+                                      1,
+                                      ((e.getX() - ax) * dx + (e.getY() - ay) * dy)
+                                          / (dx * dx + dy * dy)));
+                      double distance = Math.hypot(e.getX() - ax - t * dx, e.getY() - ay - t * dy);
+                      if (distance < nearest) {
+                        nearest = distance;
+                        insert = i;
+                      }
+                    }
+                    onNodeAdded.accept(insert, point);
+                  }
+                  return true;
+                }
                 String id = libraryPathAt(e.getX(), e.getY());
                 if (id != null && !id.equals(selectedPathId) && onPathSelected != null)
                   onPathSelected.accept(id);
@@ -442,6 +478,11 @@ public final class TrekMapView extends View {
   }
 
   private void suspendRendering() {
+    if (draggedNode >= 0) {
+      waypoints.set(draggedNode, originalNode);
+      draggedNode = -1;
+    }
+    consumeNodeContacts = false;
     // GestureDetector otherwise retains its delayed tap/long-press callbacks after pause.
     long now = android.os.SystemClock.uptimeMillis();
     MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
@@ -672,6 +713,41 @@ public final class TrekMapView extends View {
 
   @Override
   public boolean onTouchEvent(MotionEvent e) {
+    if (e.getActionMasked() == MotionEvent.ACTION_DOWN) consumeNodeContacts = false;
+    if (consumeNodeContacts) return true;
+    if (e.getActionMasked() == MotionEvent.ACTION_DOWN && editing) {
+      draggedNode = nodeAt(e.getX(), e.getY());
+      if (draggedNode >= 0) {
+        stopMotion();
+        originalNode = waypoints.get(draggedNode);
+        nodeMoved = false;
+        downX = e.getX();
+        downY = e.getY();
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+      }
+    }
+    if (draggedNode >= 0) {
+      int index = draggedNode;
+      if (e.getActionMasked() == MotionEvent.ACTION_MOVE && e.getPointerCount() == 1) {
+        if (Math.hypot(e.getX() - downX, e.getY() - downY)
+            > ViewConfiguration.get(getContext()).getScaledTouchSlop()) nodeMoved = true;
+        if (nodeMoved) waypoints.set(index, pointAt(e.getX(), e.getY()));
+        invalidate();
+      }
+      if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+        draggedNode = -1;
+        if (nodeMoved && onNodeMoved != null) onNodeMoved.accept(index, waypoints.get(index));
+        performClick();
+      } else if (e.getActionMasked() == MotionEvent.ACTION_CANCEL
+          || e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+        waypoints.set(index, originalNode);
+        draggedNode = -1;
+        invalidate();
+        // Consume the remaining contacts; a canceled node drag must not pan the map.
+        consumeNodeContacts = true;
+      }
+      return true;
+    }
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
       gestures.setIsLongpressEnabled(true);
       boolean wasMoving = zoomFling || tapZoom || !panScroller.isFinished();
@@ -779,6 +855,26 @@ public final class TrekMapView extends View {
       zoomVelocity = null;
     }
     return true;
+  }
+
+  private Point pointAt(float x, float y) {
+    return new Point(
+        Geo.lat(Geo.y(lat, zoom) + (y - getHeight() / 2f) / scaledTileSize(), zoom),
+        Geo.wrap(Geo.lon(Geo.x(lon, zoom) + (x - getWidth() / 2f) / scaledTileSize(), zoom)));
+  }
+
+  private int nodeAt(float x, float y) {
+    int nearest = -1;
+    double distance = dp(24);
+    for (int i = 0; i < waypoints.size(); i++) {
+      Point point = waypoints.get(i);
+      double candidate = Math.hypot(px(point.lon) - x, py(point.lat) - y);
+      if (candidate < distance) {
+        distance = candidate;
+        nearest = i;
+      }
+    }
+    return nearest;
   }
 
   private static float focus(MotionEvent event, boolean horizontal, int skip) {
@@ -924,6 +1020,7 @@ public final class TrekMapView extends View {
       for (LibraryPath path : libraryPaths) {
         if (path.entry.id.equals(liveTrackId)) liveIncluded = true;
         if (!path.entry.visible) continue;
+        if (path.entry.id.equals(editingPathId)) continue;
         if (path.entry.id.equals(selectedPathId)) selected = path;
         else line(c, pathPoints(path), path.entry.recording ? 0xffC36C39 : 0xff647BAC, 3);
       }
@@ -933,6 +1030,8 @@ public final class TrekMapView extends View {
         line(c, pathPoints(selected), 0xff235D4D, 5);
       }
     }
+    line(c, editRoute, Color.WHITE, 9);
+    line(c, editRoute, 0xff235D4D, 5);
     projectedLines.values().removeIf(line -> line.frame != lineFrame);
     paint.setStyle(Paint.Style.FILL);
     for (int i = 0; i < waypoints.size(); i++) {

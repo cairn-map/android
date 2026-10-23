@@ -308,22 +308,29 @@ public class MapControlsTest {
       assertNotNull(find(content, "Hide"));
       assertNull(find(content, "Mountain loop"));
       savePreview(content, 786, 1550, "selected-route-floating-actions");
-      View maps = find(content, "Saved maps and downloads");
-      android.graphics.Rect mapsBounds = new android.graphics.Rect();
-      assertTrue(maps.getGlobalVisibleRect(mapsBounds));
-      int previousBottom = 0;
-      for (String action : new String[] {"Save offline corridor", "Export GPX", "Hide"}) {
+      android.graphics.Rect gpsBounds = new android.graphics.Rect();
+      assertTrue(find(content, "GPS settings").getGlobalVisibleRect(gpsBounds));
+      int previousRight = 0;
+      for (String action :
+          new String[] {
+            "Center selected", "Save offline corridor", "Export GPX", "Hide", "Edit route"
+          }) {
         View icon = find(content, action);
         assertTrue(icon instanceof ImageButton);
         assertEquals(AppPalette.SELECTION, fill(icon));
         android.graphics.Rect bounds = new android.graphics.Rect();
         assertTrue(icon.getGlobalVisibleRect(bounds));
-        assertEquals(mapsBounds.right, bounds.right);
-        assertTrue(bounds.top >= previousBottom);
-        assertTrue(bounds.bottom < mapsBounds.top);
+        assertEquals(gpsBounds.top, bounds.top);
+        assertEquals(gpsBounds.bottom, bounds.bottom);
+        assertTrue(bounds.left >= previousRight);
+        assertTrue(bounds.right < gpsBounds.left);
+        assertEquals(96, bounds.width());
         assertEquals(96, bounds.height());
-        previousBottom = bounds.bottom;
+        previousRight = bounds.right;
       }
+      map.restoreCamera(new double[] {48, 2, 18});
+      find(content, "Center selected").performClick();
+      assertTrue(map.camera()[2] < 18);
       assertEquals(id, map.selectedPathId);
       assertEquals(id, store.prefs.getString("activeRouteId", ""));
       assertTrue(store.prefs.getBoolean("follow", false));
@@ -336,6 +343,16 @@ public class MapControlsTest {
         assertTrue(point.lon > bounds[0] && point.lon < bounds[2]);
         assertTrue(point.lat > bounds[1] && point.lat < bounds[3]);
       }
+      find(content, "Edit route").performClick();
+      drain(activity);
+      assertTrue(map.editing);
+      assertTrue(find(content, "Finish editing").isSelected());
+      for (String oldAction : List.of("Route", "More", "Undo"))
+        assertNull(find(content, oldAction));
+      savePreview(content, 786, 1550, "route-edit-toggle");
+      find(content, "Finish editing").performClick();
+      assertFalse(map.editing);
+      assertEquals(id, store.selectedLibraryId());
     }
   }
 

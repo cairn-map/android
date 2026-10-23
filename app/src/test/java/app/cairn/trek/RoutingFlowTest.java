@@ -10,6 +10,7 @@ import android.widget.TextView;
 import java.io.*;
 import java.lang.reflect.*;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.*;
@@ -75,6 +76,8 @@ public class RoutingFlowTest {
   }
 
   private View find(View view, String text) {
+    if (text.contentEquals(
+        view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
     if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
     if (view instanceof ViewGroup) {
       ViewGroup group = (ViewGroup) view;
@@ -93,8 +96,18 @@ public class RoutingFlowTest {
     Shadows.shadowOf(Looper.getMainLooper()).idle();
   }
 
+  private void changeNodes() {
+    try {
+      TrekMapView map = (TrekMapView) field("map");
+      map.onNodeMoved.accept(0, points().get(0));
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+    } catch (Exception error) {
+      throw new AssertionError(error);
+    }
+  }
+
   private AlertDialog prompt() {
-    tap("Route");
+    changeNodes();
     AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
     assertTrue(dialog.isShowing());
     assertNotNull(find(dialog.getWindow().getDecorView(), "Download routing data?"));
@@ -147,6 +160,10 @@ public class RoutingFlowTest {
 
   private void assertSavedRoute() throws Exception {
     drain();
+    assertTrue("Automatic routing leaves the editor open", (boolean) field("planning"));
+    assertTrue(((List<?>) field("plannedRoute")).size() > 2);
+    tap("Finish editing");
+    drain();
     assertFalse((boolean) field("planning"));
     try (Store store = new Store(context)) {
       assertEquals(1, store.routes().size());
@@ -155,6 +172,72 @@ public class RoutingFlowTest {
       assertTrue(Geo.distance(route.get(0), new Point(50.002515, 8.720897)) < 100);
       assertTrue(Geo.distance(route.get(route.size() - 1), new Point(49.997510, 8.723658)) < 100);
     }
+  }
+
+  @Test
+  public void editsDuringCalculationDiscardTheOldResultAndFinishSavesTheLatestNodes()
+      throws Exception {
+    installGraphs();
+    changeNodes();
+    assertTrue((boolean) field("calculationRunning"));
+    Point latest = new Point(49.9976, 8.7236);
+    points().set(1, latest);
+    ((TrekMapView) field("map")).onNodeMoved.accept(1, latest);
+    tap("Finish editing");
+    drain();
+    assertFalse((boolean) field("planning"));
+    Store store = (Store) field("store");
+    assertEquals(1, store.routes().size());
+    List<Point> nodes = store.routeNodes(store.routes().get(0).id);
+    assertEquals(latest.lat, nodes.get(1).lat, 0);
+    assertEquals(latest.lon, nodes.get(1).lon, 0);
+    assertTrue(Geo.distance(store.read("route").get(store.read("route").size() - 1), latest) < 100);
+  }
+
+  @Test
+  public void savedRouteReopensWithItsOriginalNodesAndEditsUpdateTheSameLibraryItem()
+      throws Exception {
+    installGraphs();
+    changeNodes();
+    assertSavedRoute();
+    Store store = (Store) field("store");
+    String id = store.routes().get(0).id;
+    tap("Edit route");
+    drain();
+    assertTrue((boolean) field("planning"));
+    assertEquals(2, points().size());
+    Point latest = new Point(49.9976, 8.7236);
+    points().set(1, latest);
+    changeNodes();
+    drain();
+    tap("Finish editing");
+    drain();
+    assertEquals(1, store.routes().size());
+    assertEquals(id, store.routes().get(0).id);
+    assertEquals(latest.lat, store.routeNodes(id).get(1).lat, 0);
+    assertEquals(id, store.selectedLibraryId());
+  }
+
+  @Test
+  public void downloadRequestedByFinishingEditSavesAutomaticallyWhenReady() throws Exception {
+    set("editDirty", true);
+    tap("Finish editing");
+    Intent start = confirm();
+    installGraphs();
+    event(start.getStringExtra("request"), true, true, "Ready");
+    drain();
+    assertFalse((boolean) field("planning"));
+    assertEquals(1, ((Store) field("store")).routes().size());
+  }
+
+  @Test
+  public void downloadFailureWhileFinishingUnlocksTheNodesForEditing() throws Exception {
+    set("editDirty", true);
+    tap("Finish editing");
+    Intent start = confirm();
+    event(start.getStringExtra("request"), true, false, "Routing download paused");
+    assertTrue(((TrekMapView) field("map")).editing);
+    assertFalse((boolean) field("finishEditing"));
   }
 
   @Test
@@ -174,7 +257,7 @@ public class RoutingFlowTest {
   public void installedDataCalculatesImmediatelyEvenWhileRecording() throws Exception {
     installGraphs();
     TrackingService.running = true;
-    tap("Route");
+    changeNodes();
     assertNull(field("routingPrompt"));
     assertNull(Shadows.shadowOf(context).getNextStartedService());
     assertSavedRoute();
@@ -187,7 +270,7 @@ public class RoutingFlowTest {
     Intent start = confirm();
     event(start.getStringExtra("request"), false, false, "Routing data · 1/2 · 50% · 10/20 MB");
     assertEquals("Routing data · 1/2 · 50% · 10/20 MB", ((TextView) field("planStatus")).getText());
-    tap("Undo");
+    assertNull(find(activity.getWindow().getDecorView(), "Undo"));
     ((TrekMapView) field("map")).onLongPress.at(new Point(48, 6));
     assertEquals(2, points().size());
     installGraphs();
@@ -214,14 +297,14 @@ public class RoutingFlowTest {
     event(start.getStringExtra("request"), true, false, "Routing download paused: No space");
     assertNull(field("pendingRoute"));
     assertEquals(2, points().size());
-    assertEquals("Route", ((TextView) field("planRouteButton")).getText());
+    assertTrue(((TrekMapView) field("map")).editing);
     assertNotEquals(start.getStringExtra("request"), confirm().getStringExtra("request"));
   }
 
   @Test
   public void cancelPausesTheTransferAndIgnoresItsLateCompletion() throws Exception {
     Intent start = confirm();
-    tap("Cancel");
+    tap("Pause routing download");
     assertEquals("pause", Shadows.shadowOf(context).getNextStartedService().getAction());
     installGraphs();
     event(start.getStringExtra("request"), true, true, "Ready");
@@ -267,7 +350,7 @@ public class RoutingFlowTest {
     assertNull(field("pendingRoute"));
     assertFalse((boolean) field("calculationRunning"));
     assertEquals(2, points().size());
-    assertEquals("Route", ((TextView) field("planRouteButton")).getText());
+    assertTrue(((TrekMapView) field("map")).editing);
   }
 
   @Test
@@ -288,7 +371,7 @@ public class RoutingFlowTest {
   @Test
   public void missingDataDuringRecordingNeverStartsPreparation() throws Exception {
     TrackingService.running = true;
-    tap("Route");
+    changeNodes();
     assertNull(field("routingPrompt"));
     assertNull(Shadows.shadowOf(context).getNextStartedService());
     assertFalse((boolean) field("calculationRunning"));
