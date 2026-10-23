@@ -175,7 +175,8 @@ public final class TrekMapView extends View {
                   return true;
                 }
                 String id = libraryPathAt(e.getX(), e.getY());
-                if (id != null && !id.equals(selectedPathId) && onPathSelected != null)
+                if (onPathSelected != null
+                    && (id == null ? !selectedPathId.isEmpty() : !id.equals(selectedPathId)))
                   onPathSelected.accept(id);
                 return true;
               }

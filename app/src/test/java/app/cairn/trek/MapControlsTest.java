@@ -504,6 +504,34 @@ public class MapControlsTest {
     }
   }
 
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(sdk = 28, qualifiers = "w393dp-h851dp-xhdpi")
+  public void corridorDrawerShowsSlidersWithReadableValuesAndNoNameField() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      java.lang.reflect.Method prepare =
+          MainActivity.class.getDeclaredMethod("prepareDownload", List.class, String.class);
+      prepare.setAccessible(true);
+      prepare.invoke(activity, List.of(new Point(45, 6), new Point(45.01, 6.01)), "Alpine walk");
+      drain(activity);
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View decor = dialog.getWindow().getDecorView();
+      assertNull(findType(decor, EditText.class));
+      SeekBar detail = decor.findViewWithTag("Map detail");
+      SeekBar width = decor.findViewWithTag("Kilometres on each side");
+      assertEquals("Map detail · zoom 17", detail.getContentDescription());
+      assertEquals("1.0 km on each side", width.getContentDescription());
+      savePreview(decor, 786, 1200, "corridor-sliders-drawer");
+      assertTrue(detail.getHeight() >= 96);
+      assertTrue(width.getHeight() >= 96);
+      assertNotNull(find(decor, "Alpine walk"));
+      assertNotNull(find(decor, "Estimate download"));
+    }
+  }
+
   private void savePreview(View view, int width, int height, String name) throws Exception {
     view.measure(
         View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),

@@ -228,6 +228,10 @@ public final class MainActivity extends Activity {
     map.onPathSelected =
         id -> {
           if (planning) return;
+          if (id == null) {
+            clearLibrarySelection();
+            return;
+          }
           for (Store.LibraryEntry entry : libraryEntries)
             if (entry.id.equals(id)) {
               selectLibraryEntry(entry);
@@ -635,20 +639,7 @@ public final class MainActivity extends Activity {
 
   private void showRoutes() {
     LinearLayout content = libraryContent();
-    LinearLayout actions = row();
-    actions.addView(
-        button("Add files", false, () -> openDocument(IMPORT_GPX)),
-        new LinearLayout.LayoutParams(0, dp(52), 1));
-    actions.addView(
-        button(
-            "Create route",
-            true,
-            () -> {
-              if (!planning) startEditing(null, Collections.emptyList(), Collections.emptyList());
-              else showPage("Map");
-            }),
-        new LinearLayout.LayoutParams(0, dp(52), 1));
-    content.addView(actions);
+    content.addView(button("Add files", false, () -> openDocument(IMPORT_GPX)));
     content.addView(spacer(20));
     content.addView(label("Tap to select · swipe left or right to delete", 12, MUTED, false));
     content.addView(label("SAVED ROUTES", 11, MUTED, true));
@@ -756,7 +747,7 @@ public final class MainActivity extends Activity {
       addSelectionAction(
           MapIcon.SAVE_MAP,
           "Save offline corridor",
-          () -> prepareDownload(true, selectionSnapshot()));
+          () -> prepareDownload(selectionSnapshot(), entry.title));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
       addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
@@ -1031,14 +1022,14 @@ public final class MainActivity extends Activity {
       message("Finish editing before selecting another route or recording.");
       return;
     }
-    libraryGeneration++;
+    int generation = ++libraryGeneration;
     io.execute(
         () -> {
           try {
             List<Point> points = store.select(entry);
             main.post(
                 () -> {
-                  if (destroyed || !resumed) return;
+                  if (destroyed || !resumed || generation != libraryGeneration) return;
                   showLibrarySelection(entry, points);
                 });
           } catch (RuntimeException error) {
@@ -1060,6 +1051,17 @@ public final class MainActivity extends Activity {
     showPage("Map");
     map.fitRoute(points);
     reloadLibrary();
+  }
+
+  private void clearLibrarySelection() {
+    if (planning) return;
+    libraryGeneration++;
+    io.execute(() -> store.prefs.edit().putString("selectedLibraryId", "").apply());
+    selectedEntry = null;
+    selectedPoints = Collections.emptyList();
+    map.selectedPathId = "";
+    map.invalidate();
+    updateSelectionActions();
   }
 
   private void hideLibraryEntry(Store.LibraryEntry entry) {
@@ -1247,7 +1249,7 @@ public final class MainActivity extends Activity {
                       })
                   .show();
             }));
-    content.addView(button("Routing data", false, this::routingDataMenu));
+    content.addView(button("Clear all routing data", false, this::clearRoutingData));
     content.addView(button("Routing preferences", false, this::routingPreferences));
     content.addView(attributionFooter());
     ScrollView scroll = new ScrollView(this);
@@ -1257,116 +1259,43 @@ public final class MainActivity extends Activity {
     mapDialog.show();
   }
 
-  private void routingDataMenu() {
-    routingDataMenu(false);
+  private boolean routingDataInUse() {
+    return TrackingService.running
+        || planning
+        || calculationRunning
+        || RoutingDownloadService.running;
   }
 
-  private void routingDataMenu(boolean aroundMap) {
-    boolean hasPlanningPoints = planning && !waypoints.isEmpty();
-    boolean usingMapCenter =
-        RoutingRegionMenu.usesMapCenter(aroundMap, hasPlanningPoints, !route.isEmpty());
-    List<Point> points =
-        usingMapCenter
-            ? Collections.singletonList(map.center())
-            : hasPlanningPoints ? new ArrayList<>(waypoints) : new ArrayList<>(route);
-    List<String> needed;
-    try {
-      needed = RoutingData.missing(this, points);
-    } catch (IllegalArgumentException error) {
-      message(error.getMessage());
+  private void clearRoutingData() {
+    if (routingDataInUse()) {
+      message("Finish recording or editing and pause routing downloads first.");
       return;
     }
-    String[] downloaded =
-        RoutingData.directory(this).list((dir, name) -> RoutingData.validName(name));
-    String text =
-        "Walking engine is included. Graph data covers 5° regions and can be hundreds of MB."
-            + " Prepare over Wi-Fi before hiking.\n\n";
-    text +=
-        "For "
-            + (usingMapCenter
-                ? "the map center"
-                : hasPlanningPoints ? "your planning points" : "the selected GPX")
-            + ":\n"
-            + (needed.isEmpty() ? "Ready offline" : String.join("\n", needed));
-    text +=
-        "\n\nInstalled: "
-            + (downloaded == null || downloaded.length == 0
-                ? "none"
-                : String.join(", ", downloaded));
-    AlertDialog.Builder builder =
-        CairnDialogs.drawer(this).fullHeight().setTitle("Offline routing data").setMessage(text);
-    if (RoutingDownloadService.running)
-      builder.setPositiveButton(
-          "Pause download",
-          (d, w) ->
-              startService(new Intent(this, RoutingDownloadService.class).setAction("pause")));
-    else if (!needed.isEmpty())
-      builder.setPositiveButton(
-          "Download / resume",
-          (d, w) -> {
-            if (TrackingService.running) {
-              message("Finish the hike before downloading routing data.");
-              return;
-            }
-            setMapOnline(false);
-            if (DownloadService.running)
-              startService(
-                  new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE));
-            startForegroundService(
-                new Intent(this, RoutingDownloadService.class)
-                    .putStringArrayListExtra("regions", new ArrayList<>(needed)));
-          });
-    builder.setNeutralButton(
-        "Regions",
-        (d, w) -> {
-          List<RoutingRegionMenu.Item> items = RoutingRegionMenu.items(usingMapCenter, downloaded);
-          String[] labels = new String[items.size()];
-          for (int i = 0; i < items.size(); i++) labels[i] = items.get(i).label;
-          CairnDialogs.drawer(this)
-              .fullHeight()
-              .setTitle("Routing regions")
-              .setItems(
-                  labels,
-                  (a, which) -> {
-                    RoutingRegionMenu.Item item = items.get(which);
-                    if (item.action == RoutingRegionMenu.Action.USE_MAP_CENTER) {
-                      routingDataMenu(true);
-                      return;
+    CairnDialogs.dialog(this)
+        .setTitle("Clear all routing data?")
+        .setMessage(
+            "Remove downloaded routing data and paused routing downloads from this phone?"
+                + " Data will download again when needed to create or edit a route.")
+        .setNegativeButton("Keep", null)
+        .setPositiveButton(
+            "Clear",
+            (d, w) -> {
+              if (routingDataInUse()) {
+                message("Finish recording or editing and pause routing downloads first.");
+                return;
+              }
+              io.execute(
+                  () -> {
+                    try {
+                      RoutingData.clear(this);
+                      main.post(() -> message("Routing data cleared."));
+                    } catch (IOException error) {
+                      main.post(
+                          () -> message("Could not clear all routing data: " + error.getMessage()));
                     }
-                    if (TrackingService.running
-                        || calculationRunning
-                        || RoutingDownloadService.running) {
-                      message(
-                          "Finish the current recording, calculation, or routing download first.");
-                      return;
-                    }
-                    boolean discard = item.action == RoutingRegionMenu.Action.DISCARD_PAUSED;
-                    String prompt =
-                        discard
-                            ? "Discard paused routing downloads? Finished regions stay available."
-                            : "Remove " + item.region + "? Download it again later to update it.";
-                    CairnDialogs.dialog(this)
-                        .setMessage(prompt)
-                        .setNegativeButton("Keep", null)
-                        .setPositiveButton(
-                            "Remove",
-                            (b, c) -> {
-                              if (discard) {
-                                File[] files = RoutingData.directory(this).listFiles();
-                                if (files != null)
-                                  for (File file : files)
-                                    if (file.getName()
-                                        .matches(
-                                            "[EW][0-9]+_[NS][0-9]+\\.rd5\\.(part|resume|resume\\.tmp|import)"))
-                                      file.delete();
-                              } else new File(RoutingData.directory(this), item.region).delete();
-                              routingDataMenu(aroundMap);
-                            })
-                        .show();
-                  })
-              .show();
-        });
-    builder.show();
+                  });
+            })
+        .show();
   }
 
   private void selectPlanIgn() {
@@ -1414,55 +1343,52 @@ public final class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
-  private void prepareDownload(boolean corridor, List<Point> corridorPoints) {
+  private void prepareDownload(List<Point> corridorPoints, String routeTitle) {
     if (TrackingService.running) {
       message("Finish recording before downloading maps.");
       return;
     }
-    if (corridor && corridorPoints.isEmpty()) {
+    if (corridorPoints.isEmpty()) {
       message("Select a route or recording with points first.");
       return;
     }
-    if (!corridor && (map.getWidth() == 0 || map.getHeight() == 0)) {
-      message("Open the map and choose your area first.");
-      return;
-    }
+    String savedTitle = routeTitle + " · corridor";
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(12));
-    EditText name = new EditText(this);
-    name.setSingleLine(true);
-    name.setText(corridor ? "Route corridor" : "Plan IGN area");
-    content.addView(name);
-    content.addView(label("Map detail", 14, TEXT, true));
-    Spinner detail = new Spinner(this);
-    detail.setAdapter(
-        new ArrayAdapter<>(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            new String[] {"Standard", "Detailed", "Maximum detail"}));
-    detail.setSelection(1);
-    content.addView(detail);
-    EditText width = new EditText(this);
-    width.setInputType(
-        android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
-    width.setText("1.0");
-    if (corridor) {
-      content.addView(label("Kilometres on each side of the path", 14, TEXT, true));
-      content.addView(width);
-    }
+    content.addView(label(routeTitle, 16, TEXT, true));
     content.addView(
         label(
-            corridor
-                ? "Save terrain around the entire GPX, including the spaces between its points."
-                : "Save the area currently visible on your map. Use Preview Plan IGN to change it"
-                    + " first.",
+            "Save maps around the entire path, including the spaces between its points.",
             13,
             MUTED,
             false));
+    content.addView(spacer(16));
+    SeekBar detail =
+        downloadSlider(content, "Map detail", 19, 17, progress -> "Map detail · zoom " + progress);
+    content.addView(label("Overview (0) → Finest detail (19)", 12, MUTED, false));
+    content.addView(
+        label(
+            "All 20 Plan IGN zoom levels are available. Higher detail uses more storage.",
+            13,
+            MUTED,
+            false));
+    content.addView(spacer(20));
+    SeekBar width =
+        downloadSlider(
+            content,
+            "Kilometres on each side",
+            99,
+            9,
+            progress ->
+                String.format(
+                    Locale.getDefault(), "%1$.1f km on each side", (progress + 1) / 10.0));
+    content.addView(label("0.1–10 km on each side · 0.1 km steps", 12, MUTED, false));
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(content);
     AlertDialog dialog =
         CairnDialogs.drawer(this)
-            .setTitle(corridor ? "Save offline corridor" : "Save map area")
-            .setView(content)
+            .setTitle("Save offline corridor")
+            .setView(scroll)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Estimate download", null)
             .create();
@@ -1472,35 +1398,14 @@ public final class MainActivity extends Activity {
                 .getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(
                     v -> {
-                      double radius;
-                      try {
-                        radius =
-                            Double.parseDouble(width.getText().toString().replace(',', '.')) * 1000;
-                        if (!Double.isFinite(radius) || radius < 100 || radius > 10000)
-                          throw new NumberFormatException();
-                      } catch (NumberFormatException e) {
-                        width.setError("Choose 0.1–10 km");
-                        return;
-                      }
-                      String title = name.getText().toString().trim();
-                      if (title.isEmpty()) {
-                        name.setError("Give this area a name");
-                        return;
-                      }
-                      if (title.length() > 80) title = title.substring(0, 80);
-                      String savedTitle = title;
-                      double[] bounds = map.bounds();
+                      double radius = (width.getProgress() + 1) * 100.0;
                       List<Point> points = new ArrayList<>(corridorPoints);
-                      int zoom = new int[] {16, 17, 19}[detail.getSelectedItemPosition()];
+                      int zoom = detail.getProgress();
                       dialog.dismiss();
                       io.execute(
                           () -> {
                             try {
-                              TilePlanner.Plan plan =
-                                  corridor
-                                      ? TilePlanner.corridor(points, radius, zoom)
-                                      : TilePlanner.area(
-                                          bounds[0], bounds[1], bounds[2], bounds[3], zoom);
+                              TilePlanner.Plan plan = TilePlanner.corridor(points, radius, zoom);
                               main.post(
                                   () -> {
                                     if (destroyed) return;
@@ -1510,10 +1415,8 @@ public final class MainActivity extends Activity {
                                     String estimate =
                                         String.format(
                                             Locale.getDefault(),
-                                            (corridor
-                                                    ? "Corridor: %1$.1f km on each side · detail"
-                                                        + " zoom %2$d\n\n"
-                                                    : "Map area · detail zoom %2$d\n\n")
+                                            "Corridor: %1$.1f km on each side · detail zoom"
+                                                + " %2$d\n\n"
                                                 + "%3$,d tiles · roughly %4$.0f MB\n"
                                                 + "%5$.0f MB available on this phone.\n\n"
                                                 + "Detailed tiles download first; overview tiles"
@@ -1555,6 +1458,40 @@ public final class MainActivity extends Activity {
                           });
                     }));
     dialog.show();
+  }
+
+  private SeekBar downloadSlider(
+      LinearLayout content,
+      String description,
+      int max,
+      int initial,
+      java.util.function.IntFunction<String> valueText) {
+    TextView value = label(valueText.apply(initial), 14, TEXT, true);
+    content.addView(value);
+    SeekBar slider = new SeekBar(this);
+    slider.setTag(description);
+    slider.setContentDescription(value.getText());
+    slider.setMax(max);
+    slider.setProgress(initial);
+    slider.setKeyProgressIncrement(1);
+    slider.setProgressTintList(ColorStateList.valueOf(ACCENT));
+    slider.setThumbTintList(ColorStateList.valueOf(ACCENT));
+    slider.setOnSeekBarChangeListener(
+        new SeekBar.OnSeekBarChangeListener() {
+          @Override
+          public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+            value.setText(valueText.apply(progress));
+            slider.setContentDescription(value.getText());
+          }
+
+          @Override
+          public void onStartTrackingTouch(SeekBar bar) {}
+
+          @Override
+          public void onStopTrackingTouch(SeekBar bar) {}
+        });
+    content.addView(slider, new LinearLayout.LayoutParams(-1, dp(48)));
+    return slider;
   }
 
   private void beginDownload(String id) {
