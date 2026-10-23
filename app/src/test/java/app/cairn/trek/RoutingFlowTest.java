@@ -175,6 +175,22 @@ public class RoutingFlowTest {
   }
 
   @Test
+  public void deletingNodesInvalidatesTheCalculatedRouteAndCannotDeleteOutsideEditing()
+      throws Exception {
+    TrekMapView map = (TrekMapView) field("map");
+    set("plannedRoute", new ArrayList<>(points()));
+    int revision = (int) field("editRevision");
+    map.onNodeDeleted.accept(0);
+    assertEquals(1, points().size());
+    assertEquals(revision + 1, field("editRevision"));
+    assertTrue(((List<?>) field("plannedRoute")).isEmpty());
+    assertTrue((boolean) field("editDirty"));
+    map.editing = false;
+    map.onNodeDeleted.accept(0);
+    assertEquals(1, points().size());
+  }
+
+  @Test
   public void editsDuringCalculationDiscardTheOldResultAndFinishSavesTheLatestNodes()
       throws Exception {
     installGraphs();

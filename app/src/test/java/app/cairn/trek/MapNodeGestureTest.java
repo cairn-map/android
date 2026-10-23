@@ -16,7 +16,7 @@ import org.robolectric.annotation.*;
 @LooperMode(LooperMode.Mode.PAUSED)
 public class MapNodeGestureTest {
   private TrekMapView map;
-  private int moved, added, insertion;
+  private int moved, added, insertion, deleted;
   private long down;
 
   @Before
@@ -27,6 +27,11 @@ public class MapNodeGestureTest {
     map.waypoints = new ArrayList<>(List.of(new Point(45, 6)));
     map.editing = true;
     map.onNodeMoved = (index, point) -> moved++;
+    map.onNodeDeleted =
+        index -> {
+          deleted++;
+          map.waypoints.remove(index);
+        };
     map.onNodeAdded =
         (index, point) -> {
           added++;
@@ -57,6 +62,7 @@ public class MapNodeGestureTest {
     assertEquals(0, moved);
     touch(MotionEvent.ACTION_UP, 420, 320);
     assertEquals(1, moved);
+    assertEquals(0, deleted);
     assertTrue(map.waypoints.get(0).lon > 6);
     assertTrue(map.waypoints.get(0).lat > 45);
     assertArrayEquals(camera, map.camera(), 0);
@@ -72,19 +78,27 @@ public class MapNodeGestureTest {
     touch(MotionEvent.ACTION_CANCEL, 420, 320);
     assertSame(original, map.waypoints.get(0));
     assertEquals(0, moved);
+    assertEquals(0, deleted);
   }
 
   @Test
-  public void nodeTapDoesNotDuplicateItAndMapTapAddsOnlyInEditMode() {
+  public void nodeTapDeletesItAndMapTapAddsOnlyInEditMode() {
     touch(MotionEvent.ACTION_DOWN, 300, 400);
     touch(MotionEvent.ACTION_UP, 300, 400);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
     assertEquals(0, added);
+    assertEquals(1, deleted);
+    assertTrue(map.waypoints.isEmpty());
     touch(MotionEvent.ACTION_DOWN, 100, 180);
     touch(MotionEvent.ACTION_UP, 100, 180);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
     assertEquals(1, added);
     map.editing = false;
+    map.waypoints.add(new Point(45, 6));
+    touch(MotionEvent.ACTION_DOWN, 300, 400);
+    touch(MotionEvent.ACTION_UP, 300, 400);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+    assertEquals(1, deleted);
     touch(MotionEvent.ACTION_DOWN, 480, 650);
     touch(MotionEvent.ACTION_UP, 480, 650);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
