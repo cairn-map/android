@@ -84,6 +84,10 @@ public final class MainActivity extends Activity {
   private PlaceSearch placeSearch;
   private AlertDialog searchDialog;
   private AppFeedback feedback;
+  private static final long FOLLOW_RESUME_DELAY = 30_000;
+  private long followResumeAt;
+  private boolean followTouching, followingRecording;
+  private final Runnable resumeFollow = this::followPosition;
 
   private final BroadcastReceiver fixes =
       new BroadcastReceiver() {
@@ -135,6 +139,7 @@ public final class MainActivity extends Activity {
             map.liveTrackId = store.prefs.getString("currentTrek", "");
             map.position = p;
             map.invalidate();
+            followPosition();
           }
           refreshStatus();
         }
@@ -143,6 +148,8 @@ public final class MainActivity extends Activity {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
+    followingRecording = TrackingService.running;
+    if (state != null && followingRecording) followResumeAt = state.getLong("followResumeAt");
     store = new Store(this);
     appUpdates = new AppUpdates(this);
     placeSearch = new PlaceSearch(this);
@@ -292,6 +299,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onSaveInstanceState(Bundle state) {
     super.onSaveInstanceState(state);
+    state.putLong("followResumeAt", followResumeAt);
     state.putBoolean("planning", planning);
     state.putBoolean("editDirty", editDirty);
     state.putString("newRouteId", newRouteId);
@@ -321,6 +329,7 @@ public final class MainActivity extends Activity {
   @Override
   protected void onPause() {
     resumed = false;
+    followTouching = false;
     dataGeneration++;
     main.removeCallbacksAndMessages(null);
     map.setRenderingEnabled(false);
@@ -373,6 +382,7 @@ public final class MainActivity extends Activity {
                         || map.position.time < track.get(track.size() - 1).time))
                   map.position = track.get(track.size() - 1);
                 map.invalidate();
+                followPosition();
                 refreshStatus();
               });
         });
@@ -1608,6 +1618,9 @@ public final class MainActivity extends Activity {
 
   private void refreshStatus() {
     if (destroyed || !resumed) return;
+    if (followingRecording != TrackingService.running) {
+      followPosition();
+    }
     if ("Map".equals(currentPage) && !planning && renderedRecording != TrackingService.running) {
       showPage("Map");
       reloadLibrary();
@@ -1771,6 +1784,8 @@ public final class MainActivity extends Activity {
   private void locate() {
     if (TrackingService.running) {
       cancelLocate();
+      followResumeAt = 0;
+      main.removeCallbacks(resumeFollow);
       if (map.position != null) {
         map.center(map.position);
         showLocationAccuracy(map.position, true);
@@ -1804,6 +1819,56 @@ public final class MainActivity extends Activity {
             feedback.show(reason, 6000, "location");
           }
         });
+  }
+
+  @Override
+  public boolean dispatchTouchEvent(MotionEvent event) {
+    syncFollowRecording();
+    if (TrackingService.running) {
+      followTouching =
+          event.getActionMasked() != MotionEvent.ACTION_UP
+              && event.getActionMasked() != MotionEvent.ACTION_CANCEL;
+      followResumeAt = SystemClock.elapsedRealtime() + FOLLOW_RESUME_DELAY;
+      main.removeCallbacks(resumeFollow);
+      if (!followTouching) main.postDelayed(resumeFollow, FOLLOW_RESUME_DELAY);
+    }
+    return super.dispatchTouchEvent(event);
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean focused) {
+    super.onWindowFocusChanged(focused);
+    if (focused) followPosition();
+    else {
+      followTouching = false;
+      main.removeCallbacks(resumeFollow);
+    }
+  }
+
+  /** Follow existing recording fixes only; the single idle callback never requests location. */
+  private void followPosition() {
+    main.removeCallbacks(resumeFollow);
+    syncFollowRecording();
+    if (destroyed
+        || !resumed
+        || !TrackingService.running
+        || planning
+        || followTouching
+        || !hasWindowFocus()) return;
+    long remaining = followResumeAt - SystemClock.elapsedRealtime();
+    if (remaining > 0) main.postDelayed(resumeFollow, remaining);
+    else if (map.position != null) {
+      Point center = map.center();
+      if (center.lat != map.position.lat || center.lon != map.position.lon) map.center(map.position);
+    }
+  }
+
+  private void syncFollowRecording() {
+    if (followingRecording == TrackingService.running) return;
+    followingRecording = TrackingService.running;
+    followResumeAt = 0;
+    followTouching = false;
+    main.removeCallbacks(resumeFollow);
   }
 
   private void showLocationAccuracy(Point point, boolean cached) {
