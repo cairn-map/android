@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import android.app.AlertDialog;
 import android.content.*;
+import android.os.Looper;
 import android.view.*;
 import android.widget.*;
 import btools.router.*;
@@ -17,6 +18,7 @@ import org.robolectric.shadows.ShadowAlertDialog;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28)
+@LooperMode(LooperMode.Mode.PAUSED)
 public class RoutingPreferencesTest {
   private Context context;
   private SharedPreferences prefs;
@@ -45,13 +47,17 @@ public class RoutingPreferencesTest {
     try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
       int[] changes = {0};
       RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
       View root = dialog.getWindow().getDecorView();
       ((Spinner) find(root, "Maximum difficulty")).setSelection(2);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       ((Spinner) find(root, "Preferred difficulty")).setSelection(2);
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       ((CheckBox) find(root, "Prefer less climbing")).setChecked(true);
       ((CheckBox) find(root, "Allow ferries")).setChecked(false);
       dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       Map<String, String> values = RoutingPreferences.read(prefs);
       assertEquals("2", values.get("SAC_scale_limit"));
       assertEquals("2", values.get("SAC_scale_preferred"));
@@ -62,10 +68,12 @@ public class RoutingPreferencesTest {
       dialog = ShadowAlertDialog.getLatestAlertDialog();
       ((Spinner) find(dialog.getWindow().getDecorView(), "Maximum difficulty")).setSelection(6);
       dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       assertEquals(values, RoutingPreferences.read(prefs));
       assertEquals(1, changes[0]);
       RoutingPreferences.show(controller.get(), prefs, () -> changes[0]++);
       ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
       assertEquals("3", RoutingPreferences.read(prefs).get("SAC_scale_limit"));
       assertEquals("1", RoutingPreferences.read(prefs).get("SAC_scale_preferred"));
       assertEquals("1", RoutingPreferences.read(prefs).get("allow_ferries"));
