@@ -31,6 +31,8 @@ public final class EmbeddedRouter implements AutoCloseable {
     }
     busy = true;
     canceled = false;
+    Map<String, String> parameters =
+        RoutingPreferences.read(context.getSharedPreferences("settings", Context.MODE_PRIVATE));
     worker.execute(
         () -> {
           List<Point> result = null;
@@ -49,7 +51,8 @@ public final class EmbeddedRouter implements AutoCloseable {
                     RoutingData.directory(context),
                     new File(RoutingData.profiles(context), "hiking.brf"),
                     points,
-                    Math.max(16, Math.min(96, memory / 3)));
+                    Math.max(16, Math.min(96, memory / 3)),
+                    parameters);
           } catch (Exception | OutOfMemoryError e) {
             error =
                 e instanceof OutOfMemoryError
@@ -72,6 +75,12 @@ public final class EmbeddedRouter implements AutoCloseable {
   }
 
   List<Point> run(File segments, File profile, List<Point> points, int memory) throws IOException {
+    return run(segments, profile, points, memory, Collections.emptyMap());
+  }
+
+  List<Point> run(
+      File segments, File profile, List<Point> points, int memory, Map<String, String> parameters)
+      throws IOException {
     if (points.size() < 2) throw new IOException("Choose at least two route points");
     List<OsmNodeNamed> nodes = new ArrayList<>();
     for (int i = 0; i < points.size(); i++) {
@@ -84,6 +93,7 @@ public final class EmbeddedRouter implements AutoCloseable {
     }
     RoutingContext config = new RoutingContext();
     config.localFunction = profile.getAbsolutePath();
+    config.keyValues = new HashMap<>(parameters);
     config.memoryclass = memory;
     config.turnInstructionMode = 0;
     ProfileCache.setSize(1);

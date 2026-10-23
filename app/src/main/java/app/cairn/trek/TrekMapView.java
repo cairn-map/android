@@ -16,6 +16,7 @@ public final class TrekMapView extends View {
   public LongPress onLongPress;
   public boolean editing;
   public java.util.function.BiConsumer<Integer, Point> onNodeAdded, onNodeMoved;
+  public java.util.function.IntConsumer onNodeDeleted;
   public List<Point> editRoute = Collections.emptyList();
   private int draggedNode = -1;
   private Point originalNode;
@@ -39,7 +40,7 @@ public final class TrekMapView extends View {
   public List<LibraryPath> libraryPaths;
   public String selectedPathId = "", liveTrackId = "", editingPathId = "";
   public java.util.function.Consumer<String> onPathSelected;
-  public int bottomOverlay;
+  public int bottomOverlay, scaleBottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
   private int zoom = 13;
   private double zoomScale = 1;
@@ -754,7 +755,9 @@ public final class TrekMapView extends View {
       }
       if (e.getActionMasked() == MotionEvent.ACTION_UP) {
         draggedNode = -1;
-        if (nodeMoved && onNodeMoved != null) onNodeMoved.accept(index, waypoints.get(index));
+        if (nodeMoved) {
+          if (onNodeMoved != null) onNodeMoved.accept(index, waypoints.get(index));
+        } else if (onNodeDeleted != null) onNodeDeleted.accept(index);
         performClick();
       } else if (e.getActionMasked() == MotionEvent.ACTION_CANCEL
           || e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
@@ -1122,7 +1125,7 @@ public final class TrekMapView extends View {
     double metres = desired / unit >= 5 ? 5 * unit : desired / unit >= 2 ? 2 * unit : unit;
     float scaleWidth = (float) (metres * pixelsPerMeter),
         right = dp(116),
-        bottom = getHeight() - dp(20) - bottomOverlay;
+        bottom = getHeight() - dp(28) - scaleBottomOverlay;
     paint.setStyle(Paint.Style.FILL);
     paint.setColor(AppPalette.SURFACE);
     c.drawRect(right - scaleWidth - dp(8), bottom - dp(22), right + dp(6), bottom + dp(7), paint);

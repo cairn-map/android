@@ -176,6 +176,7 @@ public final class MainActivity extends Activity {
     map.onLongPress = p -> addNode(waypoints.size(), p);
     map.onNodeAdded = this::addNode;
     map.onNodeMoved = (index, point) -> nodesChanged();
+    map.onNodeDeleted = this::deleteNode;
     map.onPathSelected =
         id -> {
           if (planning) return;
@@ -488,6 +489,7 @@ public final class MainActivity extends Activity {
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(136);
+    map.scaleBottomOverlay = planning ? dp(136) : 0;
     updateSelectionActions();
   }
 
@@ -681,6 +683,7 @@ public final class MainActivity extends Activity {
       ((MapIcon) editButton.getDrawable()).colors(SELECTION, ON_SELECTION);
       editButton.setBackground(buttonBackground(ON_SELECTION, SELECTION_BORDER, 16));
       editButton.setEnabled(!savingEdit);
+      addSelectionAction(MapIcon.TUNE, "Routing preferences", this::routingPreferences);
     } else if (selectedEntry != null) {
       Store.LibraryEntry entry = selectedEntry;
       addSelectionAction(
@@ -770,9 +773,29 @@ public final class MainActivity extends Activity {
   private void nodesChanged() {
     editDirty = true;
     editRevision++;
+    if (waypoints.size() < 2) plannedRoute = Collections.emptyList();
     refreshPlanning();
     main.removeCallbacks(autoRoute);
     main.postDelayed(autoRoute, 250);
+  }
+
+  private void deleteNode(int index) {
+    if (!map.editing || index < 0 || index >= waypoints.size()) return;
+    waypoints.remove(index);
+    nodesChanged();
+  }
+
+  private void routingPreferences() {
+    if (pendingRoute != null || finishEditing || savingEdit) {
+      message("Finish or pause the current operation before changing routing preferences.");
+      return;
+    }
+    RoutingPreferences.show(
+        this,
+        store.prefs,
+        () -> {
+          if (planning) nodesChanged();
+        });
   }
 
   private void autoCalculate() {
@@ -1053,6 +1076,7 @@ public final class MainActivity extends Activity {
                   .show();
             }));
     content.addView(button("Routing data", false, this::routingDataMenu));
+    content.addView(button("Routing preferences", false, this::routingPreferences));
     content.addView(attributionFooter());
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
@@ -1891,7 +1915,8 @@ public final class MainActivity extends Activity {
                   ? routingProgress == null ? "Downloading routing data…" : routingProgress
                   : calculationRunning
                       ? "Calculating on this device…"
-                      : waypoints.size() + " nodes · tap to add · drag to move");
+                      : waypoints.size()
+                          + " nodes · tap map to add · tap node to delete · drag to move");
     updateSelectionActions();
   }
 
