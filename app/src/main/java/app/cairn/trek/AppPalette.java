@@ -13,6 +13,9 @@ final class AppPalette {
   static final int PRIMARY_BORDER = 0xff496C96;
   static final int ON_PRIMARY = 0xffD4E3FF;
   static final int RIPPLE = 0x33A4C9FF;
+  static final int SELECTION = 0xff163D36;
+  static final int SELECTION_BORDER = 0xff3E7567;
+  static final int ON_SELECTION = 0xffA5E7D5;
 
   private AppPalette() {}
 }

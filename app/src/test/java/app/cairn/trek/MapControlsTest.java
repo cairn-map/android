@@ -279,6 +279,8 @@ public class MapControlsTest {
   }
 
   @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(qualifiers = "w393dp-h851dp-xhdpi")
   public void selectingARouteEnablesGuidanceAndFitsItsWholeGeometry() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
@@ -304,6 +306,24 @@ public class MapControlsTest {
       assertNotNull(find(content, "Save offline corridor"));
       assertNotNull(find(content, "Export GPX"));
       assertNotNull(find(content, "Hide"));
+      assertNull(find(content, "Mountain loop"));
+      savePreview(content, 786, 1550, "selected-route-floating-actions");
+      View maps = find(content, "Saved maps and downloads");
+      android.graphics.Rect mapsBounds = new android.graphics.Rect();
+      assertTrue(maps.getGlobalVisibleRect(mapsBounds));
+      int previousBottom = 0;
+      for (String action : new String[] {"Save offline corridor", "Export GPX", "Hide"}) {
+        View icon = find(content, action);
+        assertTrue(icon instanceof ImageButton);
+        assertEquals(AppPalette.SELECTION, fill(icon));
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        assertTrue(icon.getGlobalVisibleRect(bounds));
+        assertEquals(mapsBounds.right, bounds.right);
+        assertTrue(bounds.top >= previousBottom);
+        assertTrue(bounds.bottom < mapsBounds.top);
+        assertEquals(96, bounds.height());
+        previousBottom = bounds.bottom;
+      }
       assertEquals(id, map.selectedPathId);
       assertEquals(id, store.prefs.getString("activeRouteId", ""));
       assertTrue(store.prefs.getBoolean("follow", false));

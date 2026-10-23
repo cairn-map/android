@@ -116,7 +116,11 @@ public class OfflineWorkflowTest {
       for (String width : new String[] {"0.2", "2.0"}) {
         drain(activity);
         View root = activity.getWindow().getDecorView();
-        root = openLibrary(activity);
+        View list = openLibrary(activity);
+        View item = find(list, "Width check · selected");
+        if (item == null) item = find(list, "Width check");
+        item.performClick();
+        drain(activity);
         find(root, "Save offline corridor").performClick();
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
@@ -234,13 +238,15 @@ public class OfflineWorkflowTest {
     return ((AlertDialog) dialog.get(activity)).getWindow().getDecorView();
   }
 
-  private TextView find(View view, String text) {
+  private View find(View view, String text) {
+    if (text.contentEquals(
+        view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
     if (view instanceof TextView && text.contentEquals(((TextView) view).getText()))
       return (TextView) view;
     if (view instanceof ViewGroup) {
       ViewGroup group = (ViewGroup) view;
       for (int i = 0; i < group.getChildCount(); i++) {
-        TextView found = find(group.getChildAt(i), text);
+        View found = find(group.getChildAt(i), text);
         if (found != null) return found;
       }
     }
