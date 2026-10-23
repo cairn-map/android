@@ -2,5 +2,8 @@
     <string name="gps_interval">GPS · %1$ds</string>
     <string name="gps_interval_value">%1$d s</string>
     <string name="off_route_alerts">Off-route alerts</string>
+    <string name="phone_direction">Phone direction cone</string>
+    <string name="phone_direction_hint">Shows where the top of your phone points, even in airplane mode. Uses a little battery only while your position is visible on the map. Stops when hidden or the screen is off. GPS interval stays unchanged.</string>
+    <string name="phone_direction_unavailable">A low-power compass is unavailable on this phone.</string>
     <string name="gps_interval_guidance">20–30 s suits most trekking. Use 5–10 s for tight switchbacks, or 60 s for a sparser track with fewer fixes. Longer intervals miss bends and delay off-route alerts.</string>
 </resources>

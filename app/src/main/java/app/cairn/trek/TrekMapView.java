@@ -27,6 +27,11 @@ public final class TrekMapView extends View {
       track = Collections.emptyList(),
       waypoints = Collections.emptyList();
   public Point position;
+  private PhoneHeading phoneHeading;
+  private boolean phoneDirectionEnabled;
+  private float magneticHeading = Float.NaN, declination;
+  private Point headingPosition;
+  private final RectF coneBounds = new RectF();
   public List<List<Point>> otherRoutes = Collections.emptyList();
 
   public static final class LibraryPath {
@@ -455,7 +460,55 @@ public final class TrekMapView extends View {
   protected void onAttachedToWindow() {
     super.onAttachedToWindow();
     windowVisible = getWindowVisibility() == VISIBLE;
+    if (phoneHeading == null)
+      phoneHeading =
+          new PhoneHeading(
+              getContext().getSystemService(android.hardware.SensorManager.class),
+              () -> getDisplay() == null ? Surface.ROTATION_0 : getDisplay().getRotation(),
+              heading -> {
+                magneticHeading = heading;
+                invalidatePosition();
+              });
     if (canRender()) invalidate();
+  }
+
+  void setPhoneDirectionEnabled(boolean enabled) {
+    if (phoneDirectionEnabled == enabled) return;
+    phoneDirectionEnabled = enabled;
+    if (!enabled && phoneHeading != null) phoneHeading.setActive(false);
+    invalidatePosition();
+  }
+
+  private void invalidatePosition() {
+    if (position == null || !canRender()) return;
+    int radius = (int) Math.ceil(dp(52));
+    int x = Math.round(px(position.lon)), y = Math.round(py(position.lat));
+    invalidate(x - radius, y - radius, x + radius, y + radius);
+  }
+
+  private void updatePhoneDirection() {
+    if (phoneHeading == null) return;
+    float radius = dp(48);
+    boolean visible =
+        phoneDirectionEnabled
+            && canRender()
+            && isAttachedToWindow()
+            && position != null
+            && px(position.lon) >= -radius
+            && px(position.lon) <= getWidth() + radius
+            && py(position.lat) >= -radius
+            && py(position.lat) <= getHeight() + radius;
+    phoneHeading.setActive(visible);
+    if (visible && headingPosition != position) {
+      headingPosition = position;
+      declination =
+          new android.hardware.GeomagneticField(
+                  (float) position.lat,
+                  (float) position.lon,
+                  Double.isFinite(position.elevation) ? (float) position.elevation : 0,
+                  System.currentTimeMillis())
+              .getDeclination();
+    }
   }
 
   @Override
@@ -488,6 +541,7 @@ public final class TrekMapView extends View {
   }
 
   private void suspendRendering() {
+    if (phoneHeading != null) phoneHeading.setActive(false);
     if (draggedNode >= 0) {
       waypoints.set(draggedNode, originalNode);
       draggedNode = -1;
@@ -968,6 +1022,7 @@ public final class TrekMapView extends View {
   @Override
   protected void onDraw(Canvas c) {
     if (!canRender()) return;
+    updatePhoneDirection();
     super.onDraw(c);
     android.os.Trace.beginSection("Cairn.map.draw");
     try {
@@ -1081,6 +1136,12 @@ public final class TrekMapView extends View {
     }
     if (position != null) {
       boolean stale = System.currentTimeMillis() - position.time > 120000;
+      if (Float.isFinite(magneticHeading)) {
+        float x = px(position.lon), y = py(position.lat), radius = dp(48);
+        coneBounds.set(x - radius, y - radius, x + radius, y + radius);
+        paint.setColor(stale ? 0x44777777 : 0x552767AE);
+        c.drawArc(coneBounds, magneticHeading + declination - 120, 60, true, paint);
+      }
       paint.setColor(0x3381A4CC);
       double ppm = (1 << zoom) * tileSize / (40075016.686 * Math.cos(Math.toRadians(position.lat)));
       c.drawCircle(
@@ -1455,6 +1516,7 @@ public final class TrekMapView extends View {
   }
 
   public void dispose() {
+    if (phoneHeading != null) phoneHeading.setActive(false);
     stopMotion();
     active = false;
     generation++;

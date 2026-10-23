@@ -28,6 +28,24 @@ import org.robolectric.util.ReflectionHelpers;
 @LooperMode(LooperMode.Mode.PAUSED)
 public class AppFeedbackTest {
   @Test
+  public void planningOnlyShowsProgressWhileBusyAndReleasesTheSharedTopBanner() {
+    try (ActivityController<Activity> controller =
+            Robolectric.buildActivity(Activity.class).setup();
+        AppFeedback feedback = new AppFeedback(controller.get())) {
+      feedback.planningProgress("Calculating on this device…");
+      assertEquals("Calculating on this device…", feedback.view().getText().toString());
+      feedback.show("Route saved", 3500);
+      feedback.planningProgress("");
+      assertEquals("Route saved", feedback.view().getText().toString());
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
+      assertEquals(View.GONE, feedback.view().getVisibility());
+      feedback.planningProgress("Downloading routing data…");
+      feedback.clear();
+      assertEquals(View.GONE, feedback.view().getVisibility());
+    }
+  }
+
+  @Test
   public void independentNoticesQueueDuplicatesCollapseAndProgressReturnsAfterTheQueue() {
     try (ActivityController<Activity> controller =
             Robolectric.buildActivity(Activity.class).setup();

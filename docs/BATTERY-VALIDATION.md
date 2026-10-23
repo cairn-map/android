@@ -70,6 +70,17 @@ Missing scenarios, malformed/non-finite metrics, mismatched workloads, failed ex
 fail closed. An incomplete attempt replaces any stale report with a blocked verdict. CPU budgets
 and the workload require owner review before being weakened; never reset a baseline to hide a loss.
 
+## Optional phone direction
+
+The direction cone is off by default, so the existing comparison matrix retains its normal workload.
+`PhoneHeadingTest` and `PhoneDirectionLifecycleTest` separately exercise sensor selection, compass
+fallback, four display rotations, update throttling, jitter around north, unreliable readings, and
+subscription cleanup on pause, hidden/offscreen map positions, Routes and view removal. They also
+check that enabling the option preserves the GPS interval and does not create location requests.
+Only non-wake-up geomagnetic/accelerometer/magnetometer sensors are eligible; no gyroscope, sensor
+timer or compass animation loop is introduced. These automated checks verify software behavior,
+not a measured battery cost. The enabled foreground compass consumes some power.
+
 OruxMaps, Locus Map and OsmAnd remain qualitative design references for interval-based recording
 and low background work. They are **not measured competitors in this suite** and do not require
 APK access or phone trials. The practical target is no app work between necessary location/user

@@ -47,6 +47,17 @@ Visited map tiles stay on disk until explicitly removed through the layers menu.
 
 ## Battery behavior and limits
 
+**GPS → Phone direction cone** is optional and off by default. Enable it to show where the top of
+the phone faces, including in airplane mode. It uses a non-wake-up geomagnetic rotation sensor,
+or low-rate accelerometer/compass readings if that sensor is unavailable, without using a gyroscope.
+Readings run only while the map and position marker are visible, stop on pause/screen off or opening
+Routes, and never change GPS requests or the recording interval. Heading changes are limited to four
+updates per second with small compass jitter ignored. Active sensors still use some power; leaving
+the option off preserves the previous behavior. Phones without suitable sensors keep the position dot.
+
+Edit mode has no permanent instruction banner; the scale stays in the bottom-left corner. Routing,
+download and save progress use the shared top banner only while work is in progress.
+
 During a hike, the map follows each scheduled GPS fix while preserving your zoom. Touching the map or its controls pauses following; after 30 seconds without interaction it recenters on the latest fix and resumes following. It waits while your finger is down, a drawer has focus, or Cairn is in the background. Tap **Find my location** to resume immediately. Following uses the recording's existing fixes and never requests extra locations.
 
 Outside a recording, Locate immediately displays any usable cached position and always requests a fresh position, even if that cache is recent and accurate. This explicitly requested foreground operation is bounded to 30 seconds and canceled on pause or hike start. During recording, Locate reuses the existing position even if old; it does not request faster GPS or network updates. Route/alert-setting changes preserve the GPS subscription when its interval is unchanged. Stopping recording removes subscriptions, including queued configuration cleanup.
