@@ -53,6 +53,8 @@ public class UnifiedLibraryTest {
   }
 
   private View find(View view, String text) {
+    if (text.contentEquals(
+        view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
     if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
     if (view instanceof ViewGroup) {
       ViewGroup group = (ViewGroup) view;
@@ -92,7 +94,10 @@ public class UnifiedLibraryTest {
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.layout(0, 0, 786, 1400);
       map.restoreCamera(new double[] {48, 2, 18});
-      find(library(activity), trekTitle).performClick();
+      View list = library(activity);
+      for (String action : List.of("Save offline corridor", "Export GPX", "Hide"))
+        assertNull(find(list, action));
+      find(list, trekTitle).performClick();
       drain(activity);
       map.layout(0, 0, 786, 1400);
       Store store = (Store) field(activity, "store");
@@ -102,9 +107,21 @@ public class UnifiedLibraryTest {
       assertNull(field(activity, "exportPoints"));
       assertFits(map, recording);
       View root = activity.getWindow().getDecorView();
-      assertNotNull(find(root, "Save offline corridor"));
-      assertNotNull(find(root, "Export GPX"));
-      assertNotNull(find(root, "Hide"));
+      assertNull(find(root, trekTitle));
+      LinearLayout actions = (LinearLayout) field(activity, "selectionPanel");
+      assertNull(actions.getBackground());
+      assertEquals(3, actions.getChildCount());
+      assertEquals(0, ((ViewGroup) actions.getParent()).indexOfChild(actions));
+      for (String action : List.of("Save offline corridor", "Export GPX", "Hide")) {
+        View icon = find(root, action);
+        assertTrue(icon instanceof ImageButton);
+        assertEquals(action, icon.getTooltipText());
+      }
+      list = library(activity);
+      assertNotNull(find(list, trekTitle + " · selected"));
+      for (String action : List.of("Save offline corridor", "Export GPX", "Hide"))
+        assertNull(find(list, action));
+      ((AlertDialog) field(activity, "libraryDialog")).dismiss();
       find(root, "Export GPX").performClick();
       List<?> exported = (List<?>) field(activity, "exportPoints");
       assertEquals(recording.size(), exported.size());

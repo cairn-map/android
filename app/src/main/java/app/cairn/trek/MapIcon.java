@@ -13,7 +13,10 @@ final class MapIcon extends Drawable {
       PATH = 5,
       UPDATE = 6,
       CLOSE = 7,
-      INFO = 8;
+      INFO = 8,
+      SAVE_MAP = 9,
+      EXPORT = 10,
+      HIDE = 11;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -49,7 +52,48 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == INFO) {
+    if (kind == SAVE_MAP) {
+      Path map = new Path();
+      map.moveTo(3, 19);
+      map.lineTo(3, 5);
+      map.lineTo(9, 3);
+      map.lineTo(15, 5);
+      map.lineTo(21, 3);
+      map.lineTo(21, 10);
+      map.moveTo(3, 19);
+      map.lineTo(9, 17);
+      map.lineTo(12, 18);
+      map.moveTo(9, 3);
+      map.lineTo(9, 17);
+      canvas.drawPath(map, paint);
+      canvas.drawLine(18, 12, 18, 21, paint);
+      canvas.drawLine(14, 17, 18, 21, paint);
+      canvas.drawLine(22, 17, 18, 21, paint);
+    } else if (kind == EXPORT) {
+      Path box = new Path();
+      box.moveTo(10, 5);
+      box.lineTo(4, 5);
+      box.lineTo(4, 21);
+      box.lineTo(20, 21);
+      box.lineTo(20, 14);
+      canvas.drawPath(box, paint);
+      canvas.drawLine(11, 13, 21, 3, paint);
+      canvas.drawLine(14, 3, 21, 3, paint);
+      canvas.drawLine(21, 3, 21, 10, paint);
+    } else if (kind == HIDE) {
+      Path eye = new Path();
+      eye.moveTo(2, 12);
+      eye.cubicTo(7, 3, 17, 3, 22, 12);
+      eye.cubicTo(17, 21, 7, 21, 2, 12);
+      canvas.drawPath(eye, paint);
+      canvas.drawCircle(12, 12, 3, paint);
+      paint.setColor(background);
+      paint.setStrokeWidth(4);
+      canvas.drawLine(3, 3, 21, 21, paint);
+      paint.setColor(foreground);
+      paint.setStrokeWidth(1.8f);
+      canvas.drawLine(3, 3, 21, 21, paint);
+    } else if (kind == INFO) {
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(background);
       canvas.drawCircle(12, 12, 10, paint);

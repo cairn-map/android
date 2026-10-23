@@ -352,6 +352,10 @@ public final class MainActivity extends Activity {
     boolean compactPlanning = planning && getResources().getConfiguration().screenHeightDp < 600;
     LinearLayout controls = column();
     controls.setGravity(Gravity.END);
+    selectionPanel = column();
+    LinearLayout.LayoutParams selectionParams = new LinearLayout.LayoutParams(dp(48), -2);
+    selectionParams.bottomMargin = dp(16);
+    controls.addView(selectionPanel, selectionParams);
     controls.addView(
         iconButton(MapIcon.MAPS, "Saved maps and downloads", this::mapMenu),
         new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -392,7 +396,6 @@ public final class MainActivity extends Activity {
     controls.addView(intervalChip, gpsParams);
     controls.setGravity(Gravity.END | Gravity.BOTTOM);
     ScrollView controlRail = new ScrollView(this);
-    mapControlRail = controlRail;
     controlRail.setFillViewport(true);
     controlRail.setVerticalScrollBarEnabled(false);
     controlRail.addView(controls);
@@ -507,10 +510,6 @@ public final class MainActivity extends Activity {
       frame.addView(hike, params);
     }
     map.bottomOverlay = dp(planning ? (compactPlanning ? 160 : 260) : 0);
-    selectionPanel = new FrameLayout(this);
-    FrameLayout.LayoutParams selectionParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-    selectionParams.setMargins(dp(12), 0, dp(12), dp(80));
-    frame.addView(selectionPanel, selectionParams);
     updateSelectionActions();
   }
 
@@ -530,8 +529,7 @@ public final class MainActivity extends Activity {
   private List<Store.LibraryEntry> libraryEntries = new ArrayList<>();
   private Store.LibraryEntry selectedEntry;
   private List<Point> selectedPoints = Collections.emptyList();
-  private FrameLayout selectionPanel;
-  private ScrollView mapControlRail;
+  private LinearLayout selectionPanel;
   private int libraryGeneration;
   private AlertDialog mapDialog;
 
@@ -653,7 +651,6 @@ public final class MainActivity extends Activity {
       params.topMargin = dp(8);
       content.addView(swipe, params);
     }
-    if (selected) content.addView(libraryActions(entry));
   }
 
   private List<Point> selectionSnapshot() {
@@ -665,19 +662,13 @@ public final class MainActivity extends Activity {
             : selectedPoints);
   }
 
-  private LinearLayout libraryActions(Store.LibraryEntry entry) {
-    LinearLayout actions = row();
-    TextView corridor =
-        button("Save offline corridor", false, () -> prepareDownload(true, selectionSnapshot()));
-    TextView export =
-        button("Export GPX", false, () -> export(selectionSnapshot(), entry.title + ".gpx"));
-    TextView hide = button("Hide", false, () -> hideLibraryEntry(entry));
-    for (TextView action : new TextView[] {corridor, export, hide}) {
-      action.setTextSize(12);
-      action.setPadding(dp(4), 0, dp(4), 0);
-      actions.addView(action, new LinearLayout.LayoutParams(0, dp(52), 1));
-    }
-    return actions;
+  private void addSelectionAction(int icon, String description, Runnable action) {
+    ImageButton view = iconButton(icon, description, action);
+    ((MapIcon) view.getDrawable()).colors(ON_SELECTION, SELECTION);
+    view.setBackground(buttonBackground(SELECTION, SELECTION_BORDER, 16));
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
+    if (selectionPanel.getChildCount() > 0) params.topMargin = dp(8);
+    selectionPanel.addView(view, params);
   }
 
   private void updateSelectionActions() {
@@ -685,24 +676,13 @@ public final class MainActivity extends Activity {
     selectionPanel.removeAllViews();
     boolean visible = selectedEntry != null && !planning;
     selectionPanel.setVisibility(visible ? View.VISIBLE : View.GONE);
-    if (!visible) {
-      if (!planning) map.bottomOverlay = 0;
-    } else {
-      LinearLayout card = column();
-      card.setPadding(dp(8), dp(4), dp(8), dp(4));
-      card.setBackground(surface(SURFACE, OUTLINE, 16));
-      TextView title = label(selectedEntry.title, 14, TEXT, true);
-      title.setSingleLine(true);
-      title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-      card.addView(title);
-      card.addView(libraryActions(selectedEntry));
-      selectionPanel.addView(card);
-      map.bottomOverlay = dp(176);
-    }
-    if (!planning && mapControlRail != null) {
-      FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) mapControlRail.getLayoutParams();
-      params.bottomMargin = dp(visible ? 196 : 92);
-      mapControlRail.setLayoutParams(params);
+    if (visible) {
+      Store.LibraryEntry entry = selectedEntry;
+      addSelectionAction(
+          MapIcon.SAVE_MAP, "Save offline corridor", () -> prepareDownload(true, selectionSnapshot()));
+      addSelectionAction(
+          MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
+      addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
     }
   }
 
