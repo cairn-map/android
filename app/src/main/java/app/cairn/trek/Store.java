@@ -304,6 +304,27 @@ public final class Store extends SQLiteOpenHelper {
     return result;
   }
 
+  /** Replace a finished recording atomically without changing its identity or guidance. */
+  public void updateTrek(String id, List<Point> points) {
+    if (TrackingService.running && id.equals(prefs.getString("currentTrek", "")))
+      throw new IllegalStateException("Finish recording before editing this hike.");
+    if (points.isEmpty())
+      throw new IllegalArgumentException("Keep at least one point in the recording.");
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      try (Cursor cursor = db.rawQuery("SELECT id FROM treks WHERE id=?", new String[] {id})) {
+        if (!cursor.moveToFirst())
+          throw new IllegalArgumentException("This recording no longer exists");
+      }
+      db.delete("points", "collection=?", new String[] {id});
+      for (Point point : points) add(id, point);
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+  }
+
   public void deleteTrek(String id) {
     if (TrackingService.running && id.equals(prefs.getString("currentTrek", "")))
       throw new IllegalStateException("Finish recording before removing this hike.");

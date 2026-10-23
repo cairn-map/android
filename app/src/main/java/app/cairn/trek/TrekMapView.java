@@ -142,6 +142,7 @@ public final class TrekMapView extends View {
                     double nearest = dp(24);
                     for (int i = 1; i < waypoints.size(); i++) {
                       Point a = waypoints.get(i - 1), b = waypoints.get(i);
+                      if (a.segment != b.segment) continue;
                       double ax = px(a.lon),
                           ay = py(a.lat),
                           dx = px(b.lon) - ax,
@@ -750,7 +751,18 @@ public final class TrekMapView extends View {
       if (e.getActionMasked() == MotionEvent.ACTION_MOVE && e.getPointerCount() == 1) {
         if (Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) nodeMoved = true;
-        if (nodeMoved) waypoints.set(index, pointAt(e.getX(), e.getY()));
+        if (nodeMoved) {
+          Point moved = pointAt(e.getX(), e.getY());
+          waypoints.set(
+              index,
+              new Point(
+                  moved.lat,
+                  moved.lon,
+                  originalNode.elevation,
+                  originalNode.time,
+                  originalNode.accuracy,
+                  originalNode.segment));
+        }
         invalidate();
       }
       if (e.getActionMasked() == MotionEvent.ACTION_UP) {
