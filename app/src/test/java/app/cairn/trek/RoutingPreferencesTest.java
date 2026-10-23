@@ -31,7 +31,7 @@ public class RoutingPreferencesTest {
   private View find(View view, String label) {
     if (label.contentEquals(
         view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
-    if (view instanceof TextView && label.contentEquals(((TextView) view).getText())) return view;
+    if (view instanceof CheckBox && label.contentEquals(((CheckBox) view).getText())) return view;
     if (view instanceof ViewGroup)
       for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
         View found = find(((ViewGroup) view).getChildAt(i), label);
