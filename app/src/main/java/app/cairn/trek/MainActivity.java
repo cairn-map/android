@@ -505,7 +505,7 @@ public final class MainActivity extends Activity {
     controlRail.setVerticalScrollBarEnabled(false);
     controlRail.addView(controls);
     FrameLayout.LayoutParams controlsParams =
-        new FrameLayout.LayoutParams(-2, -1, Gravity.END | Gravity.TOP);
+        new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.BOTTOM);
     controlsParams.setMargins(0, dp(12), dp(12), dp(144));
     frame.addView(controlRail, controlsParams);
 
