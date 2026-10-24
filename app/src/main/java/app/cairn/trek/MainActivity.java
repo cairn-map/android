@@ -1391,12 +1391,25 @@ public final class MainActivity extends Activity {
             MUTED,
             false));
     content.addView(spacer(16));
+    String[] detailLabels = {
+      "Regional overview",
+      "Local overview",
+      "Route overview",
+      "Route planning",
+      "Terrain detail",
+      "Trail detail",
+      "Walking navigation",
+      "Junction detail",
+      "Close-up detail",
+      "Maximum detail"
+    };
     SeekBar detail =
-        downloadSlider(content, "Map detail", 19, 17, progress -> "Map detail · zoom " + progress);
-    content.addView(label("Overview (0) → Finest detail (19)", 12, MUTED, false));
+        downloadSlider(
+            content, "Map detail", 10, 19, 17, zoom -> "Map detail · " + detailLabels[zoom - 10]);
+    content.addView(label("Regional overview → Maximum detail", 12, MUTED, false));
     content.addView(
         label(
-            "All 20 Plan IGN zoom levels are available. Higher detail uses more storage.",
+            "Choose how closely you want to view the path. Higher detail uses more storage.",
             13,
             MUTED,
             false));
@@ -1405,6 +1418,7 @@ public final class MainActivity extends Activity {
         downloadSlider(
             content,
             "Kilometres on each side",
+            0,
             99,
             9,
             progress ->
@@ -1443,17 +1457,16 @@ public final class MainActivity extends Activity {
                                     String estimate =
                                         String.format(
                                             Locale.getDefault(),
-                                            "Corridor: %1$.1f km on each side · detail zoom"
-                                                + " %2$d\n\n"
+                                            "Corridor: %1$.1f km on each side · %2$s\n\n"
                                                 + "%3$,d tiles · roughly %4$.0f MB\n"
                                                 + "%5$.0f MB available on this phone.\n\n"
                                                 + "Detailed tiles download first; overview tiles"
-                                                + " cover larger areas at lower zoom levels.\n\n"
+                                                + " cover larger areas for context.\n\n"
                                                 + "Downloads can be paused and resumed. Actual size"
                                                 + " varies; maximum detail needs much more"
                                                 + " storage.",
                                             radius / 1000,
-                                            zoom,
+                                            detailLabels[zoom - 10],
                                             plan.tiles.size(),
                                             plan.estimatedBytes() / 1e6,
                                             available / 1e6);
@@ -1491,6 +1504,7 @@ public final class MainActivity extends Activity {
   private SeekBar downloadSlider(
       LinearLayout content,
       String description,
+      int min,
       int max,
       int initial,
       java.util.function.IntFunction<String> valueText) {
@@ -1499,6 +1513,7 @@ public final class MainActivity extends Activity {
     SeekBar slider = new SeekBar(this);
     slider.setTag(description);
     slider.setContentDescription(value.getText());
+    slider.setMin(min);
     slider.setMax(max);
     slider.setProgress(initial);
     slider.setKeyProgressIncrement(1);
