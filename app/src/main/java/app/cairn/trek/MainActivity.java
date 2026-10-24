@@ -1480,13 +1480,21 @@ public final class MainActivity extends Activity {
       AlertDialog dialog;
       TilePlanner.Plan plan;
 
+      void showEstimate(String text) {
+        // Retain the space already shown, including when a shorter error replaces it.
+        // Otherwise a scrolled preview can clamp its scroll position and jump.
+        estimate.setMinHeight(Math.max(estimate.getMinHeight(), estimate.getHeight()));
+        estimate.setText(text);
+      }
+
       @Override
       public void run() {
         if (dialog == null || !dialog.isShowing()) return;
         int requested = revision.incrementAndGet();
         plan = null;
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-        estimate.setText("Calculating download…");
+        // Keep the last estimate visible while its replacement is calculated. Clearing
+        // this multi-line block on every slider tick makes the drawer blink and resize.
         double radius = (width.getProgress() + 1) * 100.0;
         int zoom = detail.getProgress();
         io.execute(
@@ -1515,14 +1523,14 @@ public final class MainActivity extends Activity {
                     () -> {
                       if (destroyed || !dialog.isShowing() || requested != revision.get()) return;
                       plan = selected;
-                      estimate.setText(text);
+                      showEstimate(text);
                       dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                     });
               } catch (IllegalArgumentException e) {
                 main.post(
                     () -> {
                       if (destroyed || !dialog.isShowing() || requested != revision.get()) return;
-                      estimate.setText(e.getMessage());
+                      showEstimate(e.getMessage());
                     });
               }
             });
@@ -1574,6 +1582,7 @@ public final class MainActivity extends Activity {
     scroll.addView(content);
     AlertDialog dialog =
         CairnDialogs.drawer(this)
+            .fullHeight()
             .setTitle("Save offline corridor")
             .setView(scroll)
             .setPositiveButton("Download", null)

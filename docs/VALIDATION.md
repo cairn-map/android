@@ -1,3 +1,9 @@
+# Steady corridor preview — 24 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **356 tests**, zero failures/errors/skips, and no lint findings. The Python automation suite passed 31 tests and the Node suite passed 41 tests. The shared automation selector reports `required=false` for these app/test/documentation changes.
+
+Native Canvas regressions verify that both sliders, the Download button and the scroll offset stay in place through pending, successful, oversized and recovered estimates in portrait and landscape. The previous estimate stays visible while recalculating; stale results and dismissed drawers remain guarded. Removing the estimate height reservation makes both orientation regressions fail on control movement. The refreshed drawer preview was visually inspected. Required PR CI supplies the fresh baseline/previous/current virtual performance comparison; no new performance numbers are claimed here.
+
 # Route selection and corridor sliders — 24 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **342 tests**, zero failures/errors/skips. Lint reported zero errors and five existing warnings in unchanged `SwipeToRemoveView` code. The shared automation selector reports `required=false` for these app/test/documentation changes.
