@@ -18,7 +18,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public static final class Pack {
-    public final String id, name, state, error;
+    public final String id, name, state, error, routeId;
     public final int done, total;
     public final long checked, bytes;
     public final Point center;
@@ -32,7 +32,8 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
         int total,
         long checked,
         long bytes,
-        Point center) {
+        Point center,
+        String routeId) {
       this.id = id;
       this.name = name;
       this.state = state;
@@ -42,6 +43,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
       this.checked = checked;
       this.bytes = bytes;
       this.center = center;
+      this.routeId = routeId;
     }
 
     public String description() {
@@ -60,7 +62,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public PlanIgnStore(Context context) {
-    super(context, "plan-ign.mbtiles", null, 1);
+    super(context, "plan-ign.mbtiles", null, 2);
     setWriteAheadLoggingEnabled(true);
   }
 
@@ -77,7 +79,8 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
             + " KEY(zoom_level,tile_column,tile_row))");
     db.execSQL(
         "CREATE TABLE packs(id TEXT PRIMARY KEY,name TEXT NOT NULL,state TEXT NOT NULL,error"
-            + " TEXT,checked INTEGER NOT NULL,lat REAL,lon REAL)");
+            + " TEXT,checked INTEGER NOT NULL,lat REAL,lon REAL,route_id TEXT)");
+    db.execSQL("CREATE INDEX corridor_routes ON packs(route_id)");
     db.execSQL(
         "CREATE TABLE pack_tiles(pack TEXT,z INTEGER,x INTEGER,y INTEGER,done INTEGER NOT NULL"
             + " DEFAULT 0,PRIMARY KEY(pack,z,x,y))");
@@ -86,7 +89,10 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
 
   @Override
   public void onUpgrade(SQLiteDatabase db, int from, int to) {
-    throw new IllegalStateException("Unsupported map database version");
+    if (from == 1 && to == 2) {
+      db.execSQL("ALTER TABLE packs ADD COLUMN route_id TEXT");
+      db.execSQL("CREATE INDEX corridor_routes ON packs(route_id)");
+    } else throw new IllegalStateException("Unsupported map database version");
   }
 
   public Cached cached(TilePlanner.Tile t) {
@@ -112,7 +118,8 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public android.graphics.Bitmap detail(
-      TilePlanner.Tile tile, android.graphics.Bitmap base,
+      TilePlanner.Tile tile,
+      android.graphics.Bitmap base,
       java.util.function.BooleanSupplier obsolete) {
     return TilePyramid.detail(getReadableDatabase(), tile.z, tile.x, tile.y, true, base, obsolete);
   }
@@ -141,6 +148,10 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public String create(String name, TilePlanner.Plan plan) {
+    return create(name, plan, null);
+  }
+
+  public String create(String name, TilePlanner.Plan plan, String routeId) {
     String id = UUID.randomUUID().toString();
     SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
@@ -152,6 +163,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
       p.put("checked", 0);
       p.put("lat", plan.center.lat);
       p.put("lon", plan.center.lon);
+      p.put("route_id", routeId);
       db.insertOrThrow("packs", null, p);
       try (SQLiteStatement insert =
           db.compileStatement("INSERT INTO pack_tiles(pack,z,x,y,done) VALUES(?,?,?,?,0)")) {
@@ -182,8 +194,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
             .rawQuery(
                 "SELECT z,x,y FROM pack_tiles WHERE pack=? AND done=0 ORDER BY z DESC,y,x LIMIT ?",
                 new String[] {id, "" + limit})) {
-      while (c.moveToNext())
-        tiles.add(new TilePlanner.Tile(c.getInt(0), c.getInt(1), c.getInt(2)));
+      while (c.moveToNext()) tiles.add(new TilePlanner.Tile(c.getInt(0), c.getInt(1), c.getInt(2)));
     }
     return tiles;
   }
@@ -276,7 +287,8 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     SQLiteDatabase db = getReadableDatabase();
     try (Cursor c =
         db.rawQuery(
-            "SELECT id,name,state,error,checked,lat,lon FROM packs ORDER BY rowid DESC", null)) {
+            "SELECT id,name,state,error,checked,lat,lon,route_id FROM packs ORDER BY rowid DESC",
+            null)) {
       while (c.moveToNext()) {
         String id = c.getString(0);
         int total = 0, done = 0;
@@ -306,9 +318,39 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
                 total,
                 c.getLong(4),
                 bytes,
-                new Point(c.getDouble(5), c.getDouble(6))));
+                new Point(c.getDouble(5), c.getDouble(6)),
+                c.getString(7)));
       }
     }
     return result;
+  }
+
+  /** Older versions named corridors after their route. Ambiguous names stay in Saved maps. */
+  public void linkLegacyCorridors(List<Store.LibraryEntry> entries) {
+    SQLiteDatabase db = getWritableDatabase();
+    try (Cursor pending = db.rawQuery("SELECT 1 FROM packs WHERE route_id IS NULL LIMIT 1", null)) {
+      if (!pending.moveToFirst()) return;
+    }
+    Map<String, List<String>> routes = new HashMap<>();
+    for (Store.LibraryEntry entry : entries)
+      routes.computeIfAbsent(entry.title + " · corridor", key -> new ArrayList<>()).add(entry.id);
+    db.beginTransaction();
+    try {
+      for (Map.Entry<String, List<String>> route : routes.entrySet()) {
+        if (route.getValue().size() != 1) continue;
+        ContentValues value = new ContentValues();
+        value.put("route_id", route.getValue().get(0));
+        db.update("packs", value, "route_id IS NULL AND name=?", new String[] {route.getKey()});
+      }
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+  }
+
+  public void detachRoute(String routeId) {
+    ContentValues value = new ContentValues();
+    value.put("route_id", "");
+    getWritableDatabase().update("packs", value, "route_id=?", new String[] {routeId});
   }
 }

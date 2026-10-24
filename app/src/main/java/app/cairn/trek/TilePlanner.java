@@ -4,7 +4,7 @@ import java.util.*;
 
 /** Conservative Web Mercator coverage, with a hard bound on CPU, storage and job size. */
 public final class TilePlanner {
-  public static final int MIN_ZOOM = 8, MAX_TILES = 20000;
+  public static final int MIN_ZOOM = 10, MAX_TILES = 20000;
   private static final double EARTH_CIRCUMFERENCE = 40075016.686;
 
   public static final class Tile implements Comparable<Tile> {

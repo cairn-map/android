@@ -20,7 +20,8 @@ final class MapIcon extends Drawable {
       CENTER = 12,
       EDIT = 13,
       TUNE = 14,
-      UNDO = 15;
+      UNDO = 15,
+      CORRIDOR_READY = 16;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -56,7 +57,11 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == UNDO) {
+    if (kind == CORRIDOR_READY) {
+      canvas.drawRoundRect(3, 3, 21, 21, 3, 3, paint);
+      canvas.drawLine(7, 12, 11, 16, paint);
+      canvas.drawLine(11, 16, 18, 8, paint);
+    } else if (kind == UNDO) {
       canvas.drawArc(5, 7, 21, 21, 210, 250, false, paint);
       canvas.drawLine(5, 6, 5, 12, paint);
       canvas.drawLine(5, 12, 11, 12, paint);

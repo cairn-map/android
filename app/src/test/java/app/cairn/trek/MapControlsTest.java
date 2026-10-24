@@ -513,9 +513,14 @@ public class MapControlsTest {
       MainActivity activity = controller.get();
       drain(activity);
       java.lang.reflect.Method prepare =
-          MainActivity.class.getDeclaredMethod("prepareDownload", List.class, String.class);
+          MainActivity.class.getDeclaredMethod(
+              "prepareDownload", List.class, String.class, String.class);
       prepare.setAccessible(true);
-      prepare.invoke(activity, List.of(new Point(45, 6), new Point(45.01, 6.01)), "Alpine walk");
+      prepare.invoke(
+          activity,
+          List.of(new Point(45, 6), new Point(45.01, 6.01)),
+          "Alpine walk",
+          "preview-route");
       drain(activity);
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       View decor = dialog.getWindow().getDecorView();
