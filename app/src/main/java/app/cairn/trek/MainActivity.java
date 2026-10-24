@@ -1541,6 +1541,7 @@ public final class MainActivity extends Activity {
         downloadSlider(
             content,
             "Map detail",
+            CorridorSlider.Scale.ZOOM,
             existing == null ? 10 : Math.max(10, existing.maxZoom),
             19,
             existing == null ? 17 : Math.max(10, existing.maxZoom),
@@ -1567,6 +1568,7 @@ public final class MainActivity extends Activity {
         downloadSlider(
             content,
             "Kilometres on each side",
+            CorridorSlider.Scale.KILOMETRES,
             0,
             99,
             existing == null
@@ -1632,6 +1634,7 @@ public final class MainActivity extends Activity {
   private SeekBar downloadSlider(
       LinearLayout content,
       String description,
+      CorridorSlider.Scale scale,
       int min,
       int max,
       int initial,
@@ -1639,7 +1642,7 @@ public final class MainActivity extends Activity {
       Runnable changed) {
     TextView value = label(valueText.apply(initial), 14, TEXT, true);
     content.addView(value);
-    SeekBar slider = new SeekBar(this);
+    SeekBar slider = new CorridorSlider(this, scale);
     slider.setTag(description);
     slider.setContentDescription(value.getText());
     slider.setMin(min);
@@ -1663,7 +1666,7 @@ public final class MainActivity extends Activity {
           @Override
           public void onStopTrackingTouch(SeekBar bar) {}
         });
-    content.addView(slider, new LinearLayout.LayoutParams(-1, dp(48)));
+    content.addView(slider, new LinearLayout.LayoutParams(-1, dp(64)));
     return slider;
   }
 
