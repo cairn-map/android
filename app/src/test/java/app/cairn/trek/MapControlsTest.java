@@ -522,7 +522,7 @@ public class MapControlsTest {
       assertNull(findType(decor, EditText.class));
       SeekBar detail = decor.findViewWithTag("Map detail");
       SeekBar width = decor.findViewWithTag("Kilometres on each side");
-      assertEquals("Map detail · zoom 17", detail.getContentDescription());
+      assertEquals("Map detail · Junction detail", detail.getContentDescription());
       assertEquals("1.0 km on each side", width.getContentDescription());
       savePreview(decor, 786, 1200, "corridor-sliders-drawer");
       assertTrue(detail.getHeight() >= 96);
