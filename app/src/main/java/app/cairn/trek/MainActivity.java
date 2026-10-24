@@ -1470,6 +1470,10 @@ public final class MainActivity extends Activity {
                 "complete".equals(existing.state) ? "Check for updates" : "Resume download",
                 false,
                 () -> {
+                  if (DownloadService.running) {
+                    message("Pause the current map download first.");
+                    return;
+                  }
                   corridorDialog.dismiss();
                   io.execute(
                       () -> {

@@ -262,7 +262,12 @@ public class OfflineWorkflowTest {
       routeId = routes.saveRoute(List.of(new Point(45, 6)), "With maps");
       routes.saveRoute(List.of(new Point(46, 7)), "Without maps");
     }
-    String packId = store.create("With maps · corridor", tiny(), routeId);
+    String packId =
+        store.create(
+            "With maps · corridor",
+            TilePlanner.corridor(List.of(new Point(45, 6)), 200, 17),
+            routeId,
+            200);
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -298,6 +303,9 @@ public class OfflineWorkflowTest {
       AlertDialog corridor = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       View content = corridor.getWindow().getDecorView();
       assertNotNull(content.findViewWithTag("Map detail"));
+      assertEquals(17, ((SeekBar) content.findViewWithTag("Map detail")).getProgress());
+      assertEquals(17, ((SeekBar) content.findViewWithTag("Map detail")).getMin());
+      assertEquals(1, ((SeekBar) content.findViewWithTag("Kilometres on each side")).getProgress());
       assertNotNull(find(content, store.packs().get(0).description()));
       corridor.dismiss();
       java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");

@@ -86,7 +86,7 @@ public class RecordedHikesTest {
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_UP, 100, 32);
-      assertTrue(recording.getTranslationX() < 0);
+      assertTrue(((View) recording.getParent()).getTranslationX() < 0);
       assertSame(previousDialog, ShadowAlertDialog.getLatestAlertDialog());
       drain(activity);
       Store store = (Store) field(activity, "store");
@@ -114,15 +114,15 @@ public class RecordedHikesTest {
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 240, 32);
       touch(swipe, MotionEvent.ACTION_UP, 240, 32);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 290, 90);
       touch(swipe, MotionEvent.ACTION_CANCEL, 290, 90);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_CANCEL, 100, 32);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       assertEquals(View.INVISIBLE, find(swipe, "Delete").getVisibility());
       assertEquals(1, ((Store) field(activity, "store")).treks().size());
     }

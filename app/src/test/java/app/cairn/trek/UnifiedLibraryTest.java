@@ -242,7 +242,7 @@ public class UnifiedLibraryTest {
         swipe.dispatchTouchEvent(event);
         event.recycle();
       }
-      assertTrue(item.getTranslationX() > 0);
+      assertTrue(((View) item.getParent()).getTranslationX() > 0);
       drain(activity);
       Store store = (Store) field(activity, "store");
       assertTrue(store.routes().isEmpty());
