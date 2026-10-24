@@ -136,9 +136,16 @@ public class OfflineWorkflowTest {
         if (item == null) item = find(list, "Width check");
         item.performClick();
         drain(activity);
-        find(root, "Save offline corridor").performClick();
+        View corridor = find(root, "Save offline corridor");
+        if (corridor == null) corridor = find(root, "Offline corridor");
+        corridor.performClick();
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        if (form.getWindow().getDecorView().findViewWithTag("Map detail") == null) {
+          find(form.getWindow().getDecorView(), "Save offline corridor").performClick();
+          drain(activity);
+          form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        }
         SeekBar widthSlider =
             form.getWindow().getDecorView().findViewWithTag("Kilometres on each side");
         widthSlider.setProgress((int) Math.round(Double.parseDouble(width) * 10) - 1);
@@ -188,9 +195,10 @@ public class OfflineWorkflowTest {
       for (int zoom = 10; zoom <= 19; zoom++) {
         drain(activity);
         java.lang.reflect.Method prepare =
-            MainActivity.class.getDeclaredMethod("prepareDownload", List.class, String.class);
+            MainActivity.class.getDeclaredMethod(
+                "prepareDownload", List.class, String.class, String.class);
         prepare.setAccessible(true);
-        prepare.invoke(activity, points, "All details");
+        prepare.invoke(activity, points, "All details", "slider-route");
         drain(activity);
         AlertDialog form = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
         View decor = form.getWindow().getDecorView();
@@ -223,6 +231,7 @@ public class OfflineWorkflowTest {
         PlanIgnStore maps = (PlanIgnStore) mapsField.get(activity);
         PlanIgnStore.Pack pack = maps.packs().get(0);
         assertEquals("All details · corridor", pack.name);
+        assertEquals("slider-route", pack.routeId);
         assertEquals(
             new HashSet<>(TilePlanner.corridor(points, 100, zoom).tiles),
             new HashSet<>(maps.next(pack.id, TilePlanner.MAX_TILES)));
@@ -239,6 +248,121 @@ public class OfflineWorkflowTest {
         if (hasEditText(group.getChildAt(i))) return true;
     }
     return false;
+  }
+
+  @Test
+  public void routeIndicatorTracksCompletionAndSurvivesRename() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    String routeId;
+    try (Store routes = new Store(context)) {
+      routeId = routes.saveRoute(List.of(new Point(45, 6)), "With maps");
+      routes.saveRoute(List.of(new Point(46, 7)), "Without maps");
+    }
+    String packId = store.create("With maps · corridor", tiny(), routeId);
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      View library = openLibrary(activity);
+      assertNotNull(find(library, "Offline corridor incomplete for With maps"));
+      assertNull(find(library, "Offline corridor ready for With maps"));
+      for (TilePlanner.Tile tile : store.next(packId, TilePlanner.MAX_TILES))
+        store.completeTile(packId, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
+      assertTrue(store.finish(packId));
+      try (Store routes = new Store(context)) {
+        routes.renameRoute(routeId, "Renamed walk");
+      }
+      activity.sendBroadcast(
+          new Intent(DownloadService.EVENT)
+              .setPackage(activity.getPackageName())
+              .putExtra("finished", true));
+      drain(activity);
+      library = openLibrary(activity);
+      View ready = find(library, "Offline corridor ready for Renamed walk");
+      assertNotNull(ready);
+      assertNull(find(library, "Offline corridor ready for Without maps"));
+      ready.performClick();
+      drain(activity);
+      AlertDialog corridor = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View content = corridor.getWindow().getDecorView();
+      assertNotNull(find(content, "Renamed walk · offline corridor"));
+      assertNotNull(find(content, store.packs().get(0).description()));
+      corridor.dismiss();
+      java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
+      menu.setAccessible(true);
+      menu.invoke(activity);
+      View maps =
+          org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+              .getWindow()
+              .getDecorView();
+      assertNull(find(maps, "With maps · corridor\n" + store.packs().get(0).description()));
+      org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().dismiss();
+      find(openLibrary(activity), "Offline corridor ready for Renamed walk").performClick();
+      drain(activity);
+      AlertDialog saved = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      find(saved.getWindow().getDecorView(), store.packs().get(0).description()).performClick();
+      AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      actions.getListView().performItemClick(null, 2, 2);
+      AlertDialog confirmation = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      confirmation.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      drain(activity);
+      assertTrue(store.packs().isEmpty());
+      assertNull(find(openLibrary(activity), "Offline corridor ready for Renamed walk"));
+    }
+  }
+
+  @Test
+  public void legacyCorridorsLinkOnlyToUniqueNamesAndDetachedMapsStayUnlinked() {
+    String unique = store.create("Unique · corridor", tiny());
+    String ambiguous = store.create("Duplicate · corridor", tiny());
+    List<Store.LibraryEntry> entries =
+        List.of(
+            new Store.LibraryEntry("a", "Unique", false, true),
+            new Store.LibraryEntry("b", "Duplicate", false, true),
+            new Store.LibraryEntry("c", "Duplicate", true, true));
+    store.linkLegacyCorridors(entries);
+    for (PlanIgnStore.Pack pack : store.packs()) {
+      if (pack.id.equals(unique)) assertEquals("a", pack.routeId);
+      if (pack.id.equals(ambiguous)) assertNull(pack.routeId);
+    }
+    store.detachRoute("a");
+    store.linkLegacyCorridors(entries);
+    assertEquals(
+        "",
+        store.packs().stream().filter(pack -> pack.id.equals(unique)).findFirst().get().routeId);
+    assertNotNull(store.next(unique));
+  }
+
+  @Test
+  public void mapDatabaseUpgradePreservesSavedTilesAndLinksLegacyCorridor() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    store.close();
+    context.deleteDatabase("plan-ign.mbtiles");
+    try (android.database.sqlite.SQLiteDatabase db =
+        context.openOrCreateDatabase("plan-ign.mbtiles", 0, null)) {
+      db.execSQL(
+          "CREATE TABLE packs(id TEXT PRIMARY KEY,name TEXT,state TEXT,error TEXT,"
+              + "checked INTEGER,lat REAL,lon REAL)");
+      db.execSQL(
+          "CREATE TABLE tiles(zoom_level INTEGER,tile_column INTEGER,tile_row INTEGER,"
+              + "tile_data BLOB,etag TEXT,modified TEXT,checked INTEGER,"
+              + "PRIMARY KEY(zoom_level,tile_column,tile_row))");
+      db.execSQL(
+          "CREATE TABLE pack_tiles(pack TEXT,z INTEGER,x INTEGER,y INTEGER,done INTEGER,"
+              + "PRIMARY KEY(pack,z,x,y))");
+      db.execSQL("INSERT INTO packs VALUES('old','Old walk · corridor','complete',NULL,1,45,6)");
+      db.execSQL("INSERT INTO pack_tiles VALUES('old',8,132,91,1)");
+      db.execSQL(
+          "INSERT INTO tiles VALUES(8,132,91,?,NULL,NULL,1)", new Object[] {IgnClientTest.png()});
+      db.setVersion(1);
+    }
+    store = new PlanIgnStore(context);
+    store.linkLegacyCorridors(List.of(new Store.LibraryEntry("route", "Old walk", false, true)));
+    PlanIgnStore.Pack pack = store.packs().get(0);
+    assertEquals("route", pack.routeId);
+    assertEquals("complete", pack.state);
+    assertEquals(1, pack.done);
+    assertNotNull(store.cached(new TilePlanner.Tile(8, 132, 91)));
   }
 
   private void drain(MainActivity activity) throws Exception {

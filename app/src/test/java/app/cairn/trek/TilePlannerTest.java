@@ -65,6 +65,14 @@ public class TilePlannerTest {
   }
 
   @Test
+  public void navigationCorridorSavesOnlyZoomTenThroughSeventeen() {
+    TilePlanner.Plan plan = TilePlanner.corridor(List.of(new Point(45, 6)), 100, 17);
+    Set<Integer> levels = new HashSet<>();
+    for (TilePlanner.Tile tile : plan.tiles) levels.add(tile.z);
+    assertEquals(Set.of(10, 11, 12, 13, 14, 15, 16, 17), levels);
+  }
+
+  @Test
   public void aSinglePointDoesNotIncludeTilesOutsideTheBufferedFootprint() {
     int z = 17;
     Point center = new Point(Geo.lat(50000.5, z), Geo.lon(68000.5, z));

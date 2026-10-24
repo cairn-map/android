@@ -112,7 +112,11 @@ public final class MainActivity extends Activity {
             boolean finished = i.getBooleanExtra("finished", false);
             if (finished) map.refreshTiles(true);
             else map.tilesAdded();
-            if (finished && "Routes".equals(currentPage)) showPage("Routes");
+            if (finished) {
+              reloadLibrary();
+              if (corridorDialog != null && corridorDialog.isShowing())
+                routeCorridorMenu(corridorEntry);
+            }
             if (finished && mapDialog != null && mapDialog.isShowing()) {
               mapDialog.dismiss();
               mapMenu();
@@ -576,11 +580,13 @@ public final class MainActivity extends Activity {
   }
 
   private List<Store.LibraryEntry> libraryEntries = new ArrayList<>();
+  private Map<String, List<PlanIgnStore.Pack>> routeCorridors = new HashMap<>();
   private Store.LibraryEntry selectedEntry;
   private List<Point> selectedPoints = Collections.emptyList();
   private LinearLayout selectionPanel;
   private int libraryGeneration;
-  private AlertDialog mapDialog;
+  private AlertDialog mapDialog, corridorDialog;
+  private Store.LibraryEntry corridorEntry;
 
   private void reloadLibrary() {
     if (destroyed) return;
@@ -588,6 +594,11 @@ public final class MainActivity extends Activity {
     io.execute(
         () -> {
           List<Store.LibraryEntry> entries = store.library();
+          mapStore.linkLegacyCorridors(entries);
+          Map<String, List<PlanIgnStore.Pack>> corridors = new HashMap<>();
+          for (PlanIgnStore.Pack pack : mapStore.packs())
+            if (pack.routeId != null && !pack.routeId.isEmpty())
+              corridors.computeIfAbsent(pack.routeId, key -> new ArrayList<>()).add(pack);
           List<TrekMapView.LibraryPath> paths = new ArrayList<>();
           List<List<Point>> overlays = new ArrayList<>();
           String selected = store.selectedLibraryId();
@@ -618,6 +629,7 @@ public final class MainActivity extends Activity {
               () -> {
                 if (destroyed || !resumed || generation != libraryGeneration) return;
                 libraryEntries = entries;
+                routeCorridors = corridors;
                 selectedEntry = loadedSelection;
                 selectedPoints = loadedPoints;
                 if (planning
@@ -677,6 +689,24 @@ public final class MainActivity extends Activity {
             selected,
             () -> selectLibraryEntry(entry));
     item.setSelected(selected);
+    View row = item;
+    List<PlanIgnStore.Pack> corridors = routeCorridors.get(entry.id);
+    if (corridors != null && !corridors.isEmpty()) {
+      boolean ready = corridors.stream().anyMatch(pack -> "complete".equals(pack.state));
+      LinearLayout withStatus = row();
+      withStatus.setGravity(Gravity.CENTER_VERTICAL);
+      withStatus.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+      ImageButton status =
+          iconButton(
+              ready ? MapIcon.CORRIDOR_READY : MapIcon.SAVE_MAP,
+              (ready ? "Offline corridor ready for " : "Offline corridor incomplete for ")
+                  + entry.title,
+              () -> routeCorridorMenu(entry));
+      ((MapIcon) status.getDrawable()).colors(ready ? ACCENT : MUTED, SURFACE);
+      status.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
+      withStatus.addView(status, new LinearLayout.LayoutParams(dp(48), dp(48)));
+      row = withStatus;
+    }
     if (!entry.recording)
       item.setOnLongClickListener(
           v -> {
@@ -687,12 +717,12 @@ public final class MainActivity extends Activity {
         entry.recording
             && TrackingService.running
             && entry.id.equals(store.prefs.getString("currentTrek", ""));
-    if (recordingNow) content.addView(item);
+    if (recordingNow) content.addView(row);
     else {
       Runnable remove = () -> removeLibraryEntry(entry);
       TextView removeButton = button("Delete", false, remove);
       removeButton.setContentDescription("Delete " + entry.title);
-      SwipeToRemoveView swipe = new SwipeToRemoveView(this, item, removeButton, remove);
+      SwipeToRemoveView swipe = new SwipeToRemoveView(this, row, removeButton, remove);
       LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
       params.topMargin = dp(8);
       content.addView(swipe, params);
@@ -749,8 +779,8 @@ public final class MainActivity extends Activity {
       Store.LibraryEntry entry = selectedEntry;
       addSelectionAction(
           MapIcon.SAVE_MAP,
-          "Save offline corridor",
-          () -> prepareDownload(selectionSnapshot(), entry.title));
+          routeCorridors.containsKey(entry.id) ? "Offline corridor" : "Save offline corridor",
+          () -> routeCorridorMenu(entry));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
       addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
@@ -1108,6 +1138,7 @@ public final class MainActivity extends Activity {
           try {
             if (entry.recording) store.deleteTrek(entry.id);
             else store.deleteRoute(entry.id);
+            mapStore.detachRoute(entry.id);
             main.post(
                 () -> {
                   if (destroyed) return;
@@ -1174,56 +1205,17 @@ public final class MainActivity extends Activity {
               () ->
                   startService(
                       new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE))));
-    for (PlanIgnStore.Pack pack : mapStore.packs())
+    for (PlanIgnStore.Pack pack : mapStore.packs()) {
+      if (pack.routeId != null && !pack.routeId.isEmpty()) continue;
       content.addView(
           button(
               pack.name + "\n" + pack.description(),
               false,
               () -> {
                 if (mapDialog != null) mapDialog.dismiss();
-                CairnDialogs.drawer(this)
-                    .setTitle(pack.name)
-                    .setItems(
-                        new String[] {
-                          "Show area", "Resume / check updates", "Remove downloaded area"
-                        },
-                        (d, choice) -> {
-                          if (choice == 0) {
-                            selectPlanIgn();
-                            map.center(pack.center);
-                            showPage("Map");
-                          } else if (choice == 1) {
-                            if (DownloadService.running) {
-                              message("Pause the current download first.");
-                              return;
-                            }
-                            io.execute(
-                                () -> {
-                                  if ("complete".equals(pack.state)) mapStore.refresh(pack.id);
-                                  main.post(() -> beginDownload(pack.id));
-                                });
-                          } else
-                            CairnDialogs.dialog(this)
-                                .setMessage("Remove " + pack.name + " from this phone?")
-                                .setNegativeButton("Keep", null)
-                                .setPositiveButton(
-                                    "Remove",
-                                    (a, b) ->
-                                        io.execute(
-                                            () -> {
-                                              mapStore.remove(pack.id);
-                                              main.post(
-                                                  () -> {
-                                                    if (!destroyed) {
-                                                      map.refreshTiles(true);
-                                                      mapMenu();
-                                                    }
-                                                  });
-                                            }))
-                                .show();
-                        })
-                    .show();
+                savedCorridorMenu(pack, null);
               }));
+    }
     if (offlineMap != null && map.tileSource() != offlineMap)
       content.addView(
           button(
@@ -1371,7 +1363,110 @@ public final class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
-  private void prepareDownload(List<Point> corridorPoints, String routeTitle) {
+  private void routeCorridorMenu(Store.LibraryEntry entry) {
+    if (libraryDialog != null) libraryDialog.dismiss();
+    if (corridorDialog != null) corridorDialog.dismiss();
+    io.execute(
+        () -> {
+          List<PlanIgnStore.Pack> packs = new ArrayList<>();
+          for (PlanIgnStore.Pack pack : mapStore.packs())
+            if (entry.id.equals(pack.routeId)) packs.add(pack);
+          List<Point> points = store.read(entry.id);
+          main.post(
+              () -> {
+                if (destroyed || !resumed) return;
+                if (packs.isEmpty()) {
+                  prepareDownload(points, entry.title, entry.id);
+                  return;
+                }
+                LinearLayout content = column();
+                content.setPadding(dp(20), dp(8), dp(20), dp(16));
+                for (PlanIgnStore.Pack pack : packs)
+                  content.addView(
+                      button(pack.description(), false, () -> savedCorridorMenu(pack, entry)));
+                if (packs.stream().anyMatch(pack -> pack.id.equals(DownloadService.activePack)))
+                  content.addView(
+                      button(
+                          "Pause map download",
+                          false,
+                          () ->
+                              startService(
+                                  new Intent(this, DownloadService.class)
+                                      .setAction(DownloadService.PAUSE))));
+                downloadStatus = label("", 13, ACCENT, false);
+                content.addView(downloadStatus);
+                content.addView(
+                    button(
+                        "Save offline corridor",
+                        false,
+                        () -> {
+                          corridorDialog.dismiss();
+                          prepareDownload(points, entry.title, entry.id);
+                        }));
+                ScrollView scroll = new ScrollView(this);
+                scroll.addView(content);
+                corridorEntry = entry;
+                corridorDialog =
+                    CairnDialogs.drawer(this)
+                        .setTitle(entry.title + " · offline corridor")
+                        .setView(scroll)
+                        .setNegativeButton("Close", null)
+                        .show();
+              });
+        });
+  }
+
+  private void savedCorridorMenu(PlanIgnStore.Pack pack, Store.LibraryEntry entry) {
+    CairnDialogs.drawer(this)
+        .setTitle(entry == null ? pack.name : entry.title + " · offline corridor")
+        .setItems(
+            new String[] {"Show area", "Resume / check updates", "Remove downloaded area"},
+            (dialog, choice) -> {
+              if (choice == 0) {
+                if (corridorDialog != null) corridorDialog.dismiss();
+                selectPlanIgn();
+                map.center(pack.center);
+                showPage("Map");
+              } else if (choice == 1) {
+                if (TrackingService.running || DownloadService.running) {
+                  message("Finish recording or pause the current map download first.");
+                  return;
+                }
+                io.execute(
+                    () -> {
+                      if ("complete".equals(pack.state)) mapStore.refresh(pack.id);
+                      main.post(() -> beginDownload(pack.id));
+                    });
+              } else {
+                if (pack.id.equals(DownloadService.activePack)) {
+                  message("Pause this map download before removing it.");
+                  return;
+                }
+                CairnDialogs.dialog(this)
+                    .setMessage("Remove " + pack.name + " from this phone?")
+                    .setNegativeButton("Keep", null)
+                    .setPositiveButton(
+                        "Remove",
+                        (confirm, which) ->
+                            io.execute(
+                                () -> {
+                                  mapStore.remove(pack.id);
+                                  main.post(
+                                      () -> {
+                                        if (destroyed) return;
+                                        map.refreshTiles(true);
+                                        reloadLibrary();
+                                        if (corridorDialog != null) corridorDialog.dismiss();
+                                        if (entry == null) mapMenu();
+                                      });
+                                }))
+                    .show();
+              }
+            })
+        .show();
+  }
+
+  private void prepareDownload(List<Point> corridorPoints, String routeTitle, String routeId) {
     if (TrackingService.running) {
       message("Finish recording before downloading maps.");
       return;
@@ -1481,8 +1576,13 @@ public final class MainActivity extends Activity {
                                                     () -> {
                                                       try {
                                                         String id =
-                                                            mapStore.create(savedTitle, plan);
-                                                        main.post(() -> beginDownload(id));
+                                                            mapStore.create(
+                                                                savedTitle, plan, routeId);
+                                                        main.post(
+                                                            () -> {
+                                                              reloadLibrary();
+                                                              beginDownload(id);
+                                                            });
                                                       } catch (RuntimeException e) {
                                                         main.post(
                                                             () ->
@@ -1564,8 +1664,8 @@ public final class MainActivity extends Activity {
       startService(new Intent(this, RoutingDownloadService.class).setAction("pause"));
     if (TrackingService.running || DownloadService.running) {
       message(
-          "Resume this saved download from the map's layers button when the current task has"
-              + " finished.");
+          "Resume this saved download from the route's offline corridor menu when the current task"
+              + " has finished.");
       return;
     }
     try {
