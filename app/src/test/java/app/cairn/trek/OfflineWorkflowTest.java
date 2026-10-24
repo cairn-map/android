@@ -236,6 +236,10 @@ public class OfflineWorkflowTest {
             new HashSet<>(TilePlanner.corridor(points, 100, zoom).tiles),
             new HashSet<>(maps.next(pack.id, TilePlanner.MAX_TILES)));
         maps.remove(pack.id);
+        java.lang.reflect.Method reload = MainActivity.class.getDeclaredMethod("reloadLibrary");
+        reload.setAccessible(true);
+        reload.invoke(activity);
+        drain(activity);
       }
     }
   }
@@ -258,7 +262,12 @@ public class OfflineWorkflowTest {
       routeId = routes.saveRoute(List.of(new Point(45, 6)), "With maps");
       routes.saveRoute(List.of(new Point(46, 7)), "Without maps");
     }
-    String packId = store.create("With maps · corridor", tiny(), routeId);
+    String packId =
+        store.create(
+            "With maps · corridor",
+            TilePlanner.corridor(List.of(new Point(45, 6)), 200, 17),
+            routeId,
+            200);
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -266,6 +275,14 @@ public class OfflineWorkflowTest {
       View library = openLibrary(activity);
       assertNotNull(find(library, "Offline corridor incomplete for With maps"));
       assertNull(find(library, "Offline corridor ready for With maps"));
+      View missing = find(library, "No offline corridor for Without maps");
+      assertNotNull(missing);
+      assertEquals(missing, ((ViewGroup) missing.getParent()).getChildAt(0));
+      missing.performClick();
+      drain(activity);
+      AlertDialog selection = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      assertNotNull(selection.getWindow().getDecorView().findViewWithTag("Map detail"));
+      selection.dismiss();
       for (TilePlanner.Tile tile : store.next(packId, TilePlanner.MAX_TILES))
         store.completeTile(packId, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
       assertTrue(store.finish(packId));
@@ -285,7 +302,10 @@ public class OfflineWorkflowTest {
       drain(activity);
       AlertDialog corridor = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       View content = corridor.getWindow().getDecorView();
-      assertNotNull(find(content, "Renamed walk · offline corridor"));
+      assertNotNull(content.findViewWithTag("Map detail"));
+      assertEquals(17, ((SeekBar) content.findViewWithTag("Map detail")).getProgress());
+      assertEquals(17, ((SeekBar) content.findViewWithTag("Map detail")).getMin());
+      assertEquals(1, ((SeekBar) content.findViewWithTag("Kilometres on each side")).getProgress());
       assertNotNull(find(content, store.packs().get(0).description()));
       corridor.dismiss();
       java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
@@ -300,15 +320,62 @@ public class OfflineWorkflowTest {
       find(openLibrary(activity), "Offline corridor ready for Renamed walk").performClick();
       drain(activity);
       AlertDialog saved = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      find(saved.getWindow().getDecorView(), store.packs().get(0).description()).performClick();
-      AlertDialog actions = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      actions.getListView().performItemClick(null, 2, 2);
+      find(saved.getWindow().getDecorView(), "Remove offline corridor").performClick();
       AlertDialog confirmation = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       confirmation.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
       drain(activity);
       assertTrue(store.packs().isEmpty());
       assertNull(find(openLibrary(activity), "Offline corridor ready for Renamed walk"));
     }
+  }
+
+  @Test
+  public void eachRouteKeepsOneCorridorAndNeverDowngradesSavedDetail() throws Exception {
+    List<Point> points = List.of(new Point(45, 6));
+    TilePlanner.Plan detailed = TilePlanner.corridor(points, 100, 17);
+    String id = store.create("Walk", detailed, "walk", 100);
+    for (TilePlanner.Tile tile : store.next(id, TilePlanner.MAX_TILES))
+      store.completeTile(id, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
+    assertTrue(store.finish(id));
+    TilePlanner.Plan finer = TilePlanner.corridor(points, 100, 18);
+    assertEquals(id, store.create("Walk", finer, "walk", 100));
+    assertEquals(1, store.packs().size());
+    PlanIgnStore.Pack pack = store.packs().get(0);
+    assertEquals(18, pack.maxZoom);
+    assertEquals(100, pack.radiusMeters, 0);
+    assertTrue(pack.done > 0);
+    assertTrue(pack.done < pack.total);
+    assertEquals(id, store.create("Walk", TilePlanner.corridor(points, 100, 10), "walk"));
+    assertEquals(18, store.packs().get(0).maxZoom);
+    assertEquals(finer.tiles.size(), store.packs().get(0).total);
+  }
+
+  @Test
+  public void versionTwoUpgradeKeepsTheFinestCorridorAndAllCachedTiles() throws Exception {
+    String coarse = store.create("Old walk · corridor", tiny());
+    TilePlanner.Plan fine = TilePlanner.corridor(List.of(new Point(45, 6)), 100, 17);
+    String finest = store.create("Old walk · corridor", fine);
+    for (String id : List.of(coarse, finest)) {
+      for (TilePlanner.Tile tile : store.next(id, TilePlanner.MAX_TILES))
+        store.completeTile(id, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
+      assertTrue(store.finish(id));
+    }
+    android.database.sqlite.SQLiteDatabase db = store.getWritableDatabase();
+    db.execSQL("DROP INDEX corridor_routes");
+    db.execSQL("UPDATE packs SET route_id='walk'");
+    db.execSQL(
+        "CREATE TABLE version_two_packs AS SELECT id,name,state,error,checked,lat,lon,route_id FROM"
+            + " packs");
+    db.execSQL("DROP TABLE packs");
+    db.execSQL("ALTER TABLE version_two_packs RENAME TO packs");
+    db.setVersion(2);
+    store.close();
+    store = new PlanIgnStore(RuntimeEnvironment.getApplication());
+    assertEquals(1, store.packs().size());
+    assertEquals(finest, store.packs().get(0).id);
+    assertEquals(17, store.packs().get(0).maxZoom);
+    assertEquals("complete", store.packs().get(0).state);
+    for (TilePlanner.Tile tile : tiny().tiles) assertNotNull(store.cached(tile));
   }
 
   @Test

@@ -689,24 +689,23 @@ public final class MainActivity extends Activity {
             selected,
             () -> selectLibraryEntry(entry));
     item.setSelected(selected);
-    View row = item;
     List<PlanIgnStore.Pack> corridors = routeCorridors.get(entry.id);
-    if (corridors != null && !corridors.isEmpty()) {
-      boolean ready = corridors.stream().anyMatch(pack -> "complete".equals(pack.state));
-      LinearLayout withStatus = row();
-      withStatus.setGravity(Gravity.CENTER_VERTICAL);
-      withStatus.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
-      ImageButton status =
-          iconButton(
-              ready ? MapIcon.CORRIDOR_READY : MapIcon.SAVE_MAP,
-              (ready ? "Offline corridor ready for " : "Offline corridor incomplete for ")
-                  + entry.title,
-              () -> routeCorridorMenu(entry));
-      ((MapIcon) status.getDrawable()).colors(ready ? ACCENT : MUTED, SURFACE);
-      status.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
-      withStatus.addView(status, new LinearLayout.LayoutParams(dp(48), dp(48)));
-      row = withStatus;
-    }
+    boolean present = corridors != null && !corridors.isEmpty();
+    boolean ready = present && "complete".equals(corridors.get(0).state);
+    LinearLayout row = row();
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    ImageButton status =
+        iconButton(
+            ready ? MapIcon.CORRIDOR_READY : MapIcon.SAVE_MAP,
+            (ready
+                    ? "Offline corridor ready for "
+                    : present ? "Offline corridor incomplete for " : "No offline corridor for ")
+                + entry.title,
+            () -> routeCorridorMenu(entry));
+    ((MapIcon) status.getDrawable()).colors(ready ? ACCENT : MUTED, SURFACE);
+    status.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
+    row.addView(status, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    row.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
     if (!entry.recording)
       item.setOnLongClickListener(
           v -> {
@@ -779,7 +778,9 @@ public final class MainActivity extends Activity {
       Store.LibraryEntry entry = selectedEntry;
       addSelectionAction(
           MapIcon.SAVE_MAP,
-          routeCorridors.containsKey(entry.id) ? "Offline corridor" : "Save offline corridor",
+          routeCorridors.getOrDefault(entry.id, Collections.emptyList()).isEmpty()
+              ? "Save offline corridor"
+              : "Offline corridor",
           () -> routeCorridorMenu(entry));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
@@ -860,8 +861,7 @@ public final class MainActivity extends Activity {
 
   private void startEditing(Store.LibraryEntry entry, List<Point> geometry, List<Point> nodes) {
     editingEntry = entry;
-    routingParameters =
-        entry == null || entry.recording ? null : store.routePreferences(entry.id);
+    routingParameters = entry == null || entry.recording ? null : store.routePreferences(entry.id);
     newRouteId = "route-" + UUID.randomUUID();
     planning = true;
     editDirty = finishEditing = savingEdit = false;
@@ -1368,51 +1368,16 @@ public final class MainActivity extends Activity {
     if (corridorDialog != null) corridorDialog.dismiss();
     io.execute(
         () -> {
+          List<Point> points = store.read(entry.id);
           List<PlanIgnStore.Pack> packs = new ArrayList<>();
           for (PlanIgnStore.Pack pack : mapStore.packs())
             if (entry.id.equals(pack.routeId)) packs.add(pack);
-          List<Point> points = store.read(entry.id);
           main.post(
               () -> {
                 if (destroyed || !resumed) return;
-                if (packs.isEmpty()) {
-                  prepareDownload(points, entry.title, entry.id);
-                  return;
-                }
-                LinearLayout content = column();
-                content.setPadding(dp(20), dp(8), dp(20), dp(16));
-                for (PlanIgnStore.Pack pack : packs)
-                  content.addView(
-                      button(pack.description(), false, () -> savedCorridorMenu(pack, entry)));
-                if (DownloadService.running
-                    && packs.stream().anyMatch(pack -> pack.id.equals(DownloadService.activePack)))
-                  content.addView(
-                      button(
-                          "Pause map download",
-                          false,
-                          () ->
-                              startService(
-                                  new Intent(this, DownloadService.class)
-                                      .setAction(DownloadService.PAUSE))));
-                downloadStatus = label("", 13, ACCENT, false);
-                content.addView(downloadStatus);
-                content.addView(
-                    button(
-                        "Save offline corridor",
-                        false,
-                        () -> {
-                          corridorDialog.dismiss();
-                          prepareDownload(points, entry.title, entry.id);
-                        }));
-                ScrollView scroll = new ScrollView(this);
-                scroll.addView(content);
+                routeCorridors.put(entry.id, packs);
                 corridorEntry = entry;
-                corridorDialog =
-                    CairnDialogs.drawer(this)
-                        .setTitle(entry.title + " · offline corridor")
-                        .setView(scroll)
-                        .setNegativeButton("Close", null)
-                        .show();
+                prepareDownload(points, entry.title, entry.id);
               });
         });
   }
@@ -1476,6 +1441,8 @@ public final class MainActivity extends Activity {
       message("Select a route or recording with points first.");
       return;
     }
+    List<PlanIgnStore.Pack> saved = routeCorridors.getOrDefault(routeId, Collections.emptyList());
+    PlanIgnStore.Pack existing = saved.isEmpty() ? null : saved.get(0);
     String savedTitle = routeTitle + " · corridor";
     LinearLayout content = column();
     content.setPadding(dp(24), dp(8), dp(24), dp(12));
@@ -1486,6 +1453,63 @@ public final class MainActivity extends Activity {
             13,
             MUTED,
             false));
+    if (existing != null) {
+      downloadStatus = label(existing.description(), 13, ACCENT, false);
+      content.addView(downloadStatus);
+      if (DownloadService.running && existing.id.equals(DownloadService.activePack))
+        content.addView(
+            button(
+                "Pause map download",
+                false,
+                () ->
+                    startService(
+                        new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE))));
+      else
+        content.addView(
+            button(
+                "complete".equals(existing.state) ? "Check for updates" : "Resume download",
+                false,
+                () -> {
+                  if (DownloadService.running) {
+                    message("Pause the current map download first.");
+                    return;
+                  }
+                  corridorDialog.dismiss();
+                  io.execute(
+                      () -> {
+                        if ("complete".equals(existing.state)) mapStore.refresh(existing.id);
+                        main.post(() -> beginDownload(existing.id));
+                      });
+                }));
+      content.addView(
+          button(
+              "Remove offline corridor",
+              false,
+              () -> {
+                if (DownloadService.running && existing.id.equals(DownloadService.activePack)) {
+                  message("Pause this map download before removing it.");
+                  return;
+                }
+                CairnDialogs.dialog(this)
+                    .setMessage("Remove offline maps for " + routeTitle + "?")
+                    .setNegativeButton("Keep", null)
+                    .setPositiveButton(
+                        "Remove",
+                        (d, w) ->
+                            io.execute(
+                                () -> {
+                                  mapStore.remove(existing.id);
+                                  main.post(
+                                      () -> {
+                                        if (destroyed) return;
+                                        corridorDialog.dismiss();
+                                        map.refreshTiles(true);
+                                        reloadLibrary();
+                                      });
+                                }))
+                    .show();
+              }));
+    }
     content.addView(spacer(16));
     String[] detailLabels = {
       "Regional overview",
@@ -1501,11 +1525,25 @@ public final class MainActivity extends Activity {
     };
     SeekBar detail =
         downloadSlider(
-            content, "Map detail", 10, 19, 17, zoom -> "Map detail · " + detailLabels[zoom - 10]);
-    content.addView(label("Regional overview → Maximum detail", 12, MUTED, false));
+            content,
+            "Map detail",
+            existing == null ? 10 : Math.max(10, existing.maxZoom),
+            19,
+            existing == null ? 17 : Math.max(10, existing.maxZoom),
+            zoom -> "Map detail · " + detailLabels[zoom - 10]);
     content.addView(
         label(
-            "Choose how closely you want to view the path. Higher detail uses more storage.",
+            existing == null
+                ? "Regional overview → Maximum detail"
+                : "Saved detail → Maximum detail",
+            12,
+            MUTED,
+            false));
+    content.addView(
+        label(
+            existing == null
+                ? "Choose how closely you want to view the path. Higher detail uses more storage."
+                : "Your saved finer detail is kept. Increasing detail upgrades this corridor.",
             13,
             MUTED,
             false));
@@ -1516,7 +1554,9 @@ public final class MainActivity extends Activity {
             "Kilometres on each side",
             0,
             99,
-            9,
+            existing == null
+                ? 9
+                : Math.max(0, Math.min(99, (int) Math.round(existing.radiusMeters / 100) - 1)),
             progress ->
                 String.format(
                     Locale.getDefault(), "%1$.1f km on each side", (progress + 1) / 10.0));
@@ -1536,9 +1576,16 @@ public final class MainActivity extends Activity {
                 .getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(
                     v -> {
+                      if (DownloadService.running
+                          && existing != null
+                          && existing.id.equals(DownloadService.activePack)) {
+                        message("Pause this corridor download before changing it.");
+                        return;
+                      }
                       double radius = (width.getProgress() + 1) * 100.0;
                       List<Point> points = new ArrayList<>(corridorPoints);
-                      int zoom = detail.getProgress();
+                      int zoom =
+                          Math.max(detail.getProgress(), existing == null ? 10 : existing.maxZoom);
                       dialog.dismiss();
                       io.execute(
                           () -> {
@@ -1578,7 +1625,7 @@ public final class MainActivity extends Activity {
                                                       try {
                                                         String id =
                                                             mapStore.create(
-                                                                savedTitle, plan, routeId);
+                                                                savedTitle, plan, routeId, radius);
                                                         main.post(
                                                             () -> {
                                                               reloadLibrary();
@@ -1599,6 +1646,7 @@ public final class MainActivity extends Activity {
                             }
                           });
                     }));
+    corridorDialog = dialog;
     dialog.show();
   }
 
@@ -1948,7 +1996,8 @@ public final class MainActivity extends Activity {
     if (remaining > 0) main.postDelayed(resumeFollow, remaining);
     else if (map.position != null) {
       Point center = map.center();
-      if (center.lat != map.position.lat || center.lon != map.position.lon) map.center(map.position);
+      if (center.lat != map.position.lat || center.lon != map.position.lon)
+        map.center(map.position);
     }
   }
 

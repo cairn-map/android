@@ -75,7 +75,7 @@ public class RecordedHikesTest {
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
       View recording = find(library, title);
-      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
@@ -86,7 +86,7 @@ public class RecordedHikesTest {
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_UP, 100, 32);
-      assertTrue(recording.getTranslationX() < 0);
+      assertTrue(((View) recording.getParent()).getTranslationX() < 0);
       assertSame(previousDialog, ShadowAlertDialog.getLatestAlertDialog());
       drain(activity);
       Store store = (Store) field(activity, "store");
@@ -106,7 +106,7 @@ public class RecordedHikesTest {
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
       View recording = find(library, title);
-      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
@@ -114,15 +114,15 @@ public class RecordedHikesTest {
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 240, 32);
       touch(swipe, MotionEvent.ACTION_UP, 240, 32);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 290, 90);
       touch(swipe, MotionEvent.ACTION_CANCEL, 290, 90);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       touch(swipe, MotionEvent.ACTION_DOWN, 300, 32);
       touch(swipe, MotionEvent.ACTION_MOVE, 100, 32);
       touch(swipe, MotionEvent.ACTION_CANCEL, 100, 32);
-      assertEquals(0, recording.getTranslationX(), 0);
+      assertEquals(0, ((View) recording.getParent()).getTranslationX(), 0);
       assertEquals(View.INVISIBLE, find(swipe, "Delete").getVisibility());
       assertEquals(1, ((Store) field(activity, "store")).treks().size());
     }

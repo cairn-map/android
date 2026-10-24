@@ -229,7 +229,7 @@ public class UnifiedLibraryTest {
       MainActivity activity = controller.get();
       drain(activity);
       View item = find(library(activity), "Saved route · selected");
-      SwipeToRemoveView swipe = (SwipeToRemoveView) item.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) item.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
@@ -242,7 +242,7 @@ public class UnifiedLibraryTest {
         swipe.dispatchTouchEvent(event);
         event.recycle();
       }
-      assertTrue(item.getTranslationX() > 0);
+      assertTrue(((View) item.getParent()).getTranslationX() > 0);
       drain(activity);
       Store store = (Store) field(activity, "store");
       assertTrue(store.routes().isEmpty());
