@@ -164,7 +164,7 @@ public class OfflineWorkflowTest {
   }
 
   @Test
-  public void corridorSlidersSaveEveryPlanIgnDetailWithoutAskingForAName() throws Exception {
+  public void corridorSlidersSaveZoomTenThroughNineteenWithWordLabels() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
     List<Point> points = List.of(new Point(45.9, 6.8), new Point(45.9001, 6.8001));
     try (Store routes = new Store(context)) {
@@ -173,7 +173,19 @@ public class OfflineWorkflowTest {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
-      for (int zoom = 0; zoom <= 19; zoom++) {
+      String[] labels = {
+        "Regional overview",
+        "Local overview",
+        "Route overview",
+        "Route planning",
+        "Terrain detail",
+        "Trail detail",
+        "Walking navigation",
+        "Junction detail",
+        "Close-up detail",
+        "Maximum detail"
+      };
+      for (int zoom = 10; zoom <= 19; zoom++) {
         drain(activity);
         java.lang.reflect.Method prepare =
             MainActivity.class.getDeclaredMethod("prepareDownload", List.class, String.class);
@@ -185,6 +197,7 @@ public class OfflineWorkflowTest {
         assertFalse(hasEditText(decor));
         SeekBar detail = decor.findViewWithTag("Map detail");
         SeekBar width = decor.findViewWithTag("Kilometres on each side");
+        assertEquals(10, detail.getMin());
         assertEquals(19, detail.getMax());
         assertEquals(17, detail.getProgress());
         assertEquals(1, detail.getKeyProgressIncrement());
@@ -194,10 +207,15 @@ public class OfflineWorkflowTest {
             width.getContentDescription());
         width.setProgress(0);
         detail.setProgress(zoom);
-        assertEquals("Map detail · zoom " + zoom, detail.getContentDescription());
+        assertEquals("Map detail · " + labels[zoom - 10], detail.getContentDescription());
+        assertNotNull(find(decor, "Map detail · " + labels[zoom - 10]));
         form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         drain(activity);
         AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        String message =
+            ((TextView) estimate.findViewById(android.R.id.message)).getText().toString();
+        assertTrue(message.contains(" · " + labels[zoom - 10] + "\n"));
+        assertFalse(message.contains("zoom"));
         estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         drain(activity);
         java.lang.reflect.Field mapsField = MainActivity.class.getDeclaredField("mapStore");
