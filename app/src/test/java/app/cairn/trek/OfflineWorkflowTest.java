@@ -271,6 +271,7 @@ public class OfflineWorkflowTest {
       String initial = estimate.getText().toString();
       width.setProgress(1);
       assertFalse(download.isEnabled());
+      assertEquals(initial, estimate.getText().toString());
       drain(activity);
       assertNotEquals(initial, estimate.getText().toString());
       assertTrue(estimate.getText().toString().contains("Corridor: 0.2 km"));
@@ -296,6 +297,7 @@ public class OfflineWorkflowTest {
           latest.contains(String.format(Locale.getDefault(), "%,d tiles", expected.tiles.size())));
       assertTrue(download.isEnabled());
       width.setProgress(1);
+      assertEquals(latest, estimate.getText().toString());
       String pending = estimate.getText().toString();
       dialog.dismiss();
       drain(activity);

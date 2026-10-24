@@ -506,8 +506,19 @@ public class MapControlsTest {
 
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
-  @Config(sdk = 28, qualifiers = "w393dp-h851dp-xhdpi")
+  @Config(sdk = 28, qualifiers = "w393dp-h600dp-xhdpi")
   public void corridorDrawerShowsSlidersWithReadableValuesAndNoNameField() throws Exception {
+    checkCorridorDrawer();
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(sdk = 28, qualifiers = "w600dp-h393dp-xhdpi")
+  public void corridorDrawerKeepsControlsAndScrollPositionInLandscape() throws Exception {
+    checkCorridorDrawer();
+  }
+
+  private void checkCorridorDrawer() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -529,16 +540,54 @@ public class MapControlsTest {
       SeekBar width = decor.findViewWithTag("Kilometres on each side");
       assertEquals("Map detail · Junction detail", detail.getContentDescription());
       assertEquals("1.0 km on each side", width.getContentDescription());
-      savePreview(decor, 786, 1200, "corridor-sliders-drawer");
+      assertEquals(
+          WindowManager.LayoutParams.MATCH_PARENT, dialog.getWindow().getAttributes().height);
+      TextView estimate = decor.findViewWithTag("Download estimate");
+      Button download = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+      int previewWidth = decor.getWidth(), previewHeight = decor.getHeight();
+      savePreview(decor, previewWidth, previewHeight, "corridor-sliders-drawer");
       assertTrue(detail.getHeight() >= 96);
       assertTrue(width.getHeight() >= 96);
       assertNotNull(find(decor, "Alpine walk"));
       assertNotNull(find(decor, "Download"));
       assertNull(find(decor, "Estimate download"));
       assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
-      TextView estimate = decor.findViewWithTag("Download estimate");
       assertTrue(estimate.getText().toString().contains("tiles · roughly"));
+      // Recheck real measured controls while pending, successful, oversized and recovered,
+      // including a short landscape window where the content has to scroll.
+      detail.setProgress(19);
+      drain(activity);
+      ScrollView scroll = (ScrollView) estimate.getParent().getParent();
+      savePreview(decor, previewWidth, previewHeight, "corridor-before-refresh");
+      scroll.scrollTo(0, scroll.getChildAt(0).getHeight());
+      assertTrue(scroll.getScrollY() > 0);
+      int scrollY = scroll.getScrollY();
+      int[] before = positions(detail, width, download);
+      for (int progress : new int[] {0, 99, 1}) {
+        String previous = estimate.getText().toString();
+        width.setProgress(progress);
+        assertEquals(previous, estimate.getText().toString());
+        assertFalse(download.isEnabled());
+        savePreview(decor, previewWidth, previewHeight, "corridor-pending-estimate");
+        assertArrayEquals(before, positions(detail, width, download));
+        drain(activity);
+        savePreview(decor, previewWidth, previewHeight, "corridor-refreshed-estimate");
+        assertArrayEquals(before, positions(detail, width, download));
+        assertEquals(scrollY, scroll.getScrollY());
+        assertEquals(progress != 99, download.isEnabled());
+      }
     }
+  }
+
+  private int[] positions(View... views) {
+    int[] positions = new int[views.length * 2];
+    for (int i = 0; i < views.length; i++) {
+      int[] location = new int[2];
+      views[i].getLocationInWindow(location);
+      positions[i * 2] = location[0];
+      positions[i * 2 + 1] = location[1];
+    }
+    return positions;
   }
 
   private void savePreview(View view, int width, int height, String name) throws Exception {
