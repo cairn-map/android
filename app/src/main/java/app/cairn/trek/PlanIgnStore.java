@@ -327,10 +327,13 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
 
   /** Older versions named corridors after their route. Ambiguous names stay in Saved maps. */
   public void linkLegacyCorridors(List<Store.LibraryEntry> entries) {
+    SQLiteDatabase db = getWritableDatabase();
+    try (Cursor pending = db.rawQuery("SELECT 1 FROM packs WHERE route_id IS NULL LIMIT 1", null)) {
+      if (!pending.moveToFirst()) return;
+    }
     Map<String, List<String>> routes = new HashMap<>();
     for (Store.LibraryEntry entry : entries)
       routes.computeIfAbsent(entry.title + " · corridor", key -> new ArrayList<>()).add(entry.id);
-    SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
     try {
       for (Map.Entry<String, List<String>> route : routes.entrySet()) {

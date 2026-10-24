@@ -1384,7 +1384,8 @@ public final class MainActivity extends Activity {
                 for (PlanIgnStore.Pack pack : packs)
                   content.addView(
                       button(pack.description(), false, () -> savedCorridorMenu(pack, entry)));
-                if (packs.stream().anyMatch(pack -> pack.id.equals(DownloadService.activePack)))
+                if (DownloadService.running
+                    && packs.stream().anyMatch(pack -> pack.id.equals(DownloadService.activePack)))
                   content.addView(
                       button(
                           "Pause map download",
@@ -1438,7 +1439,7 @@ public final class MainActivity extends Activity {
                       main.post(() -> beginDownload(pack.id));
                     });
               } else {
-                if (pack.id.equals(DownloadService.activePack)) {
+                if (DownloadService.running && pack.id.equals(DownloadService.activePack)) {
                   message("Pause this map download before removing it.");
                   return;
                 }
