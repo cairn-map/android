@@ -19,9 +19,10 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
 
   public static final class Pack {
     public final String id, name, state, error, routeId;
-    public final int done, total;
+    public final int done, total, maxZoom;
     public final long checked, bytes;
     public final Point center;
+    public final double radiusMeters;
 
     Pack(
         String id,
@@ -33,7 +34,9 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
         long checked,
         long bytes,
         Point center,
-        String routeId) {
+        String routeId,
+        int maxZoom,
+        double radiusMeters) {
       this.id = id;
       this.name = name;
       this.state = state;
@@ -44,6 +47,8 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
       this.bytes = bytes;
       this.center = center;
       this.routeId = routeId;
+      this.maxZoom = maxZoom;
+      this.radiusMeters = radiusMeters;
     }
 
     public String description() {
@@ -62,7 +67,7 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public PlanIgnStore(Context context) {
-    super(context, "plan-ign.mbtiles", null, 2);
+    super(context, "plan-ign.mbtiles", null, 3);
     setWriteAheadLoggingEnabled(true);
   }
 
@@ -79,8 +84,9 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
             + " KEY(zoom_level,tile_column,tile_row))");
     db.execSQL(
         "CREATE TABLE packs(id TEXT PRIMARY KEY,name TEXT NOT NULL,state TEXT NOT NULL,error"
-            + " TEXT,checked INTEGER NOT NULL,lat REAL,lon REAL,route_id TEXT)");
-    db.execSQL("CREATE INDEX corridor_routes ON packs(route_id)");
+            + " TEXT,checked INTEGER NOT NULL,lat REAL,lon REAL,route_id TEXT,radius_m REAL NOT"
+            + " NULL DEFAULT 1000)");
+    corridorIndex(db);
     db.execSQL(
         "CREATE TABLE pack_tiles(pack TEXT,z INTEGER,x INTEGER,y INTEGER,done INTEGER NOT NULL"
             + " DEFAULT 0,PRIMARY KEY(pack,z,x,y))");
@@ -89,10 +95,60 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
 
   @Override
   public void onUpgrade(SQLiteDatabase db, int from, int to) {
-    if (from == 1 && to == 2) {
+    if (from < 2) {
       db.execSQL("ALTER TABLE packs ADD COLUMN route_id TEXT");
-      db.execSQL("CREATE INDEX corridor_routes ON packs(route_id)");
-    } else throw new IllegalStateException("Unsupported map database version");
+    }
+    if (from < 3) {
+      db.execSQL("ALTER TABLE packs ADD COLUMN radius_m REAL NOT NULL DEFAULT 1000");
+      consolidateCorridors(db);
+      db.execSQL("DROP INDEX IF EXISTS corridor_routes");
+      corridorIndex(db);
+    }
+  }
+
+  private static void corridorIndex(SQLiteDatabase db) {
+    db.execSQL(
+        "CREATE UNIQUE INDEX corridor_routes ON packs(route_id)"
+            + " WHERE route_id IS NOT NULL AND route_id<>''");
+  }
+
+  private static void consolidateCorridors(SQLiteDatabase db) {
+    Map<String, List<String>> routes = new LinkedHashMap<>();
+    try (Cursor packs =
+        db.rawQuery(
+            "SELECT p.id,p.route_id FROM packs p LEFT JOIN pack_tiles t ON t.pack=p.id"
+                + " WHERE p.route_id IS NOT NULL AND p.route_id<>'' GROUP BY p.id"
+                + " ORDER BY MAX(t.z) DESC,p.checked DESC,p.rowid DESC",
+            null)) {
+      while (packs.moveToNext())
+        routes
+            .computeIfAbsent(packs.getString(1), key -> new ArrayList<>())
+            .add(packs.getString(0));
+    }
+    for (List<String> ids : routes.values())
+      for (int i = 1; i < ids.size(); i++) merge(db, ids.get(0), ids.get(i));
+  }
+
+  private static void merge(SQLiteDatabase db, String keep, String id) {
+    if (DownloadService.running
+        && (keep.equals(DownloadService.activePack) || id.equals(DownloadService.activePack)))
+      throw new IllegalStateException("Pause the corridor download before consolidating maps.");
+    // Keep the finest pack's coverage. Other saved tiles remain available as viewed maps.
+    db.delete("pack_tiles", "pack=?", new String[] {id});
+    db.delete("packs", "id=?", new String[] {id});
+    reconcile(db, keep);
+  }
+
+  private static void reconcile(SQLiteDatabase db, String id) {
+    db.execSQL(
+        "UPDATE pack_tiles SET done=CASE WHEN EXISTS(SELECT 1 FROM tiles t"
+            + " WHERE t.zoom_level=pack_tiles.z AND t.tile_column=pack_tiles.x"
+            + " AND t.tile_row=pack_tiles.y) THEN 1 ELSE 0 END WHERE pack=?",
+        new Object[] {id});
+    db.execSQL(
+        "UPDATE packs SET state=CASE WHEN EXISTS(SELECT 1 FROM pack_tiles WHERE pack=? AND done=0)"
+            + " THEN 'paused' ELSE 'complete' END,error=NULL,checked=? WHERE id=?",
+        new Object[] {id, System.currentTimeMillis(), id});
   }
 
   public Cached cached(TilePlanner.Tile t) {
@@ -152,10 +208,32 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
   }
 
   public String create(String name, TilePlanner.Plan plan, String routeId) {
+    return create(name, plan, routeId, 1000);
+  }
+
+  public String create(String name, TilePlanner.Plan plan, String routeId, double radiusMeters) {
     String id = UUID.randomUUID().toString();
     SQLiteDatabase db = getWritableDatabase();
     db.beginTransaction();
     try {
+      if (routeId != null && !routeId.isEmpty()) {
+        try (Cursor existing =
+            db.rawQuery(
+                "SELECT p.id,COALESCE(MAX(t.z),0) FROM packs p"
+                    + " LEFT JOIN pack_tiles t ON t.pack=p.id WHERE p.route_id=? GROUP BY p.id",
+                new String[] {routeId})) {
+          if (existing.moveToFirst()) {
+            id = existing.getString(0);
+            int requestedZoom = plan.tiles.stream().mapToInt(tile -> tile.z).max().orElse(0);
+            if (existing.getInt(1) > requestedZoom) {
+              db.setTransactionSuccessful();
+              return id;
+            }
+          }
+        }
+        if (DownloadService.running && id.equals(DownloadService.activePack))
+          throw new IllegalStateException("Pause this corridor download before changing it.");
+      }
       ContentValues p = new ContentValues();
       p.put("id", id);
       p.put("name", name);
@@ -164,9 +242,13 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
       p.put("lat", plan.center.lat);
       p.put("lon", plan.center.lon);
       p.put("route_id", routeId);
-      db.insertOrThrow("packs", null, p);
+      p.put("radius_m", radiusMeters);
+      if (db.update("packs", p, "id=?", new String[] {id}) == 0) db.insertOrThrow("packs", null, p);
+      if (routeId != null && !routeId.isEmpty())
+        db.delete("pack_tiles", "pack=?", new String[] {id});
       try (SQLiteStatement insert =
-          db.compileStatement("INSERT INTO pack_tiles(pack,z,x,y,done) VALUES(?,?,?,?,0)")) {
+          db.compileStatement(
+              "INSERT OR IGNORE INTO pack_tiles(pack,z,x,y,done) VALUES(?,?,?,?,0)")) {
         for (TilePlanner.Tile tile : plan.tiles) {
           insert.bindString(1, id);
           insert.bindLong(2, tile.z);
@@ -174,6 +256,16 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
           insert.bindLong(4, tile.y);
           insert.executeInsert();
         }
+      }
+      if (routeId != null && !routeId.isEmpty()) {
+        try (Cursor count =
+            db.rawQuery("SELECT COUNT(*) FROM pack_tiles WHERE pack=?", new String[] {id})) {
+          count.moveToFirst();
+          if (count.getInt(0) > TilePlanner.MAX_TILES)
+            throw new IllegalArgumentException(
+                "This corridor exceeds 20,000 tiles. Choose a narrower width.");
+        }
+        reconcile(db, id);
       }
       db.setTransactionSuccessful();
       return id;
@@ -287,23 +379,25 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     SQLiteDatabase db = getReadableDatabase();
     try (Cursor c =
         db.rawQuery(
-            "SELECT id,name,state,error,checked,lat,lon,route_id FROM packs ORDER BY rowid DESC",
+            "SELECT id,name,state,error,checked,lat,lon,route_id,radius_m FROM packs ORDER BY rowid"
+                + " DESC",
             null)) {
       while (c.moveToNext()) {
         String id = c.getString(0);
-        int total = 0, done = 0;
+        int total = 0, done = 0, maxZoom = 0;
         long bytes = 0;
         try (Cursor counts =
             db.rawQuery(
                 "SELECT COUNT(*),COALESCE(SUM(CASE WHEN p.done=1 AND t.tile_data IS NOT NULL THEN 1"
-                    + " ELSE 0 END),0),COALESCE(SUM(LENGTH(t.tile_data)),0) FROM pack_tiles p LEFT"
-                    + " JOIN tiles t ON p.z=t.zoom_level AND p.x=t.tile_column AND p.y=t.tile_row"
-                    + " WHERE p.pack=?",
+                    + " ELSE 0 END),0),COALESCE(SUM(LENGTH(t.tile_data)),0),COALESCE(MAX(p.z),0)"
+                    + " FROM pack_tiles p LEFT JOIN tiles t ON p.z=t.zoom_level AND"
+                    + " p.x=t.tile_column AND p.y=t.tile_row WHERE p.pack=?",
                 new String[] {id})) {
           counts.moveToFirst();
           total = counts.getInt(0);
           done = counts.getInt(1);
           bytes = counts.getLong(2);
+          maxZoom = counts.getInt(3);
         }
         String state = c.getString(2);
         if ("complete".equals(state) && done != total) state = "incomplete";
@@ -319,7 +413,9 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
                 c.getLong(4),
                 bytes,
                 new Point(c.getDouble(5), c.getDouble(6)),
-                c.getString(7)));
+                c.getString(7),
+                maxZoom,
+                c.getDouble(8)));
       }
     }
     return result;
@@ -338,9 +434,25 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     try {
       for (Map.Entry<String, List<String>> route : routes.entrySet()) {
         if (route.getValue().size() != 1) continue;
-        ContentValues value = new ContentValues();
-        value.put("route_id", route.getValue().get(0));
-        db.update("packs", value, "route_id IS NULL AND name=?", new String[] {route.getKey()});
+        String routeId = route.getValue().get(0), keep = null;
+        List<String> legacy = new ArrayList<>();
+        try (Cursor candidates =
+            db.rawQuery(
+                "SELECT p.id FROM packs p LEFT JOIN pack_tiles t"
+                    + " ON t.pack=p.id WHERE p.route_id=? OR (p.route_id IS NULL AND p.name=?)"
+                    + " GROUP BY p.id ORDER BY MAX(t.z) DESC,p.checked DESC,p.rowid DESC",
+                new String[] {routeId, route.getKey()})) {
+          while (candidates.moveToNext()) legacy.add(candidates.getString(0));
+        }
+        for (String id : legacy) {
+          if (keep == null) keep = id;
+          else merge(db, keep, id);
+        }
+        if (keep != null) {
+          ContentValues value = new ContentValues();
+          value.put("route_id", routeId);
+          db.update("packs", value, "id=?", new String[] {keep});
+        }
       }
       db.setTransactionSuccessful();
     } finally {

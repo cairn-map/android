@@ -229,7 +229,7 @@ public class UnifiedLibraryTest {
       MainActivity activity = controller.get();
       drain(activity);
       View item = find(library(activity), "Saved route · selected");
-      SwipeToRemoveView swipe = (SwipeToRemoveView) item.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) item.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));

@@ -75,7 +75,7 @@ public class RecordedHikesTest {
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
       View recording = find(library, title);
-      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
@@ -106,7 +106,7 @@ public class RecordedHikesTest {
       ((View) field(activity, "libraryButton")).performClick();
       View library = ((AlertDialog) field(activity, "libraryDialog")).getWindow().getDecorView();
       View recording = find(library, title);
-      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent();
+      SwipeToRemoveView swipe = (SwipeToRemoveView) recording.getParent().getParent();
       swipe.measure(
           View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
           View.MeasureSpec.makeMeasureSpec(96, View.MeasureSpec.EXACTLY));
