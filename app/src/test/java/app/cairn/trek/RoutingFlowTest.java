@@ -150,12 +150,32 @@ public class RoutingFlowTest {
   private void drain() throws Exception {
     for (int i = 0; i < 4; i++) {
       ((ExecutorService) field("io")).submit(() -> {}).get(10, TimeUnit.SECONDS);
-      EmbeddedRouter router = (EmbeddedRouter) field("router");
-      Field worker = EmbeddedRouter.class.getDeclaredField("worker");
-      worker.setAccessible(true);
-      ((ExecutorService) worker.get(router)).submit(() -> {}).get(15, TimeUnit.SECONDS);
+      routingWorker().submit(() -> {}).get(15, TimeUnit.SECONDS);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
     }
+  }
+
+  private ExecutorService routingWorker() throws Exception {
+    Field worker = EmbeddedRouter.class.getDeclaredField("worker");
+    worker.setAccessible(true);
+    return (ExecutorService) worker.get(field("router"));
+  }
+
+  private AutoCloseable holdRoutingWorker() throws Exception {
+    CountDownLatch release = new CountDownLatch(1);
+    // Keep the calculation pending until the test has applied its concurrent edit.
+    // Advancing the UI clock alone lets a fast worker finish before that edit.
+    Future<?> held =
+        routingWorker()
+            .submit(
+                () -> {
+                  assertTrue("Routing worker was not released", release.await(15, TimeUnit.SECONDS));
+                  return null;
+                });
+    return () -> {
+      release.countDown();
+      held.get(15, TimeUnit.SECONDS);
+    };
   }
 
   private void assertSavedRoute() throws Exception {
@@ -205,10 +225,12 @@ public class RoutingFlowTest {
     List<Point> original = new ArrayList<>(points());
     set("plannedRoute", original);
     set("calculatedRevision", field("editRevision"));
-    map.onNodeAdded.accept(1, new Point(50, 8.722));
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
-    assertTrue((boolean) field("calculationRunning"));
-    tap("Undo last edit");
+    try (AutoCloseable held = holdRoutingWorker()) {
+      map.onNodeAdded.accept(1, new Point(50, 8.722));
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+      assertTrue((boolean) field("calculationRunning"));
+      tap("Undo last edit");
+    }
     drain();
     assertEquals(original, points());
     assertSame(original, field("plannedRoute"));
@@ -352,17 +374,20 @@ public class RoutingFlowTest {
   @Test
   public void preferencesPauseAnActiveCalculationAndRecalculateOnceClosed() throws Exception {
     installGraphs();
-    changeNodes();
-    assertTrue((boolean) field("calculationRunning"));
-    tap("Routing preferences");
-    AlertDialog preferences = (AlertDialog) field("routingPreferencesDialog");
-    android.widget.CheckBox elevation =
-        (android.widget.CheckBox)
-            find(preferences.getWindow().getDecorView(), "Prefer less climbing");
-    elevation.setChecked(true);
-    assertEquals(
-        "0", RoutingPreferences.read(((Store) field("store")).prefs).get("consider_elevation"));
-    assertEquals("1", parameters().get("consider_elevation"));
+    AlertDialog preferences;
+    try (AutoCloseable held = holdRoutingWorker()) {
+      changeNodes();
+      assertTrue((boolean) field("calculationRunning"));
+      tap("Routing preferences");
+      preferences = (AlertDialog) field("routingPreferencesDialog");
+      android.widget.CheckBox elevation =
+          (android.widget.CheckBox)
+              find(preferences.getWindow().getDecorView(), "Prefer less climbing");
+      elevation.setChecked(true);
+      assertEquals(
+          "0", RoutingPreferences.read(((Store) field("store")).prefs).get("consider_elevation"));
+      assertEquals("1", parameters().get("consider_elevation"));
+    }
     drain();
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
     assertTrue(preferences.isShowing());
@@ -379,12 +404,14 @@ public class RoutingFlowTest {
   public void editsDuringCalculationDiscardTheOldResultAndFinishSavesTheLatestNodes()
       throws Exception {
     installGraphs();
-    changeNodes();
-    assertTrue((boolean) field("calculationRunning"));
     Point latest = new Point(49.9976, 8.7236);
-    points().set(1, latest);
-    ((TrekMapView) field("map")).onNodeMoved.accept(1, latest);
-    tap("Finish editing");
+    try (AutoCloseable held = holdRoutingWorker()) {
+      changeNodes();
+      assertTrue((boolean) field("calculationRunning"));
+      points().set(1, latest);
+      ((TrekMapView) field("map")).onNodeMoved.accept(1, latest);
+      tap("Finish editing");
+    }
     drain();
     assertFalse((boolean) field("planning"));
     Store store = (Store) field("store");

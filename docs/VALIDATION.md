@@ -1,3 +1,15 @@
+# Routing concurrency test synchronization — 24 October 2026
+
+CI exposed a scheduling race in the edit-during-calculation test: a fast worker could finish while the test advanced its UI clock, before the concurrent edit was applied. A bounded latch now holds the routing worker until the edit, undo or preferences action has been applied, then releases it before the existing result assertions run.
+
+All 26 routing flow tests passed in a focused run. `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` then passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **356 tests**, zero failures/errors/skips, and no lint findings. Python automation passed 31 tests and Node automation passed 41 tests. Required PR CI supplies a fresh baseline/previous/current virtual performance comparison for the updated head.
+
+# Corridor slider ticks — 24 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **356 tests**, zero failures/errors/skips, and no lint findings. Python automation passed 31 tests and Node automation passed 41 tests. The shared automation selector reports `required=false` for these app/documentation changes.
+
+The native Canvas corridor preview was visually inspected: numbered ticks mark zoom levels 10–19, whole kilometres 1–10 and the 0.1 km endpoint, with GPS interval slider styling and room for the labels. Saved corridors only show available detail levels. Existing workflow checks retain 0.1 km precision and exact tile selections; portrait/landscape regressions retain control positions and scroll offset during estimate refreshes. Required PR CI supplies the fresh baseline/previous/current virtual performance comparison.
+
 # Steady corridor preview — 24 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2` passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **356 tests**, zero failures/errors/skips, and no lint findings. The Python automation suite passed 31 tests and the Node suite passed 41 tests. The shared automation selector reports `required=false` for these app/test/documentation changes.
