@@ -150,13 +150,15 @@ public class OfflineWorkflowTest {
             form.getWindow().getDecorView().findViewWithTag("Kilometres on each side");
         widthSlider.setProgress((int) Math.round(Double.parseDouble(width) * 10) - 1);
         assertEquals(99, widthSlider.getMax());
-        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(form.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled());
         drain(activity);
-        AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        assertSame(form, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
         String message =
-            ((TextView) estimate.findViewById(android.R.id.message)).getText().toString();
+            ((TextView) form.getWindow().getDecorView().findViewWithTag("Download estimate"))
+                .getText()
+                .toString();
         assertTrue(message.contains("Corridor: " + width + " km on each side"));
-        estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         drain(activity);
         PlanIgnStore.Pack pack = savedMaps.packs().get(0);
         TilePlanner.Plan expected =
@@ -217,14 +219,16 @@ public class OfflineWorkflowTest {
         detail.setProgress(zoom);
         assertEquals("Map detail · " + labels[zoom - 10], detail.getContentDescription());
         assertNotNull(find(decor, "Map detail · " + labels[zoom - 10]));
-        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(form.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled());
         drain(activity);
-        AlertDialog estimate = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        assertSame(form, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
         String message =
-            ((TextView) estimate.findViewById(android.R.id.message)).getText().toString();
+            ((TextView) form.getWindow().getDecorView().findViewWithTag("Download estimate"))
+                .getText()
+                .toString();
         assertTrue(message.contains(" · " + labels[zoom - 10] + "\n"));
         assertFalse(message.contains("zoom"));
-        estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         drain(activity);
         java.lang.reflect.Field mapsField = MainActivity.class.getDeclaredField("mapStore");
         mapsField.setAccessible(true);
@@ -241,6 +245,63 @@ public class OfflineWorkflowTest {
         reload.invoke(activity);
         drain(activity);
       }
+    }
+  }
+
+  @Test
+  public void corridorEstimateRejectsOversizedSelectionsAndIgnoresStaleResults() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      java.lang.reflect.Method prepare =
+          MainActivity.class.getDeclaredMethod(
+              "prepareDownload", List.class, String.class, String.class);
+      prepare.setAccessible(true);
+      List<Point> points = List.of(new Point(45, 6), new Point(45.1, 6.1));
+      prepare.invoke(activity, points, "Live estimate", "live-route");
+      drain(activity);
+      AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      View decor = dialog.getWindow().getDecorView();
+      TextView estimate = decor.findViewWithTag("Download estimate");
+      SeekBar detail = decor.findViewWithTag("Map detail");
+      SeekBar width = decor.findViewWithTag("Kilometres on each side");
+      Button download = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+      assertTrue(download.isEnabled());
+      String initial = estimate.getText().toString();
+      width.setProgress(1);
+      assertFalse(download.isEnabled());
+      drain(activity);
+      assertNotEquals(initial, estimate.getText().toString());
+      assertTrue(estimate.getText().toString().contains("Corridor: 0.2 km"));
+      assertTrue(download.isEnabled());
+      detail.setProgress(19);
+      width.setProgress(99);
+      drain(activity);
+      assertTrue(estimate.getText().toString().contains("20,000 tiles"));
+      assertFalse(download.isEnabled());
+      // A completed older result waiting on the UI queue cannot enable a changed selection.
+      detail.setProgress(10);
+      java.lang.reflect.Field executor = MainActivity.class.getDeclaredField("io");
+      executor.setAccessible(true);
+      ((ExecutorService) executor.get(activity)).submit(() -> {}).get(5, TimeUnit.SECONDS);
+      width.setProgress(0);
+      detail.setProgress(17);
+      assertFalse(download.isEnabled());
+      drain(activity);
+      TilePlanner.Plan expected = TilePlanner.corridor(points, 100, 17);
+      String latest = estimate.getText().toString();
+      assertTrue(latest.contains("Corridor: 0.1 km on each side · Junction detail"));
+      assertTrue(
+          latest.contains(String.format(Locale.getDefault(), "%,d tiles", expected.tiles.size())));
+      assertTrue(download.isEnabled());
+      width.setProgress(1);
+      String pending = estimate.getText().toString();
+      dialog.dismiss();
+      drain(activity);
+      assertEquals(pending, estimate.getText().toString());
+      assertFalse(download.isEnabled());
+      assertSame(dialog, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
     }
   }
 
@@ -320,9 +381,23 @@ public class OfflineWorkflowTest {
       find(openLibrary(activity), "Offline corridor ready for Renamed walk").performClick();
       drain(activity);
       AlertDialog saved = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      find(saved.getWindow().getDecorView(), "Remove offline corridor").performClick();
-      AlertDialog confirmation = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-      confirmation.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      View savedContent = saved.getWindow().getDecorView();
+      assertNull(find(savedContent, "Check for updates"));
+      assertNull(find(savedContent, "Resume download"));
+      assertNull(find(savedContent, "Remove offline corridor"));
+      assertEquals("Download", saved.getButton(AlertDialog.BUTTON_POSITIVE).getText());
+      assertEquals(View.GONE, saved.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+      saved.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      drain(activity);
+      assertFalse(saved.isShowing());
+      assertSame(saved, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+      assertEquals(packId, store.packs().get(0).id);
+      assertEquals(0, store.packs().get(0).done);
+      store.remove(packId);
+      activity.sendBroadcast(
+          new Intent(DownloadService.EVENT)
+              .setPackage(activity.getPackageName())
+              .putExtra("finished", true));
       drain(activity);
       assertTrue(store.packs().isEmpty());
       assertNull(find(openLibrary(activity), "Offline corridor ready for Renamed walk"));
