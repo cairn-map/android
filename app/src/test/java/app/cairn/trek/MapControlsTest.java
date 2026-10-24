@@ -533,7 +533,11 @@ public class MapControlsTest {
       assertTrue(detail.getHeight() >= 96);
       assertTrue(width.getHeight() >= 96);
       assertNotNull(find(decor, "Alpine walk"));
-      assertNotNull(find(decor, "Estimate download"));
+      assertNotNull(find(decor, "Download"));
+      assertNull(find(decor, "Estimate download"));
+      assertEquals(View.GONE, dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+      TextView estimate = decor.findViewWithTag("Download estimate");
+      assertTrue(estimate.getText().toString().contains("tiles · roughly"));
     }
   }
 

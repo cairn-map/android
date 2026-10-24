@@ -207,10 +207,8 @@ public class UnifiedLibraryTest {
       AlertDialog form = ShadowAlertDialog.getLatestAlertDialog();
       ((SeekBar) form.getWindow().getDecorView().findViewWithTag("Kilometres on each side"))
           .setProgress(1);
-      form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
       drain(activity);
-      AlertDialog estimate = ShadowAlertDialog.getLatestAlertDialog();
-      estimate.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+      form.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
       drain(activity);
       PlanIgnStore maps = (PlanIgnStore) field(activity, "mapStore");
       PlanIgnStore.Pack pack = maps.packs().get(0);
