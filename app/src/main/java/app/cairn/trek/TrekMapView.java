@@ -47,7 +47,7 @@ public final class TrekMapView extends View {
   public List<LibraryPath> libraryPaths;
   public String selectedPathId = "", liveTrackId = "", editingPathId = "";
   public java.util.function.Consumer<String> onPathSelected;
-  public int bottomOverlay, scaleBottomOverlay;
+  public int topOverlay, bottomOverlay, scaleBottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
   private int zoom = 13;
   private double zoomScale = 1;
@@ -688,7 +688,7 @@ public final class TrekMapView extends View {
       }
     }
     double spanX = Math.max(0, 1 - gap), spanY = maxY - minY;
-    float left = dp(32), right = dp(96), top = dp(32);
+    float left = dp(32), right = dp(96), top = Math.max(dp(32), topOverlay + dp(16));
     float bottom = Math.max(dp(96), bottomOverlay + dp(32));
     double width = Math.max(1, getWidth() - left - right);
     double height = Math.max(1, getHeight() - top - bottom);

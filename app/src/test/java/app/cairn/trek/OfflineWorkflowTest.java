@@ -520,6 +520,42 @@ public class OfflineWorkflowTest {
   }
 
   @Test
+  public void deletingRouteCorridorsPreservesOtherAreasAndTheirSharedTiles() throws Exception {
+    TilePlanner.Plan plan = tiny();
+    String linked = store.create("Renamed route's corridor", plan, "route-a");
+    String other = store.create("Other route", plan, "route-b");
+    String standalone = store.create("Saved area", TilePlanner.area(7, 46, 7.001, 46.001, 10));
+    TilePlanner.Tile tile = store.next(linked);
+    store.completeTile(linked, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
+    store.removeRouteCorridors("route-a");
+    assertFalse(store.packs().stream().anyMatch(pack -> pack.id.equals(linked)));
+    assertTrue(store.packs().stream().anyMatch(pack -> pack.id.equals(other)));
+    assertTrue(store.packs().stream().anyMatch(pack -> pack.id.equals(standalone)));
+    assertTrue(store.next(linked, TilePlanner.MAX_TILES).isEmpty());
+    assertNotNull(store.cached(tile));
+    store.removeRouteCorridors("route-b");
+    assertNull(store.cached(tile));
+    store.removeRouteCorridors("route-a"); // Retrying after an interrupted deletion is safe.
+    assertEquals(1, store.packs().size());
+  }
+
+  @Test
+  public void deletingADownloadingCorridorRequiresPausingAndLeavesThePackIntact() {
+    String linked = store.create("Downloading", tiny(), "route-a");
+    DownloadService.running = true;
+    DownloadService.activePack = linked;
+    try {
+      assertThrows(IllegalStateException.class, () -> store.removeRouteCorridors("route-a"));
+      assertEquals(linked, store.packs().get(0).id);
+    } finally {
+      DownloadService.running = false;
+      DownloadService.activePack = null;
+    }
+    store.removeRouteCorridors("route-a");
+    assertTrue(store.packs().isEmpty());
+  }
+
+  @Test
   public void removingAPackagePreservesTilesSharedWithAnother() throws Exception {
     TilePlanner.Plan plan = tiny();
     String a = store.create("A", plan), b = store.create("B", plan);
