@@ -27,6 +27,7 @@ public final class TrekMapView extends View {
       track = Collections.emptyList(),
       waypoints = Collections.emptyList();
   public Point position;
+  private Point profilePoint;
   private PhoneHeading phoneHeading;
   private boolean phoneDirectionEnabled;
   private float magneticHeading = Float.NaN, declination;
@@ -47,7 +48,7 @@ public final class TrekMapView extends View {
   public List<LibraryPath> libraryPaths;
   public String selectedPathId = "", liveTrackId = "", editingPathId = "";
   public java.util.function.Consumer<String> onPathSelected;
-  public int topOverlay, bottomOverlay, scaleBottomOverlay;
+  public int topOverlay, leftOverlay, bottomOverlay, scaleBottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
   private int zoom = 13;
   private double zoomScale = 1;
@@ -653,6 +654,29 @@ public final class TrekMapView extends View {
     refreshTiles(false);
   }
 
+  /** Keep the inspected route point distinct from the GPS fix and clear of overlays. */
+  void inspectProfilePoint(Point point, boolean reveal) {
+    if (profilePoint == point && !reveal) return;
+    profilePoint = point;
+    if (point != null && reveal && getWidth() > 0 && getHeight() > 0) {
+      stopMotion();
+      float left = Math.max(dp(24), leftOverlay + dp(24)),
+          right = Math.max(left, getWidth() - dp(88));
+      float top = Math.min(getHeight() - dp(24), topOverlay + dp(24));
+      float bottom = Math.max(top, getHeight() - bottomOverlay - dp(24));
+      float x = px(point.lon), y = py(point.lat);
+      float dx = x - Math.max(left, Math.min(right, x));
+      float dy = y - Math.max(top, Math.min(bottom, y));
+      if (dx != 0 || dy != 0) {
+        double world = scaledTileSize() * (1 << zoom);
+        lon = Geo.wrap(Geo.lon(Geo.x(lon, 0) + dx / world, 0));
+        lat = Math.max(-85, Math.min(85, Geo.lat(Geo.y(lat, 0) + dy / world, 0)));
+        refreshTiles(false);
+      }
+    }
+    invalidate();
+  }
+
   /** Fit every route segment in the space clear of the map controls. */
   public void fitRoute(List<Point> points) {
     if (points.isEmpty()) return;
@@ -688,7 +712,9 @@ public final class TrekMapView extends View {
       }
     }
     double spanX = Math.max(0, 1 - gap), spanY = maxY - minY;
-    float left = dp(32), right = dp(96), top = Math.max(dp(32), topOverlay + dp(16));
+    float left = Math.max(dp(32), leftOverlay + dp(16)),
+        right = dp(96),
+        top = Math.max(dp(32), topOverlay + dp(16));
     float bottom = Math.max(dp(96), bottomOverlay + dp(32));
     double width = Math.max(1, getWidth() - left - right);
     double height = Math.max(1, getHeight() - top - bottom);
@@ -1162,6 +1188,16 @@ public final class TrekMapView extends View {
       c.drawCircle(px(position.lon), py(position.lat), dp(9), paint);
       paint.setColor(stale ? 0xff777777 : 0xff2767AE);
       c.drawCircle(px(position.lon), py(position.lat), dp(6), paint);
+    }
+    if (profilePoint != null && !editing) {
+      float x = px(profilePoint.lon), y = py(profilePoint.lat);
+      paint.setStyle(Paint.Style.FILL);
+      paint.setColor(AppPalette.SELECTION);
+      c.drawCircle(x, y, dp(12), paint);
+      paint.setColor(Color.WHITE);
+      c.drawCircle(x, y, dp(9), paint);
+      paint.setColor(AppPalette.ACCENT);
+      c.drawCircle(x, y, dp(6), paint);
     }
     paint.setTextSize(dp(11));
     paint.setTextAlign(Paint.Align.LEFT);

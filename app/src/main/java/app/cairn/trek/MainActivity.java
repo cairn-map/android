@@ -154,6 +154,10 @@ public final class MainActivity extends Activity {
     super.onCreate(state);
     followingRecording = TrackingService.running;
     if (state != null && followingRecording) followResumeAt = state.getLong("followResumeAt");
+    if (state != null) {
+      profilePathId = state.getString("profilePathId", "");
+      profileProgress = state.getInt("profileProgress");
+    }
     store = new Store(this);
     appUpdates = new AppUpdates(this);
     placeSearch = new PlaceSearch(this);
@@ -309,6 +313,8 @@ public final class MainActivity extends Activity {
   protected void onSaveInstanceState(Bundle state) {
     super.onSaveInstanceState(state);
     state.putLong("followResumeAt", followResumeAt);
+    state.putString("profilePathId", profilePathId);
+    state.putInt("profileProgress", profileProgress);
     state.putBoolean("planning", planning);
     state.putBoolean("editDirty", editDirty);
     state.putString("newRouteId", newRouteId);
@@ -520,13 +526,49 @@ public final class MainActivity extends Activity {
     controlsParams.setMargins(0, dp(12), dp(12), dp(144));
     frame.addView(controlRail, controlsParams);
 
+    selectionInfo = column();
+    selectionInfo.setClickable(true);
+    selectionInfo.setBackground(surface(SELECTION, SELECTION_BORDER, 16));
     selectionRecap = label("", 12, ON_SELECTION, true);
     selectionRecap.setPadding(dp(10), dp(6), dp(10), dp(6));
-    selectionRecap.setBackground(surface(SELECTION, SELECTION_BORDER, 16));
+    selectionInfo.addView(selectionRecap, new LinearLayout.LayoutParams(-1, -2));
+    elevationGraph = new ElevationGraph(this);
+    elevationGraph.setTag("Route elevation");
+    selectionInfo.addView(
+        elevationGraph,
+        new LinearLayout.LayoutParams(
+            -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 64 : 100)));
+    profileDetails = label("", 12, ON_SELECTION, false);
+    profileDetails.setPadding(dp(10), 0, dp(10), dp(8));
+    profileDetails.setTag("Elevation point details");
+    selectionInfo.addView(profileDetails, new LinearLayout.LayoutParams(-1, -2));
+    elevationGraph.setProgress(profileProgress);
+    elevationGraph.setOnSeekBarChangeListener(
+        new SeekBar.OnSeekBarChangeListener() {
+          @Override
+          public void onProgressChanged(SeekBar slider, int progress, boolean fromUser) {
+            profileProgress = progress;
+            updateProfilePoint(true);
+          }
+
+          @Override
+          public void onStartTrackingTouch(SeekBar slider) {}
+
+          @Override
+          public void onStopTrackingTouch(SeekBar slider) {}
+        });
     FrameLayout.LayoutParams recapParams =
-        new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.START);
-    recapParams.setMargins(dp(12), dp(38), dp(76), 0);
-    frame.addView(selectionRecap, recapParams);
+        new FrameLayout.LayoutParams(
+            compactProfile() ? profileWidth() : -1, -2, Gravity.TOP | Gravity.START);
+    recapParams.setMargins(dp(12), dp(compactProfile() ? 12 : 38), dp(76), 0);
+    frame.addView(selectionInfo, recapParams);
+    selectionInfo.addOnLayoutChangeListener(
+        (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+          if (view.getVisibility() == View.VISIBLE) {
+            map.topOverlay = compactProfile() ? 0 : bottom;
+            map.leftOverlay = compactProfile() ? right : 0;
+          }
+        });
 
     updateStatus = feedback.view();
     appUpdates.listen(
@@ -593,6 +635,11 @@ public final class MainActivity extends Activity {
   private List<Point> selectedPoints = Collections.emptyList();
   private RouteSummary selectedSummary = new RouteSummary();
   private TextView selectionRecap;
+  private LinearLayout selectionInfo;
+  private ElevationGraph elevationGraph;
+  private TextView profileDetails;
+  private String profilePathId = "";
+  private int profileProgress;
   private LinearLayout selectionPanel;
   private int libraryGeneration;
   private AlertDialog mapDialog, corridorDialog;
@@ -812,15 +859,71 @@ public final class MainActivity extends Activity {
     if (selectionRecap == null) return;
     boolean visible = !planning && selectedEntry != null;
     selectionRecap.setVisibility(visible ? View.VISIBLE : View.GONE);
-    // Reserve room when fitting a path, including a wrapped line at larger text sizes.
-    map.topOverlay = visible ? dp(50) + selectionRecap.getLineHeight() * 3 : 0;
-    if (!visible) return;
+    selectionInfo.setVisibility(visible ? View.VISIBLE : View.GONE);
+    if (!visible) {
+      map.topOverlay = 0;
+      map.leftOverlay = 0;
+      map.inspectProfilePoint(null, false);
+      return;
+    }
     RouteSummary summary =
         selectedEntry.recording && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
             ? trackSummary
             : selectedSummary;
     setStatusText(selectionRecap, summary.text());
     selectionRecap.setContentDescription(selectedEntry.title + ". " + summary.description());
+    boolean changed = !selectedEntry.id.equals(profilePathId);
+    profilePathId = selectedEntry.id;
+    elevationGraph.bind(
+        selectedEntry.recording && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
+            ? track
+            : selectedPoints);
+    if (changed) {
+      profileProgress = 0;
+      elevationGraph.setProgress(0);
+    }
+    updateProfilePoint(false);
+    // Measure before fitRoute(), including wrapping and larger accessibility text.
+    selectionInfo.measure(
+        View.MeasureSpec.makeMeasureSpec(profileWidth(), View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+    map.topOverlay = compactProfile() ? 0 : dp(38) + selectionInfo.getMeasuredHeight();
+    map.leftOverlay = compactProfile() ? dp(12) + profileWidth() : 0;
+  }
+
+  private boolean compactProfile() {
+    return getResources().getConfiguration().screenHeightDp < 480;
+  }
+
+  private int profileWidth() {
+    int width =
+        root.getWidth() > 0 ? root.getWidth() : getResources().getDisplayMetrics().widthPixels;
+    return compactProfile()
+        ? Math.max(dp(120), Math.min(dp(280), width - dp(176)))
+        : Math.max(dp(120), width - dp(88));
+  }
+
+  private void updateProfilePoint(boolean reveal) {
+    Point point = elevationGraph.selectedPoint();
+    map.inspectProfilePoint(point, reveal);
+    if (point == null) {
+      setStatusText(profileDetails, "No route points");
+      return;
+    }
+    String elevation =
+        Double.isFinite(point.elevation)
+            ? String.format(Locale.getDefault(), "%.0f m", point.elevation)
+            : "Elevation unavailable";
+    String details =
+        String.format(
+            Locale.getDefault(),
+            "%.2f km · %s\n%.5f, %.5f",
+            elevationGraph.selectedDistance() / 1000,
+            elevation,
+            point.lat,
+            point.lon);
+    setStatusText(profileDetails, details);
+    elevationGraph.setContentDescription("Elevation along route. " + details);
   }
 
   private void toggleEditing() {
