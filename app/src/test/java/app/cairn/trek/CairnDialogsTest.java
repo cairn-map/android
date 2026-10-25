@@ -181,6 +181,67 @@ public class CairnDialogsTest {
   }
 
   @Test
+  public void corridorTapsSnapToKilometresAndDragsKeepTenthsInsideTheDrawer() {
+    CorridorSlider slider = new CorridorSlider(activity, CorridorSlider.Scale.KILOMETRES);
+    slider.setMax(99);
+    LinearLayout content = new LinearLayout(activity);
+    content.addView(slider, new LinearLayout.LayoutParams(-1, 100));
+    ScrollView scroll = new ScrollView(activity);
+    scroll.addView(content);
+    View swipe = show(CairnDialogs.drawer(activity).setTitle("Offline corridor").setView(scroll));
+    int[] location = new int[2], origin = new int[2];
+    slider.getLocationOnScreen(location);
+    swipe.getLocationOnScreen(origin);
+    float left = location[0] - origin[0] + slider.getPaddingLeft();
+    float width = slider.getWidth() - slider.getPaddingLeft() - slider.getPaddingRight();
+    float y = location[1] - origin[1] + slider.getHeight() - 4;
+    // A tap near 2.3 km selects the labelled 2 km tick.
+    float x = left + width * 22 / 99;
+    touch(swipe, MotionEvent.ACTION_DOWN, x, y);
+    touch(swipe, MotionEvent.ACTION_UP, x, y);
+    assertEquals(19, slider.getProgress());
+    // A drag keeps 4.3 km, including a gesture below the track.
+    touch(swipe, MotionEvent.ACTION_DOWN, x, y);
+    x = left + width * 42 / 99;
+    touch(swipe, MotionEvent.ACTION_MOVE, x, y + 120);
+    touch(swipe, MotionEvent.ACTION_UP, x, y + 120);
+    assertEquals(42, slider.getProgress());
+    assertTrue(dialog.isShowing());
+    assertEquals(0, swipe.getTranslationY(), 0);
+    for (int progress : new int[] {0, 9, 19, 49, 99}) {
+      x = left + width * progress / 99;
+      touch(swipe, MotionEvent.ACTION_DOWN, x, y);
+      touch(swipe, MotionEvent.ACTION_UP, x, y);
+      assertEquals(progress, slider.getProgress());
+    }
+  }
+
+  @Test
+  public void corridorTapsRespectRightToLeftLayoutAndRestrictedZoomRanges() {
+    CorridorSlider slider = new CorridorSlider(activity, CorridorSlider.Scale.KILOMETRES);
+    slider.setMax(99);
+    slider.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+    activity.setContentView(slider);
+    slider.layout(0, 0, 400, 100);
+    float width = slider.getWidth() - slider.getPaddingLeft() - slider.getPaddingRight();
+    float x = slider.getWidth() - slider.getPaddingRight() - width * 72 / 99;
+    touch(slider, MotionEvent.ACTION_DOWN, x, 90);
+    touch(slider, MotionEvent.ACTION_UP, x, 90);
+    assertEquals(69, slider.getProgress());
+
+    slider = new CorridorSlider(activity, CorridorSlider.Scale.ZOOM);
+    slider.setMax(19);
+    slider.setMin(15);
+    activity.setContentView(slider);
+    slider.layout(0, 0, 400, 100);
+    width = slider.getWidth() - slider.getPaddingLeft() - slider.getPaddingRight();
+    x = slider.getPaddingLeft() + width / 2;
+    touch(slider, MotionEvent.ACTION_DOWN, x, 90);
+    touch(slider, MotionEvent.ACTION_UP, x, 90);
+    assertEquals(17, slider.getProgress());
+  }
+
+  @Test
   public void cancelledOrShortDragRestoresTheDrawer() {
     View swipe = show(CairnDialogs.drawer(activity).setTitle("GPS").setMessage("Settings"));
     touch(swipe, MotionEvent.ACTION_DOWN, 60, 40);

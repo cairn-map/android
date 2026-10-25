@@ -456,9 +456,13 @@ public final class MainActivity extends Activity {
 
     LinearLayout controls = column();
     controls.setGravity(Gravity.END);
+    updateButton = iconButton(MapIcon.UPDATE, "Update Cairn", () -> appUpdates.update());
+    styleUpdateButton(false);
+    controls.addView(updateButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    LinearLayout.LayoutParams featureParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+    featureParams.topMargin = dp(16);
     controls.addView(
-        iconButton(MapIcon.MAPS, "Saved maps and downloads", this::mapMenu),
-        new LinearLayout.LayoutParams(dp(48), dp(48)));
+        iconButton(MapIcon.MAPS, "Saved maps and downloads", this::mapMenu), featureParams);
     previewButton =
         iconButton(
             ignMap.online() ? MapIcon.ONLINE : MapIcon.OFFLINE,
@@ -478,10 +482,6 @@ public final class MainActivity extends Activity {
     iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
     iconParams.topMargin = dp(8);
     controls.addView(libraryButton, iconParams);
-    updateButton = iconButton(MapIcon.UPDATE, "Update Cairn", () -> appUpdates.update());
-    iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
-    iconParams.topMargin = dp(8);
-    controls.addView(updateButton, iconParams);
     intervalChip =
         button(
             getString(R.string.gps_interval, store.intervalMillis() / 1000),
@@ -526,7 +526,7 @@ public final class MainActivity extends Activity {
           if (destroyed) return;
           feedback.update(message, busy);
           updateButton.setEnabled(!busy);
-          setIconActive(updateButton, busy);
+          styleUpdateButton(busy);
           updateButton.setContentDescription(busy ? message : "Update Cairn");
           updateButton.setTooltipText(busy ? message : "Check, download and install Cairn updates");
         });
@@ -791,7 +791,7 @@ public final class MainActivity extends Activity {
       addSelectionAction(
           MapIcon.EDIT, entry.recording ? "Edit recording" : "Edit route", this::toggleEditing);
     } else {
-      addSelectionAction(MapIcon.EDIT, "Create route", this::toggleEditing);
+      addSelectionAction(MapIcon.NEW_ROUTE, "Create route", this::toggleEditing);
     }
   }
 
@@ -1363,6 +1363,19 @@ public final class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 30) view.setStateDescription(active ? "On" : "Off");
   }
 
+  private void styleUpdateButton(boolean busy) {
+    updateButton.setSelected(busy);
+    ((MapIcon) updateButton.getDrawable())
+        .colors(
+            busy ? AppPalette.UPDATE : AppPalette.ON_UPDATE,
+            busy ? AppPalette.ON_UPDATE : AppPalette.UPDATE);
+    updateButton.setBackground(
+        buttonBackground(
+            busy ? AppPalette.ON_UPDATE : AppPalette.UPDATE, AppPalette.UPDATE_BORDER, 24));
+    if (Build.VERSION.SDK_INT >= 30)
+      updateButton.setStateDescription(busy ? "Updating" : "Ready to check for updates");
+  }
+
   private void routeCorridorMenu(Store.LibraryEntry entry) {
     if (libraryDialog != null) libraryDialog.dismiss();
     if (corridorDialog != null) corridorDialog.dismiss();
@@ -1577,7 +1590,7 @@ public final class MainActivity extends Activity {
             progress ->
                 String.format(Locale.getDefault(), "%1$.1f km on each side", (progress + 1) / 10.0),
             selection);
-    content.addView(label("0.1–10 km on each side · 0.1 km steps", 12, MUTED, false));
+    content.addView(label("Tap a kilometre mark · Drag for 0.1 km steps", 12, MUTED, false));
     content.addView(spacer(20));
     content.addView(estimate);
     ScrollView scroll = new ScrollView(this);

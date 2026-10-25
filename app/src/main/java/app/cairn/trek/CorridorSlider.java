@@ -2,6 +2,7 @@ package app.cairn.trek;
 
 import android.content.Context;
 import android.graphics.*;
+import android.view.*;
 import android.widget.SeekBar;
 import java.util.Locale;
 
@@ -14,13 +15,82 @@ final class CorridorSlider extends SeekBar {
 
   private final Scale scale;
   private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
+  private final int slop;
+  private float downX, downY;
+  private boolean moved;
+  private OnSeekBarChangeListener listener;
 
   CorridorSlider(Context context, Scale scale) {
     super(context);
     this.scale = scale;
+    slop = ViewConfiguration.get(context).getScaledTouchSlop();
     setPadding(dp(20), 0, dp(20), dp(28));
     setSplitTrack(false);
     setTickMark(null);
+  }
+
+  @Override
+  public void setOnSeekBarChangeListener(OnSeekBarChangeListener listener) {
+    this.listener = listener;
+    super.setOnSeekBarChangeListener(listener);
+  }
+
+  private int position(float x) {
+    float width = getWidth() - getPaddingLeft() - getPaddingRight();
+    if (width <= 0) return getMin();
+    float fraction = (x - getPaddingLeft()) / width;
+    if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) fraction = 1 - fraction;
+    return Math.max(
+        getMin(), Math.min(getMax(), getMin() + Math.round(fraction * (getMax() - getMin()))));
+  }
+
+  private int nearestTick(int progress) {
+    if (scale == Scale.ZOOM) return progress;
+    int nearest = getMin();
+    for (int km = 1; km <= 10; km++) {
+      int tick = km * 10 - 1;
+      if (tick >= getMin()
+          && tick <= getMax()
+          && Math.abs(tick - progress) < Math.abs(nearest - progress)) nearest = tick;
+    }
+    return nearest;
+  }
+
+  @Override
+  public boolean onTouchEvent(MotionEvent event) {
+    if (!isEnabled()) return false;
+    switch (event.getActionMasked()) {
+      case MotionEvent.ACTION_DOWN:
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+        moved = false;
+        downX = event.getX();
+        downY = event.getY();
+        setPressed(true);
+        if (listener != null) listener.onStartTrackingTouch(this);
+        return true;
+      case MotionEvent.ACTION_MOVE:
+        moved |= Math.hypot(event.getX() - downX, event.getY() - downY) > slop;
+        if (moved) setProgress(position(event.getX()));
+        return true;
+      case MotionEvent.ACTION_UP:
+        moved |= Math.hypot(event.getX() - downX, event.getY() - downY) > slop;
+        int progress = position(event.getX());
+        setProgress(moved ? progress : nearestTick(progress));
+        if (!moved) performClick();
+      // Fall through: preserve the last value when Android cancels a drag.
+      case MotionEvent.ACTION_CANCEL:
+        setPressed(false);
+        if (listener != null) listener.onStopTrackingTouch(this);
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  @Override
+  public boolean performClick() {
+    return super.performClick();
   }
 
   @Override

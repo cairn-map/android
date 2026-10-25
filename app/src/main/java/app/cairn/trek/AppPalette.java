@@ -16,6 +16,9 @@ final class AppPalette {
   static final int SELECTION = 0xff163D36;
   static final int SELECTION_BORDER = 0xff3E7567;
   static final int ON_SELECTION = 0xffA5E7D5;
+  static final int UPDATE = 0xff46351D;
+  static final int UPDATE_BORDER = 0xff94713E;
+  static final int ON_UPDATE = 0xffFFCF87;
 
   private AppPalette() {}
 }
