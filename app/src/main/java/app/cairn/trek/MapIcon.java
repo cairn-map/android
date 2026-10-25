@@ -21,7 +21,8 @@ final class MapIcon extends Drawable {
       EDIT = 13,
       TUNE = 14,
       UNDO = 15,
-      CORRIDOR_READY = 16;
+      CORRIDOR_READY = 16,
+      NEW_ROUTE = 17;
   private final int kind;
   private int foreground = AppPalette.ACCENT, background = AppPalette.SURFACE;
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -80,6 +81,18 @@ final class MapIcon extends Drawable {
           },
           paint);
       canvas.drawCircle(12, 12, 3, paint);
+    } else if (kind == NEW_ROUTE) {
+      canvas.drawCircle(5, 19, 2.5f, paint);
+      Path route = new Path();
+      route.moveTo(7.5f, 19);
+      route.lineTo(15, 19);
+      route.cubicTo(20, 19, 20, 12, 15, 12);
+      route.lineTo(8, 12);
+      route.cubicTo(3, 12, 3, 5, 8, 5);
+      route.lineTo(10, 5);
+      canvas.drawPath(route, paint);
+      canvas.drawLine(17, 2, 17, 10, paint);
+      canvas.drawLine(13, 6, 21, 6, paint);
     } else if (kind == EDIT) {
       Path pencil = new Path();
       pencil.moveTo(4, 16);
