@@ -1,0 +1,73 @@
+package app.cairn.trek;
+
+import static org.junit.Assert.*;
+
+import java.util.List;
+import org.junit.Test;
+
+public class RouteSummaryTest {
+  private Point point(double lat, double elevation, int segment) {
+    return new Point(lat, 6, elevation, 0, 0, segment);
+  }
+
+  @Test
+  public void totalsDistanceAscentAndDescentWithoutJoiningSegments() {
+    List<Point> points =
+        List.of(
+            point(45, 100, 0),
+            point(45.01, 140, 0),
+            point(45.02, 120, 0),
+            point(46, 900, 1),
+            point(46.01, 890, 1));
+    RouteSummary summary = RouteSummary.from(points);
+    assertEquals(Geo.length(points), summary.distance, .001);
+    assertEquals(40, summary.ascent, 0);
+    assertEquals(30, summary.descent, 0);
+    assertTrue(summary.hasElevation);
+    assertFalse(summary.partialElevation);
+    assertTrue(summary.description().contains("Ascent 40"));
+  }
+
+  @Test
+  public void missingElevationsAreNotZeroAndDoNotBridgeGaps() {
+    RouteSummary summary =
+        RouteSummary.from(
+            List.of(
+                point(45, -20, 0),
+                point(45.01, 0, 0),
+                point(45.02, Double.NaN, 0),
+                point(45.03, 500, 0),
+                point(45.04, 510, 0)));
+    assertEquals(30, summary.ascent, 0);
+    assertEquals(0, summary.descent, 0);
+    assertTrue(summary.partialElevation);
+    assertTrue(summary.text().contains("partial"));
+  }
+
+  @Test
+  public void unknownIsDifferentFromFlatAndIsolatedElevations() {
+    assertFalse(RouteSummary.from(List.of()).hasElevation);
+    assertFalse(RouteSummary.from(List.of(point(45, 100, 0))).hasElevation);
+    RouteSummary missing = RouteSummary.from(List.of(new Point(45, 6), new Point(45.01, 6)));
+    assertTrue(missing.distance > 0);
+    assertTrue(missing.text().contains("Elevation unavailable"));
+    RouteSummary isolated = RouteSummary.from(List.of(point(45, 100, 0), point(46, 300, 1)));
+    assertFalse(isolated.hasElevation);
+    assertEquals(0, isolated.distance, 0);
+    RouteSummary flat = RouteSummary.from(List.of(point(45, 0, 0), point(45.01, 0, 0)));
+    assertTrue(flat.hasElevation);
+    assertEquals(0, flat.ascent, 0);
+    assertEquals(0, flat.descent, 0);
+  }
+
+  @Test
+  public void liveTotalsMatchALoadedRecording() {
+    List<Point> points = List.of(point(45, 50, 0), point(45.01, 70, 0), point(45.02, 60, 0));
+    RouteSummary live = new RouteSummary();
+    for (Point point : points) live.add(point);
+    RouteSummary loaded = RouteSummary.from(points);
+    assertEquals(loaded.distance, live.distance, 0);
+    assertEquals(loaded.ascent, live.ascent, 0);
+    assertEquals(loaded.descent, live.descent, 0);
+  }
+}

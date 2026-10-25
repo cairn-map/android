@@ -29,6 +29,8 @@ public class UnifiedLibraryTest {
   @Before
   public void setup() {
     TrackingService.running = false;
+    DownloadService.running = false;
+    RuntimeEnvironment.getApplication().deleteDatabase("plan-ign.mbtiles");
     RuntimeEnvironment.getApplication().deleteDatabase("treks.db");
     RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit();
     try (Store store = new Store(RuntimeEnvironment.getApplication())) {
@@ -80,7 +82,7 @@ public class UnifiedLibraryTest {
       double y = map.getHeight() / 2.0 + (Geo.y(point.lat, 0) - Geo.y(camera[0], 0)) * world;
       assertTrue(x >= 32 * density - .01);
       assertTrue(x <= map.getWidth() - 96 * density + .01);
-      assertTrue(y >= 32 * density - .01);
+      assertTrue(y >= Math.max(32 * density, map.topOverlay + 16 * density) - .01);
       assertTrue(y <= map.getHeight() - map.bottomOverlay - 32 * density + .01);
     }
   }
@@ -221,11 +223,53 @@ public class UnifiedLibraryTest {
   }
 
   @Test
+  public void selectionRecapUsesSelectedGeometryAndHidesWithSelection() throws Exception {
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      store.updateRoute(
+          routeId,
+          List.of(
+              new Point(45, 6, 100, 0, 0, 0),
+              new Point(45.01, 6, 150, 0, 0, 0),
+              new Point(45.02, 6, 130, 0, 0, 0)),
+          List.of());
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      TextView recap = (TextView) field(activity, "selectionRecap");
+      assertEquals(View.VISIBLE, recap.getVisibility());
+      assertTrue(recap.getText().toString().contains("↑ 50 m"));
+      assertTrue(recap.getText().toString().contains("↓ 20 m"));
+      assertTrue(recap.getContentDescription().toString().contains("Saved route"));
+      controller.pause().resume();
+      drain(activity);
+      assertTrue(
+          ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 50 m"));
+      find(library(activity), trekTitle).performClick();
+      drain(activity);
+      recap = (TextView) field(activity, "selectionRecap");
+      assertTrue(recap.getText().toString().contains("Elevation unavailable"));
+      find(activity.getWindow().getDecorView(), "Hide").performClick();
+      drain(activity);
+      assertEquals(View.GONE, ((View) field(activity, "selectionRecap")).getVisibility());
+    }
+  }
+
+  @Test
   public void rightSwipeDeletesSelectedRouteAndLeavesRecordingIntact() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       drain(activity);
+      PlanIgnStore maps = (PlanIgnStore) field(activity, "mapStore");
+      String corridor =
+          maps.create(
+              "Saved route · corridor",
+              TilePlanner.area(
+                  6, 45, 6.001, 45.001, 10)); // Legacy linkage is resolved before deletion.
+      TilePlanner.Tile tile = maps.next(corridor);
+      maps.completeTile(corridor, tile, new IgnClient.Result(IgnClientTest.png(), null, null));
       View item = find(library(activity), "Saved route · selected");
       SwipeToRemoveView swipe = (SwipeToRemoveView) item.getParent().getParent();
       swipe.measure(
@@ -244,6 +288,8 @@ public class UnifiedLibraryTest {
       drain(activity);
       Store store = (Store) field(activity, "store");
       assertTrue(store.routes().isEmpty());
+      assertTrue(maps.packs().isEmpty());
+      assertNull(maps.cached(tile));
       assertTrue(store.read(routeId).isEmpty());
       assertEquals("", store.selectedLibraryId());
       assertEquals(recording.size(), store.read(trekId).size());

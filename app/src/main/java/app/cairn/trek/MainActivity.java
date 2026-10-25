@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
   private final Handler main = new Handler(Looper.getMainLooper());
   private List<Point> route = new ArrayList<>(), track = new ArrayList<>();
   private double trackLength;
+  private RouteSummary trackSummary = new RouteSummary();
   private final List<Point> waypoints = new ArrayList<>();
   private List<Point> exportPoints;
   private boolean planning = false,
@@ -134,11 +135,9 @@ public final class MainActivity extends Activity {
                     i.getFloatExtra("accuracy", 0),
                     0);
             if (track.isEmpty() || track.get(track.size() - 1).time < p.time) {
-              if (!track.isEmpty()) {
-                Point previous = track.get(track.size() - 1);
-                if (previous.segment == p.segment) trackLength += Geo.distance(previous, p);
-              }
               track.add(p);
+              trackSummary.add(p);
+              trackLength = trackSummary.distance;
             }
             map.track = track;
             map.liveTrackId = store.prefs.getString("currentTrek", "");
@@ -385,7 +384,8 @@ public final class MainActivity extends Activity {
                   for (Point point : track) if (point.time > last) loadedTrack.add(point);
                 if (revision == routeRevision) route = loadedRoute;
                 track = loadedTrack;
-                trackLength = Geo.length(track);
+                trackSummary = RouteSummary.from(track);
+                trackLength = trackSummary.distance;
                 map.route = route;
                 map.track = track;
                 if (!track.isEmpty()
@@ -520,6 +520,14 @@ public final class MainActivity extends Activity {
     controlsParams.setMargins(0, dp(12), dp(12), dp(144));
     frame.addView(controlRail, controlsParams);
 
+    selectionRecap = label("", 12, ON_SELECTION, true);
+    selectionRecap.setPadding(dp(10), dp(6), dp(10), dp(6));
+    selectionRecap.setBackground(surface(SELECTION, SELECTION_BORDER, 16));
+    FrameLayout.LayoutParams recapParams =
+        new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.START);
+    recapParams.setMargins(dp(12), dp(38), dp(76), 0);
+    frame.addView(selectionRecap, recapParams);
+
     updateStatus = feedback.view();
     appUpdates.listen(
         (message, busy) -> {
@@ -583,6 +591,8 @@ public final class MainActivity extends Activity {
   private Map<String, List<PlanIgnStore.Pack>> routeCorridors = new HashMap<>();
   private Store.LibraryEntry selectedEntry;
   private List<Point> selectedPoints = Collections.emptyList();
+  private RouteSummary selectedSummary = new RouteSummary();
+  private TextView selectionRecap;
   private LinearLayout selectionPanel;
   private int libraryGeneration;
   private AlertDialog mapDialog, corridorDialog;
@@ -624,6 +634,7 @@ public final class MainActivity extends Activity {
           }
           Store.LibraryEntry loadedSelection = selection;
           List<Point> loadedPoints = selectionPoints;
+          RouteSummary loadedSummary = RouteSummary.from(loadedPoints);
           boolean showActive = activeVisible;
           main.post(
               () -> {
@@ -632,6 +643,7 @@ public final class MainActivity extends Activity {
                 routeCorridors = corridors;
                 selectedEntry = loadedSelection;
                 selectedPoints = loadedPoints;
+                selectedSummary = loadedSummary;
                 if (planning
                     && plannedRoute.isEmpty()
                     && editingEntry != null
@@ -747,6 +759,7 @@ public final class MainActivity extends Activity {
   }
 
   private void updateSelectionActions() {
+    updateSelectionRecap();
     if (selectionPanel == null) return;
     selectionPanel.removeAllViews();
     selectionPanel.setVisibility(View.VISIBLE);
@@ -793,6 +806,21 @@ public final class MainActivity extends Activity {
     } else {
       addSelectionAction(MapIcon.NEW_ROUTE, "Create route", this::toggleEditing);
     }
+  }
+
+  private void updateSelectionRecap() {
+    if (selectionRecap == null) return;
+    boolean visible = !planning && selectedEntry != null;
+    selectionRecap.setVisibility(visible ? View.VISIBLE : View.GONE);
+    // Reserve room when fitting a path, including a wrapped line at larger text sizes.
+    map.topOverlay = visible ? dp(50) + selectionRecap.getLineHeight() * 3 : 0;
+    if (!visible) return;
+    RouteSummary summary =
+        selectedEntry.recording && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
+            ? trackSummary
+            : selectedSummary;
+    setStatusText(selectionRecap, summary.text());
+    selectionRecap.setContentDescription(selectedEntry.title + ". " + summary.description());
   }
 
   private void toggleEditing() {
@@ -1043,6 +1071,7 @@ public final class MainActivity extends Activity {
               if (entry.recording) store.updateTrek(id, geometry);
               else store.updateRoute(id, geometry, nodes, parameters);
             }
+            RouteSummary summary = RouteSummary.from(geometry);
             root.post(
                 () -> {
                   if (destroyed) return;
@@ -1051,14 +1080,16 @@ public final class MainActivity extends Activity {
                       && id.equals(store.prefs.getString("currentTrek", ""))) {
                     dataGeneration++;
                     track = new ArrayList<>(geometry);
-                    trackLength = Geo.length(track);
+                    trackSummary = RouteSummary.from(track);
+                    trackLength = trackSummary.distance;
                     map.track = track;
                     map.position = track.get(track.size() - 1);
                   }
                   leaveEditing();
                   showLibrarySelection(
                       new Store.LibraryEntry(id, name, entry != null && entry.recording, true),
-                      geometry);
+                      geometry,
+                      summary);
                 });
           } catch (RuntimeException error) {
             root.post(
@@ -1085,10 +1116,11 @@ public final class MainActivity extends Activity {
         () -> {
           try {
             List<Point> points = store.select(entry);
+            RouteSummary summary = RouteSummary.from(points);
             main.post(
                 () -> {
                   if (destroyed || !resumed || generation != libraryGeneration) return;
-                  showLibrarySelection(entry, points);
+                  showLibrarySelection(entry, points, summary);
                 });
           } catch (RuntimeException error) {
             main.post(() -> message("Could not select: " + error.getMessage()));
@@ -1096,9 +1128,11 @@ public final class MainActivity extends Activity {
         });
   }
 
-  private void showLibrarySelection(Store.LibraryEntry entry, List<Point> points) {
+  private void showLibrarySelection(
+      Store.LibraryEntry entry, List<Point> points, RouteSummary summary) {
     selectedEntry = new Store.LibraryEntry(entry.id, entry.title, entry.recording, true);
     selectedPoints = points;
+    selectedSummary = summary;
     if (!entry.recording) {
       routeRevision++;
       route = points;
@@ -1136,18 +1170,23 @@ public final class MainActivity extends Activity {
     io.execute(
         () -> {
           try {
+            if (recordingActive(entry))
+              throw new IllegalStateException("Finish recording before deleting this hike.");
+            mapStore.linkLegacyCorridors(store.library());
+            mapStore.removeRouteCorridors(entry.id);
             if (entry.recording) store.deleteTrek(entry.id);
             else store.deleteRoute(entry.id);
-            mapStore.detachRoute(entry.id);
             main.post(
                 () -> {
                   if (destroyed) return;
                   if (entry.recording && entry.id.equals(map.liveTrackId)) {
                     track = new ArrayList<>();
                     trackLength = 0;
+                    trackSummary = new RouteSummary();
                     map.track = track;
                   }
                   loadPoints();
+                  map.refreshTiles(true);
                   reloadLibrary();
                   updateService();
                 });
@@ -1729,6 +1768,7 @@ public final class MainActivity extends Activity {
 
   private void refreshStatus() {
     if (destroyed || !resumed) return;
+    updateSelectionRecap();
     map.setPhoneDirectionEnabled(
         "Map".equals(currentPage) && store.prefs.getBoolean("phoneDirection", false));
     if (followingRecording != TrackingService.running) {
@@ -1879,6 +1919,7 @@ public final class MainActivity extends Activity {
     dataGeneration++;
     track = new ArrayList<>();
     trackLength = 0;
+    trackSummary = new RouteSummary();
     map.track = track;
     map.position = null;
     if (DownloadService.running) stopService(new Intent(this, DownloadService.class));
@@ -2181,10 +2222,11 @@ public final class MainActivity extends Activity {
   private void importRoute(List<Point> loaded, String title) {
     String name = title.isEmpty() ? "Imported route" : title;
     String id = store.saveRoute(loaded, name);
+    RouteSummary summary = RouteSummary.from(loaded);
     main.post(
         () -> {
           if (destroyed) return;
-          showLibrarySelection(new Store.LibraryEntry(id, name, false, true), loaded);
+          showLibrarySelection(new Store.LibraryEntry(id, name, false, true), loaded, summary);
         });
   }
 

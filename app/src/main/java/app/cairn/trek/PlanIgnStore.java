@@ -465,4 +465,23 @@ public final class PlanIgnStore extends SQLiteOpenHelper {
     value.put("route_id", "");
     getWritableDatabase().update("packs", value, "route_id=?", new String[] {routeId});
   }
+
+  /** Remove the route's downloads, keeping tiles still owned by other saved areas. */
+  public void removeRouteCorridors(String routeId) {
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      List<String> ids = new ArrayList<>();
+      try (Cursor cursor =
+          db.rawQuery("SELECT id FROM packs WHERE route_id=?", new String[] {routeId})) {
+        while (cursor.moveToNext()) ids.add(cursor.getString(0));
+      }
+      if (DownloadService.running && ids.contains(DownloadService.activePack))
+        throw new IllegalStateException("Pause this corridor download before deleting its route.");
+      for (String id : ids) remove(id);
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+  }
 }
