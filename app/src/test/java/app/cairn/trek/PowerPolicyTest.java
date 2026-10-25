@@ -216,6 +216,10 @@ public class PowerPolicyTest {
       Field length = MainActivity.class.getDeclaredField("trackLength");
       length.setAccessible(true);
       length.setDouble(activity, expected);
+      // Seed both derived caches when injecting a historical track without loadPoints().
+      Field summary = MainActivity.class.getDeclaredField("trackSummary");
+      summary.setAccessible(true);
+      summary.set(activity, RouteSummary.from(track));
       track.reads = 0;
       Point next = new Point(45.01, 6, 0, 10000, 5, 0);
       android.content.BroadcastReceiver receiver = (android.content.BroadcastReceiver) field(activity, "fixes");
@@ -227,6 +231,7 @@ public class PowerPolicyTest {
       receiver.onReceive(activity, fix); // A duplicate UI event must not add distance again.
       assertEquals(10001, track.size());
       assertEquals(Geo.length(track), length.getDouble(activity), 1e-6);
+      assertEquals(length.getDouble(activity), ((RouteSummary) summary.get(activity)).distance, 1e-6);
     }
   }
 
