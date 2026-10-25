@@ -6,7 +6,7 @@ import android.view.*;
 import android.widget.SeekBar;
 import java.util.Locale;
 
-/** Corridor scales with the same labelled tick marks as the GPS interval slider. */
+/** Labelled corridor scales: taps choose ticks; drags retain the full precision. */
 final class CorridorSlider extends SeekBar {
   enum Scale {
     ZOOM,

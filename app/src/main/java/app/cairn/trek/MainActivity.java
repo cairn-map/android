@@ -1365,6 +1365,7 @@ public final class MainActivity extends Activity {
 
   private void styleUpdateButton(boolean busy) {
     updateButton.setSelected(busy);
+    updateButton.setImageTintList(null);
     ((MapIcon) updateButton.getDrawable())
         .colors(
             busy ? AppPalette.UPDATE : AppPalette.ON_UPDATE,
