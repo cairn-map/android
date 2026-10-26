@@ -546,7 +546,7 @@ public final class MainActivity extends Activity {
     selectionInfo.addView(
         elevationGraph,
         new LinearLayout.LayoutParams(
-            -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 64 : 100)));
+            -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 48 : 100)));
     elevationGraph.setProgress(profileProgress);
     elevationGraph.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
@@ -564,7 +564,7 @@ public final class MainActivity extends Activity {
         });
     FrameLayout.LayoutParams recapParams =
         new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.START);
-    recapParams.topMargin = dp(compactProfile() ? 12 : 38);
+    recapParams.setMargins(dp(12), dp(12), dp(12), 0);
     frame.addView(selectionInfo, recapParams);
     selectionInfo.addOnLayoutChangeListener(
         (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -637,6 +637,8 @@ public final class MainActivity extends Activity {
   private Store.LibraryEntry selectedEntry;
   private List<Point> selectedPoints = Collections.emptyList();
   private RouteSummary selectedSummary = new RouteSummary();
+  private List<Point> editSummarySource;
+  private RouteSummary editSummary;
   private TextView selectionRecap;
   private LinearLayout selectionInfo;
   private ScrollView controlRail;
@@ -861,7 +863,7 @@ public final class MainActivity extends Activity {
 
   private void updateSelectionRecap() {
     if (selectionRecap == null) return;
-    boolean visible = !planning && selectedEntry != null;
+    boolean visible = planning || selectedEntry != null;
     selectionRecap.setVisibility(visible ? View.VISIBLE : View.GONE);
     selectionInfo.setVisibility(visible ? View.VISIBLE : View.GONE);
     if (!visible) {
@@ -869,18 +871,27 @@ public final class MainActivity extends Activity {
       map.inspectProfilePoint(null, false);
       return;
     }
-    RouteSummary summary =
-        selectedEntry.recording && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
-            ? trackSummary
-            : selectedSummary;
+    boolean live =
+        !planning
+            && selectedEntry.recording
+            && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""));
+    List<Point> points = planning ? plannedRoute : live ? track : selectedPoints;
+    RouteSummary summary;
+    if (planning) {
+      if (editSummarySource != points) {
+        editSummarySource = points;
+        editSummary = RouteSummary.from(points);
+      }
+      summary = editSummary;
+    } else summary = live ? trackSummary : selectedSummary;
     setStatusText(selectionRecap, summary.text());
-    selectionRecap.setContentDescription(selectedEntry.title + ". " + summary.description());
-    boolean changed = !selectedEntry.id.equals(profilePathId);
-    profilePathId = selectedEntry.id;
-    elevationGraph.bind(
-        selectedEntry.recording && selectedEntry.id.equals(store.prefs.getString("currentTrek", ""))
-            ? track
-            : selectedPoints);
+    String title =
+        planning ? editingEntry == null ? "New route" : editingEntry.title : selectedEntry.title;
+    selectionRecap.setContentDescription(title + ". " + summary.description());
+    String pathId = planning ? newRouteId : selectedEntry.id;
+    boolean changed = !pathId.equals(profilePathId);
+    profilePathId = pathId;
+    elevationGraph.bind(points);
     if (changed) {
       profileProgress = 0;
       elevationGraph.setProgress(0);
@@ -890,7 +901,7 @@ public final class MainActivity extends Activity {
     selectionInfo.measure(
         View.MeasureSpec.makeMeasureSpec(profileWidth(), View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-    updateProfileOverlay(dp(compactProfile() ? 12 : 38) + selectionInfo.getMeasuredHeight());
+    updateProfileOverlay(dp(12) + selectionInfo.getMeasuredHeight());
   }
 
   private void updateProfileOverlay(int bottom) {
@@ -904,14 +915,10 @@ public final class MainActivity extends Activity {
     }
   }
 
-  private boolean compactProfile() {
-    return getResources().getConfiguration().screenHeightDp < 480;
-  }
-
   private int profileWidth() {
     int width =
         root.getWidth() > 0 ? root.getWidth() : getResources().getDisplayMetrics().widthPixels;
-    return Math.max(1, width - root.getPaddingLeft() - root.getPaddingRight());
+    return Math.max(1, width - root.getPaddingLeft() - root.getPaddingRight() - dp(24));
   }
 
   private void updateProfilePoint(boolean reveal) {
@@ -919,6 +926,7 @@ public final class MainActivity extends Activity {
     map.inspectProfilePoint(point, reveal);
     if (point == null) {
       setStatusText(profileDetails, "No route points");
+      elevationGraph.setContentDescription("Elevation along route. No route points.");
       return;
     }
     String elevation =
@@ -1158,6 +1166,8 @@ public final class MainActivity extends Activity {
     nodeUndo.clear();
     waypoints.clear();
     plannedRoute = Collections.emptyList();
+    editSummarySource = null;
+    editSummary = null;
     refreshPlanning();
     showPage("Map");
   }

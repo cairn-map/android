@@ -711,7 +711,14 @@ public class MapControlsTest {
       root.layout(0, 0, 640, 320);
       View update = (View) field(activity, "updateButton");
       ScrollView rail = (ScrollView) update.getParent().getParent();
-      assertTrue("The rail must retain a usable touch viewport", rail.getHeight() >= 48);
+      assertTrue(
+          "The rail must retain a usable touch viewport: rail="
+              + rail.getHeight()
+              + ", frame="
+              + ((View) rail.getParent()).getHeight()
+              + ", profile="
+              + ((View) field(activity, "selectionInfo")).getBottom(),
+          rail.getHeight() >= 48);
       assertTrue(
           "The rail must scroll on a short screen",
           rail.getChildAt(0).getHeight() > rail.getHeight());
