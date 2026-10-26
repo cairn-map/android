@@ -87,7 +87,9 @@ public class ElevationGraphTest {
       assertEquals(45.01, selected.lat, .00001);
       TextView details = (TextView) field(activity, "profileDetails");
       assertTrue(details.getText().toString().contains("200 m"));
-      assertTrue(details.getText().toString().contains("45.01000"));
+      assertTrue(details.getText().toString().contains("km"));
+      assertFalse(details.getText().toString().contains("45.01000"));
+      assertFalse(graph.getContentDescription().toString().contains("45.01000"));
       touch(graph, MotionEvent.ACTION_UP, right + 50);
       assertEquals(45.02, ((Point) field(map, "profilePoint")).lat, .000001);
       assertSame(gps, map.position);
@@ -105,6 +107,12 @@ public class ElevationGraphTest {
       map.onPathSelected.accept(null);
       assertNull(field(map, "profilePoint"));
       assertEquals(View.GONE, ((View) field(activity, "selectionInfo")).getVisibility());
+      assertEquals(0, map.topOverlay);
+      assertEquals(
+          Math.round(12 * map.getResources().getDisplayMetrics().density),
+          ((android.widget.FrameLayout.LayoutParams)
+                  ((View) field(activity, "controlRail")).getLayoutParams())
+              .topMargin);
     }
   }
 
@@ -191,6 +199,22 @@ public class ElevationGraphTest {
       Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
       root.draw(new Canvas(bitmap));
       assertTrue(graph.getHeight() > 0);
+      View panel = (View) field(activity, "selectionInfo");
+      View parent = (View) panel.getParent();
+      assertEquals(0, panel.getLeft());
+      assertEquals(parent.getWidth(), panel.getRight());
+      assertEquals(panel.getWidth(), graph.getWidth());
+      TextView details = (TextView) field(activity, "profileDetails");
+      TextView recap = (TextView) field(activity, "selectionRecap");
+      assertSame(recap.getParent(), details.getParent());
+      assertTrue(details.getLeft() >= recap.getRight());
+      assertEquals(recap.getTop(), details.getTop());
+      assertTrue(((View) details.getParent()).getBottom() <= graph.getTop());
+      View rail = (View) field(activity, "controlRail");
+      assertTrue(rail.getTop() >= panel.getBottom());
+      assertTrue(rail.getHeight() > 0);
+      assertEquals(panel.getBottom(), map.topOverlay);
+      assertEquals(0, map.leftOverlay);
       assertTrue(map.topOverlay < map.getHeight() - map.bottomOverlay);
       Point selected = (Point) field(map, "profilePoint");
       double[] camera = map.camera();
