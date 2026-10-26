@@ -14,7 +14,7 @@ The editor checks the required regions automatically when nodes change. Installe
 
 Cancel pauses preparation and retains the planning points. Failed or paused transfers return to Route, where another confirmation resumes the partial files. Completion is tied to the originating request, so unrelated map or region downloads cannot start a route. Planning points stay fixed during preparation. Activity recreation retains the pending request; background completion waits until Cairn resumes. Starting a hike or canceling planning clears the pending calculation. Missing-data preparation remains blocked during recording; installed-data calculations remain available.
 
-There is no routing-region inventory or manual region download screen. **Saved maps → Clear all routing data** confirms removal of all installed RD5 graphs and paused transfer files. Clearing is blocked during recording, editing, calculation or active routing downloads, including a second check when confirming. Routes, recordings, map packs and the bundled engine/profile remain available. Missing routing data is requested automatically during route editing. Add files also accepts correctly named RD5 files. To refresh geographic graphs, clear them and let editing download the required data again.
+There is no routing-region inventory or manual region download screen. **Routes → Clear all routing data** confirms removal of all installed RD5 graphs and paused transfer files. Clearing is blocked during recording, editing, calculation or active routing downloads, including a second check when confirming. Routes, recordings, map packs and the bundled engine/profile remain available. Missing routing data is requested automatically during route editing. Add files also accepts correctly named RD5 files. To refresh geographic graphs, clear them and let editing download the required data again.
 
 The source is `https://brouter.de/brouter/segments4/`. Preparation is a cancellable dataSync foreground service with a Pause notification. HTTP ranges use ETag/Last-Modified validators, with atomic resume metadata. A changed server file restarts rather than appending to an old revision. Fully received partials surviving process death can be finalized after matching an HTTP 416 validator response.
 
@@ -32,7 +32,7 @@ BRouter may discover an additional region while searching a detour. Its error id
 
 ## Routing preferences
 
-**Saved maps → Default routing preferences** controls the defaults for future routing.
+**Routes → Default routing preferences** controls the defaults for future routing.
 A new or imported route copies them when routing is first used, or when its routing
 preferences are opened. Each routed route saves its own parameters with its geometry
 and planning nodes. Reopening, editing, or recreating the editor retains those parameters;

@@ -50,7 +50,7 @@ public class RoutingDataClearTest {
           Robolectric.buildActivity(MainActivity.class).setup()) {
         MainActivity activity = controller.get();
         drain(activity);
-        java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
+        java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("showLibrary");
         menu.setAccessible(true);
         menu.invoke(activity);
         AlertDialog savedMaps = ShadowAlertDialog.getLatestAlertDialog();
