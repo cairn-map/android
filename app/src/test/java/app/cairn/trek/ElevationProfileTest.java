@@ -10,40 +10,6 @@ public class ElevationProfileTest {
   }
 
   @Test
-  public void gradesFollowTheLocalEdgeIncludingEndpointsAndDownhill() {
-    ElevationProfile profile = new ElevationProfile();
-    Point a = point(45, 100, 0), b = point(45.01, 200, 0), c = point(45.02, 150, 0);
-    profile.add(a);
-    profile.add(b);
-    profile.add(c);
-    assertEquals(10000 / Geo.distance(a, b), profile.gradeAt(0), .000001);
-    assertEquals(profile.gradeAt(0), profile.gradeAt(.25), .000001);
-    assertEquals(-5000 / Geo.distance(b, c), profile.gradeAt(.75), .000001);
-    assertEquals(profile.gradeAt(.75), profile.gradeAt(1), .000001);
-    assertTrue(Double.isNaN(profile.gradeAt(Double.NaN)));
-  }
-
-  @Test
-  public void gradesDoNotInventMissingHeightsStationarySlopesOrSegmentConnections() {
-    ElevationProfile profile = new ElevationProfile();
-    assertTrue(Double.isNaN(profile.gradeAt(0)));
-    profile.add(point(45, 100, 0));
-    profile.add(point(45, 200, 0));
-    assertTrue(Double.isNaN(profile.gradeAt(.5)));
-    profile.add(point(46, 300, 1));
-    profile.add(point(46.01, Double.NaN, 1));
-    assertTrue(Double.isNaN(profile.gradeAt(0)));
-    assertTrue(Double.isNaN(profile.gradeAt(.5)));
-    assertTrue(Double.isNaN(profile.gradeAt(1)));
-    profile.add(point(47, 500, 2));
-    assertTrue(Double.isNaN(profile.gradeAt(1)));
-    ElevationProfile flat = new ElevationProfile();
-    flat.add(point(45, 100, 0));
-    flat.add(point(45.01, 100, 0));
-    assertEquals(0, flat.gradeAt(.5), 0);
-  }
-
-  @Test
   public void interpolatesByDistanceAndKeepsExactEndpoints() {
     ElevationProfile profile = new ElevationProfile();
     Point start = point(45, 100, 0), end = point(45.04, 300, 0);

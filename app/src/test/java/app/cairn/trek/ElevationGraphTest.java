@@ -156,7 +156,7 @@ public class ElevationGraphTest {
           ((TextView) field(activity, "profileDetails"))
               .getText()
               .toString()
-              .contains("— m · —%"));
+              .contains("— m · 75%"));
       controller.recreate();
       activity = controller.get();
       drain(activity);
@@ -300,6 +300,21 @@ public class ElevationGraphTest {
   }
 
   @Test
+  public void completionUsesDistanceForCursorAndGpsEvenWithoutElevation() {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    // Uneven spacing: the middle stored point is only one quarter of the route distance.
+    graph.bind(List.of(new Point(45, 6), new Point(45.01, 6), new Point(45.04, 6)));
+    graph.setCursorActive(true);
+    for (int percent : new int[] {0, 25, 50, 75, 100}) {
+      graph.setProgress(percent * 100);
+      assertTrue(graph.pointText(true).endsWith("— m · " + percent + "%"));
+      graph.setGpsPosition(
+          new Point(45 + .04 * percent / 100, 6, 100, System.currentTimeMillis(), 5, 0));
+      assertTrue(graph.pointText(false).endsWith("— m · " + percent + "%"));
+    }
+  }
+
+  @Test
   public void gpsProgressIsIndependentAndHidesDistantInaccurateOrStaleFixes() {
     ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
     graph.bind(points);
@@ -307,15 +322,16 @@ public class ElevationGraphTest {
     graph.setGpsPosition(new Point(45.005, 6, 100, now, 5, 0));
     assertEquals(Geo.length(points) / 4, graph.gpsDistance(), .01);
     assertTrue(graph.pointText(false).contains("150 m"));
-    assertTrue(graph.pointText(false).contains("+9.0%"));
+    assertTrue(graph.pointText(false).endsWith("25%"));
     assertNull(graph.selectedPoint());
     graph.setCursorActive(true);
     graph.setProgress(5000);
+    assertTrue(graph.pointText(true).endsWith("50%"));
     Point inspected = graph.selectedPoint();
     graph.setGpsPosition(new Point(45.015, 6, 100, now, 5, 0));
     assertEquals(Geo.length(points) * .75, graph.gpsDistance(), .01);
     assertTrue(graph.pointText(false).contains("175 m"));
-    assertTrue(graph.pointText(false).contains("-4.5%"));
+    assertTrue(graph.pointText(false).endsWith("75%"));
     assertEquals(inspected.lat, graph.selectedPoint().lat, 0);
     for (Point invalid :
         Arrays.asList(
