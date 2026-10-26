@@ -64,6 +64,33 @@ public class GpxTest {
   }
 
   @Test
+  public void displayConnectorsDoNotChangeImportedOrExportedElevations() throws Exception {
+    List<Point> points =
+        parse(
+            "<gpx><trk><trkseg>"
+                + "<trkpt lat='45' lon='6'><ele>100</ele></trkpt>"
+                + "<trkpt lat='45.0001' lon='6'/>"
+                + "<trkpt lat='45.0003' lon='6'><ele>140</ele></trkpt>"
+                + "</trkseg></trk></gpx>");
+    ByteArrayOutputStream before = new ByteArrayOutputStream();
+    Gpx.write(before, points, "Short gap");
+    ElevationProfile profile = new ElevationProfile();
+    for (Point point : points) profile.add(point);
+    assertEquals(1, profile.connectors.size());
+    RouteSummary summary = RouteSummary.from(points);
+    assertEquals(0, summary.ascent, 0);
+    assertEquals(0, summary.descent, 0);
+    assertFalse(summary.hasElevation);
+    assertTrue(summary.partialElevation);
+    ByteArrayOutputStream after = new ByteArrayOutputStream();
+    Gpx.write(after, points, "Short gap");
+    assertArrayEquals(before.toByteArray(), after.toByteArray());
+    List<Point> restored = Gpx.read(new ByteArrayInputStream(after.toByteArray()));
+    assertTrue(Double.isNaN(restored.get(1).elevation));
+    assertEquals(140, restored.get(2).elevation, 0);
+  }
+
+  @Test
   public void routeOnlyGpxSupported() throws Exception {
     assertEquals(
         2,

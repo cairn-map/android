@@ -2,6 +2,7 @@ package app.cairn.trek;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.view.MotionEvent;
@@ -14,6 +15,8 @@ import java.util.Locale;
 final class ElevationGraph extends SeekBar {
   private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Path line = new Path();
+  private final Path connectors = new Path();
+  private final DashPathEffect connectorDashes;
   private final Path excludedAreas = new Path();
   private final Path gpsMarker = new Path();
   private List<Point> source = Collections.emptyList();
@@ -30,6 +33,7 @@ final class ElevationGraph extends SeekBar {
 
   ElevationGraph(Context context) {
     super(context);
+    connectorDashes = new DashPathEffect(new float[] {dp(4), dp(4)}, 0);
     setMax(10000);
     setKeyProgressIncrement(100);
     setBackground(null);
@@ -89,10 +93,16 @@ final class ElevationGraph extends SeekBar {
 
   String statusText() {
     if (profile.points.isEmpty()) return "";
-    if (profile.hasExcludedElevation)
-      return recordingProfile
-          ? "Above sea level · shaded: uncertain elevation excluded"
-          : "Above sea level · shaded: elevation unavailable";
+    if (profile.hasExcludedElevation) {
+      String excluded =
+          recordingProfile
+              ? "Above sea level · shaded: uncertain elevation excluded"
+              : "Above sea level · shaded: elevation unavailable";
+      return excluded
+          + (profile.connectors.isEmpty()
+              ? ""
+              : " · dashed: display-only estimate; cursor elevation unavailable");
+    }
     return recordingProfile
         ? "Filtered GPS estimate · above sea level"
         : "Elevation above sea level";
@@ -188,6 +198,7 @@ final class ElevationGraph extends SeekBar {
   protected synchronized void onDraw(Canvas canvas) {
     if (dirty) {
       line.rewind();
+      connectors.rewind();
       excludedAreas.rewind();
       Point previous = null;
       int excludedStart = -1;
@@ -211,6 +222,16 @@ final class ElevationGraph extends SeekBar {
         previous = point;
       }
       if (excludedStart >= 0) addExcludedArea(excludedStart, profile.points.size() - 1);
+      // x is cumulative distance, so a straight connector interpolates by distance,
+      // regardless of excluded sample spacing. Keep it separate from accepted strokes.
+      for (ElevationProfile.Connector connector : profile.connectors) {
+        connectors.moveTo(
+            getPaddingLeft() + (float) profile.fraction(connector.first) * plotWidth(),
+            y(profile.points.get(connector.first).elevation));
+        connectors.lineTo(
+            getPaddingLeft() + (float) profile.fraction(connector.last) * plotWidth(),
+            y(profile.points.get(connector.last).elevation));
+      }
       dirty = false;
     }
     ink.setStyle(Paint.Style.FILL);
@@ -250,6 +271,11 @@ final class ElevationGraph extends SeekBar {
       ink.setStrokeCap(Paint.Cap.ROUND);
       ink.setColor(AppPalette.ON_SELECTION);
       canvas.drawPath(line, ink);
+      ink.setAlpha(160);
+      ink.setPathEffect(connectorDashes);
+      canvas.drawPath(connectors, ink);
+      ink.setPathEffect(null);
+      ink.setAlpha(255);
     } else {
       ink.setTextAlign(Paint.Align.CENTER);
       canvas.drawText(

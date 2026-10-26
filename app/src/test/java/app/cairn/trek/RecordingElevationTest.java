@@ -125,6 +125,34 @@ public class RecordingElevationTest {
     assertEquals(300, filter.add(new Point(46, 7, 300, 1060000, 3, 1, 3)), 0);
   }
 
+  @Test
+  public void displayConnectorLeavesRejectedMeasurementsAndTotalsUntouched() {
+    List<Point> points =
+        List.of(
+            point(0, 100, 0, 3),
+            point(10, 106, 5, 3),
+            point(20, 110, 10, 40),
+            point(30, 114, 15, 3),
+            point(40, 120, 20, 3));
+    ElevationProfile profile = new ElevationProfile(true);
+    RecordingElevation filter = new RecordingElevation();
+    for (Point point : points) {
+      profile.add(point);
+      assertEquals(filter.add(point), profile.points.get(profile.points.size() - 1).elevation, 0);
+    }
+    assertEquals(1, profile.connectors.size());
+    assertEquals(1, profile.connectors.get(0).first);
+    assertEquals(3, profile.connectors.get(0).last);
+    assertTrue(Double.isNaN(profile.points.get(2).elevation));
+    assertTrue(Double.isNaN(profile.at(.5).elevation));
+    assertEquals(110, points.get(2).elevation, 0);
+    RouteSummary summary = RouteSummary.from(points, true);
+    assertEquals(2, summary.ascent, .000001);
+    assertEquals(0, summary.descent, 0);
+    assertTrue(summary.partialElevation);
+    assertConsistent(points);
+  }
+
   private void assertConsistent(List<Point> points) {
     ElevationProfile profile = new ElevationProfile(true);
     for (Point point : points) profile.add(point);

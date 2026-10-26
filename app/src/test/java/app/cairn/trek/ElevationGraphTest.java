@@ -404,6 +404,79 @@ public class ElevationGraphTest {
 
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void shortGapDrawsDistanceWeightedDashesOverShadingAndKeepsCursorUnavailable()
+      throws Exception {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    graph.bind(
+        List.of(
+            new Point(45, 6, 100, 0, 0, 0),
+            new Point(45.0001, 6, Double.NaN, 0, 0, 0),
+            new Point(45.0004, 6, 140, 0, 0, 0)));
+    layout(graph, 786, 200);
+    Bitmap bitmap = Bitmap.createBitmap(786, 200, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    canvas.drawColor(AppPalette.SELECTION);
+    graph.draw(canvas);
+    float width = graph.getWidth() - graph.getPaddingLeft() - graph.getPaddingRight();
+    float height = graph.getHeight() - graph.getPaddingTop() - graph.getPaddingBottom();
+    int shaded = bitmap.getPixel(graph.getPaddingLeft() + 20, graph.getPaddingTop() + 10);
+    assertNotEquals(AppPalette.SELECTION, shaded);
+    int stroke = 0, gaps = 0;
+    // A quarter of the route is at the missing sample: distance interpolation is 110 m,
+    // not the index-weighted 120 m. Check the actual native Canvas pixels along that line.
+    for (int offset = 20; offset < width - 20; offset++) {
+      int x = graph.getPaddingLeft() + offset;
+      int y = Math.round(graph.getPaddingTop() + height * (1 - offset / width));
+      if (bitmap.getPixel(x, y) == shaded) gaps++;
+      else stroke++;
+    }
+    assertTrue("Connector must be drawn along the distance-weighted slope", stroke > 100);
+    assertTrue("Connector must have visible dash gaps", gaps > 50);
+    graph.setCursorActive(true);
+    graph.setProgress(2500);
+    assertTrue(Double.isNaN(graph.selectedPoint().elevation));
+    assertTrue(graph.pointText(true).contains("— m"));
+    assertTrue(graph.statusText().contains("shaded: elevation unavailable"));
+    assertTrue(graph.statusText().contains("dashed: display-only estimate"));
+
+    // Rebinding a longer gap removes all inferred strokes from the cached path.
+    graph.setCursorActive(false);
+    graph.bind(
+        List.of(
+            new Point(45, 6, 100, 0, 0, 0),
+            new Point(45.0001, 6, Double.NaN, 0, 0, 0),
+            new Point(45.001, 6, 140, 0, 0, 0)));
+    canvas.drawColor(AppPalette.SELECTION);
+    graph.draw(canvas);
+    for (int offset = 20; offset < width - 20; offset++) {
+      int x = graph.getPaddingLeft() + offset;
+      int y = Math.round(graph.getPaddingTop() + height * (1 - offset / width));
+      assertEquals(shaded, bitmap.getPixel(x, y));
+    }
+    assertFalse(graph.statusText().contains("dashed"));
+  }
+
+  @Test
+  public void liveRecordingConnectorAppearsOnlyAfterAnAcceptedEndpointArrives() {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    List<Point> live = new ArrayList<>();
+    live.add(new Point(45, 6, 100, 1000000, 3, 0, 3));
+    live.add(new Point(45.0001, 6, 104, 1005000, 3, 0, 40));
+    graph.bind(live, true);
+    assertEquals("Above sea level · shaded: uncertain elevation excluded", graph.statusText());
+    live.add(new Point(45.0003, 6, 110, 1010000, 3, 0, 3));
+    graph.bind(live, true);
+    assertTrue(graph.statusText().contains("shaded: uncertain elevation excluded"));
+    assertTrue(graph.statusText().contains("dashed: display-only estimate"));
+    graph.setCursorActive(true);
+    graph.setProgress(5000);
+    assertTrue(Double.isNaN(graph.selectedPoint().elevation));
+    graph.setProgress(graph.getMax());
+    assertEquals(110, graph.selectedPoint().elevation, 0);
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void unresolvedRecordingRendersClearlyInPortrait() throws Exception {
     renderRecordingConfidence(786, 1550, "recording-elevation-confidence-portrait");
   }
