@@ -617,6 +617,8 @@ public class MapControlsTest {
       AlertDialog dialog = (AlertDialog) field(activity, "libraryDialog");
       View decor = dialog.getWindow().getDecorView();
       savePreview(decor, 640, 1500, "corridor-button-progress");
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
+      savePreview(decor, 640, 1500, "corridor-button-progress");
       TextView route = (TextView) find(decor, title + " · selected");
       ViewGroup row = (ViewGroup) route.getParent();
       ProgressButton corridor = (ProgressButton) row.getChildAt(0);
@@ -772,7 +774,7 @@ public class MapControlsTest {
           View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY));
       root.layout(0, 0, 640, 320);
       View update = (View) field(activity, "updateButton");
-      ScrollView rail = (ScrollView) update.getParent().getParent();
+      ScrollView rail = (ScrollView) update.getParent().getParent().getParent();
       assertTrue(
           "The rail must retain a usable touch viewport: rail="
               + rail.getHeight()

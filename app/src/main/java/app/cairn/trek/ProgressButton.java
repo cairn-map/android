@@ -5,18 +5,19 @@ import android.widget.FrameLayout;
 
 /** Keeps the original button's touch, ripple and accessibility behavior while showing progress. */
 final class ProgressButton extends FrameLayout {
-  final LoadingBar bar;
+  final PerimeterProgress bar;
 
   ProgressButton(View button) {
+    this(button, 16);
+  }
+
+  ProgressButton(View button, int cornerDp) {
     super(button.getContext());
     if (button.getLayoutParams() != null) setLayoutParams(button.getLayoutParams());
     addView(button, new LayoutParams(-1, -1));
-    bar = new LoadingBar(getContext());
+    bar = new PerimeterProgress(getContext(), cornerDp);
     bar.setContentDescription(button.getContentDescription());
-    int inset = Math.round(8 * getResources().getDisplayMetrics().density);
-    LayoutParams params = new LayoutParams(-1, Math.max(1, inset / 2), Gravity.BOTTOM);
-    params.setMargins(inset, 0, inset, inset);
-    addView(bar, params);
+    addView(bar, new LayoutParams(-1, -1));
     bar.setVisibility(GONE);
   }
 
