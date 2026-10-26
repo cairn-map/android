@@ -79,6 +79,33 @@ public class RouteSummaryTest {
   }
 
   @Test
+  public void profileTimeIncludesStopsAndSegmentGapsAndUpdatesWithAppends() {
+    RouteSummary summary = new RouteSummary();
+    summary.add(new Point(45, 6, 100, 1_000_000, 3, 0));
+    summary.add(new Point(45.01, 6, 150, 1_600_000, 3, 0));
+    assertTrue(summary.profileText().endsWith(" · 10 min"));
+    summary.add(new Point(46, 6, 200, 4_900_000, 3, 1));
+    assertTrue(summary.profileText().endsWith(" · 1h 05m"));
+    assertFalse(summary.profileText().contains("\n"));
+    assertTrue(summary.timeDescription().contains("Elapsed time 1h 05m"));
+    // An inserted point without a timestamp does not reset recorded elapsed time.
+    summary.add(new Point(46.01, 6));
+    assertTrue(summary.profileText().endsWith(" · 1h 05m"));
+    assertEquals("25h 00m", RouteSummary.durationText(90_000_000));
+  }
+
+  @Test
+  public void untimedRoutesDoNotInventADurationAndReversedEndpointsAreUnavailable() {
+    RouteSummary untimed = RouteSummary.from(List.of(point(45, 100, 0), point(45.01, 150, 0)));
+    assertEquals("", untimed.timeDescription());
+    assertFalse(untimed.profileText().contains("0m"));
+    RouteSummary reversed = RouteSummary.from(List.of(
+        new Point(45, 6, 100, 2_000_000, 3, 0),
+        new Point(45.01, 6, 150, 1_000_000, 3, 0)));
+    assertEquals("", reversed.timeDescription());
+  }
+
+  @Test
   public void liveTotalsMatchALoadedRecording() {
     List<Point> points = List.of(point(45, 50, 0), point(45.01, 70, 0), point(45.02, 60, 0));
     RouteSummary live = new RouteSummary();

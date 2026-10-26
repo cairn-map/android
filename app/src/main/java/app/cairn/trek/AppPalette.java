@@ -19,6 +19,8 @@ final class AppPalette {
   static final int UPDATE = 0xff46351D;
   static final int UPDATE_BORDER = 0xff94713E;
   static final int ON_UPDATE = 0xffFFCF87;
+  static final int LIVE_TRACK = 0xffF57C00;
+  static final int PAST_TRACK = 0xff8B7D83;
 
   private AppPalette() {}
 }

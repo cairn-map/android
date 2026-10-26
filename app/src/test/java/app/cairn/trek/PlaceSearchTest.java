@@ -30,6 +30,7 @@ public class PlaceSearchTest {
     static List<Address> answer;
     static IOException error;
     static String query;
+    static int calls;
     static CountDownLatch entered, release;
 
     @Implementation
@@ -39,6 +40,7 @@ public class PlaceSearchTest {
 
     @Implementation
     protected List<Address> getFromLocationName(String name, int maxResults) throws IOException {
+      calls++;
       query = name;
       if (entered != null) {
         entered.countDown();
@@ -76,6 +78,7 @@ public class PlaceSearchTest {
     SearchGeocoder.answer = Collections.emptyList();
     SearchGeocoder.error = null;
     SearchGeocoder.query = null;
+    SearchGeocoder.calls = 0;
     SearchGeocoder.entered = SearchGeocoder.release = null;
     search =
         new PlaceSearch(
@@ -249,14 +252,32 @@ public class PlaceSearchTest {
   @Test
   public void suggestionsDebounceTypingAndOnlyLookUpTheLatestText() throws Exception {
     search.suggest("Pa", callback);
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100));
     search.suggest("Paris", callback);
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(349));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(199));
     assertNull(SearchGeocoder.query);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1));
     drain();
     assertEquals("Paris", SearchGeocoder.query);
     assertEquals(1, found);
+  }
+
+  @Test
+  public void submittingTheSameInFlightSuggestionDoesNotRestartTheLookup() throws Exception {
+    SearchGeocoder.entered = new CountDownLatch(1);
+    SearchGeocoder.release = new CountDownLatch(1);
+    SearchGeocoder.answer = List.of(place("Paris", 48.85, 2.35));
+    search.suggest("Paris", callback);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+    assertTrue(SearchGeocoder.entered.await(5, TimeUnit.SECONDS));
+    search.search(" Paris ", callback);
+    search.suggest("Paris", callback);
+    SearchGeocoder.release.countDown();
+    drain();
+    assertEquals(1, found);
+    assertEquals(0, failed);
+    assertEquals("Paris", results.get(0).getFeatureName());
+    assertEquals(1, SearchGeocoder.calls);
   }
 
   @Test

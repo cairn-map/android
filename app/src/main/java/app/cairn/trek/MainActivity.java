@@ -882,11 +882,12 @@ public final class MainActivity extends Activity {
       editButton.setEnabled(!savingEdit);
     } else if (selectedEntry != null) {
       Store.LibraryEntry entry = selectedEntry;
+      List<PlanIgnStore.Pack> corridors =
+          routeCorridors.getOrDefault(entry.id, Collections.emptyList());
+      boolean ready = !corridors.isEmpty() && "complete".equals(corridors.get(0).state);
       addSelectionAction(
-          MapIcon.SAVE_MAP,
-          routeCorridors.getOrDefault(entry.id, Collections.emptyList()).isEmpty()
-              ? "Save offline corridor"
-              : "Offline corridor",
+          ready ? MapIcon.CORRIDOR_READY : MapIcon.SAVE_MAP,
+          corridors.isEmpty() ? "Save offline corridor" : "Offline corridor",
           () -> toggleRouteCorridor(entry));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
@@ -926,7 +927,8 @@ public final class MainActivity extends Activity {
     setStatusText(selectionRecap, summary.profileText());
     String title =
         planning ? editingEntry == null ? "New route" : editingEntry.title : selectedEntry.title;
-    selectionRecap.setContentDescription(title + ". " + summary.description());
+    selectionRecap.setContentDescription(
+        title + ". " + summary.description() + summary.timeDescription());
     String pathId = planning ? newRouteId : selectedEntry.id;
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
@@ -1975,6 +1977,10 @@ public final class MainActivity extends Activity {
 
   private void refreshStatus() {
     if (destroyed || !resumed) return;
+    if (map.recordingActive != TrackingService.running) {
+      map.recordingActive = TrackingService.running;
+      map.invalidate();
+    }
     updateSelectionRecap();
     map.setPhoneDirectionEnabled(
         "Map".equals(currentPage) && store.prefs.getBoolean("phoneDirection", false));

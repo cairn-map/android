@@ -79,6 +79,23 @@ public class ElevationGraphTest {
   }
 
   @Test
+  public void timestampedProfileAddsElapsedTimeBesideDistanceAndAltitude() {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    graph.bind(List.of(
+        new Point(45, 6, 100, 1_000_000, 3, 0),
+        new Point(45.02, 6, 200, 8_800_000, 3, 0)));
+    graph.setCursorActive(true);
+    graph.setProgress(5000);
+    assertTrue(graph.pointText(true).contains(" · 1h 05m · "));
+    assertTrue(graph.pointText(true).endsWith("50%"));
+    assertFalse(graph.pointText(true).contains("\n"));
+    graph.bind(points);
+    graph.setProgress(5000);
+    assertFalse(graph.pointText(true).contains("1h"));
+    assertTrue(graph.pointText(true).endsWith("200 m · 50%"));
+  }
+
+  @Test
   @Config(sdk = {26, 28, 35})
   public void draggingAndAccessibleStepsUpdateDetailsAndMapWithoutChangingGps() throws Exception {
     try (ActivityController<MainActivity> controller =
@@ -509,6 +526,7 @@ public class ElevationGraphTest {
       TextView recap = (TextView) field(activity, "selectionRecap");
       assertTrue(recap.getText().toString().contains("↑ — m"));
       assertFalse(recap.getText().toString().contains("↑ 0 m"));
+      assertTrue(recap.getText().toString().endsWith(" · 1 min"));
       assertEquals(1, recap.getLineCount());
       assertEquals(2, ((android.view.ViewGroup) field(activity, "selectionInfo")).getChildCount());
       assertTrue(graph.getContentDescription().toString().contains("excluded"));

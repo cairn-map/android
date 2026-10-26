@@ -57,11 +57,7 @@ final class MapIcon extends Drawable {
     paint.setStrokeWidth(1.8f);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
-    if (kind == CORRIDOR_READY) {
-      canvas.drawRoundRect(3, 3, 21, 21, 3, 3, paint);
-      canvas.drawLine(7, 12, 11, 16, paint);
-      canvas.drawLine(11, 16, 18, 8, paint);
-    } else if (kind == UNDO) {
+    if (kind == UNDO) {
       canvas.drawArc(5, 7, 21, 21, 210, 250, false, paint);
       canvas.drawLine(5, 6, 5, 12, paint);
       canvas.drawLine(5, 12, 11, 12, paint);
@@ -102,7 +98,7 @@ final class MapIcon extends Drawable {
       pencil.close();
       canvas.drawPath(pencil, paint);
       canvas.drawLine(13, 7, 17, 11, paint);
-    } else if (kind == SAVE_MAP) {
+    } else if (kind == SAVE_MAP || kind == CORRIDOR_READY) {
       Path map = new Path();
       map.moveTo(3, 19);
       map.lineTo(3, 5);
@@ -116,9 +112,15 @@ final class MapIcon extends Drawable {
       map.moveTo(9, 3);
       map.lineTo(9, 17);
       canvas.drawPath(map, paint);
-      canvas.drawLine(18, 12, 18, 21, paint);
-      canvas.drawLine(14, 17, 18, 21, paint);
-      canvas.drawLine(22, 17, 18, 21, paint);
+      if (kind == CORRIDOR_READY) {
+        canvas.drawLine(15, 5, 15, 9, paint);
+        canvas.drawLine(14, 16, 17, 19, paint);
+        canvas.drawLine(17, 19, 22, 13, paint);
+      } else {
+        canvas.drawLine(18, 12, 18, 21, paint);
+        canvas.drawLine(14, 17, 18, 21, paint);
+        canvas.drawLine(22, 17, 18, 21, paint);
+      }
     } else if (kind == EXPORT) {
       Path box = new Path();
       box.moveTo(10, 5);
