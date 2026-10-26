@@ -50,7 +50,7 @@ public class RecordingElevationTest {
     RouteSummary summary = RouteSummary.from(points, true);
     assertEquals(Geo.length(points), summary.distance, .001);
     assertTrue(summary.text().contains("Elevation change not reliably resolved"));
-    assertTrue(summary.profileText().endsWith("↑ — m   ↓ — m"));
+    assertTrue(summary.profileText().endsWith("↑ — m   ↓ — m · 0m"));
     assertFalse(summary.text().contains("↑ 0 m"));
     assertConsistent(points);
   }
