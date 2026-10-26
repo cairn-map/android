@@ -34,6 +34,7 @@ public final class MainActivity extends Activity {
   private FrameLayout libraryBody;
   private final Map<String, List<ProgressButton>> downloadButtons = new HashMap<>();
   private ProgressButton mapDownloadButton, corridorDownloadButton;
+  private ProgressButton updateProgressButton;
   private String pendingDownload;
   private EmbeddedRouter router;
   private FrameLayout root;
@@ -485,7 +486,8 @@ public final class MainActivity extends Activity {
     controls.setGravity(Gravity.END);
     updateButton = iconButton(MapIcon.UPDATE, "Update Cairn", () -> appUpdates.update());
     styleUpdateButton(false);
-    controls.addView(updateButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    updateProgressButton = new ProgressButton(updateButton, 24);
+    controls.addView(updateProgressButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
     previewButton =
         iconButton(
             ignMap.online() ? MapIcon.ONLINE : MapIcon.OFFLINE,
@@ -607,6 +609,7 @@ public final class MainActivity extends Activity {
           feedback.update(message, busy, appUpdates.fraction());
           updateButton.setEnabled(!busy);
           styleUpdateButton(busy);
+          updateProgressButton.progress(busy, appUpdates.fraction());
           updateButton.setContentDescription(busy ? message : "Update Cairn");
           updateButton.setTooltipText(busy ? message : "Check, download and install Cairn updates");
         });
