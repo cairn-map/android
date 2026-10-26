@@ -371,7 +371,7 @@ public class OfflineWorkflowTest {
       assertEquals(1, ((SeekBar) content.findViewWithTag("Kilometres on each side")).getProgress());
       assertNotNull(find(content, store.packs().get(0).description()));
       corridor.dismiss();
-      java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
+      java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("showLibrary");
       menu.setAccessible(true);
       menu.invoke(activity);
       View maps =
@@ -581,26 +581,110 @@ public class OfflineWorkflowTest {
   }
 
   @Test
+  @LooperMode(LooperMode.Mode.PAUSED)
+  public void corridorLoadingKeepsRoutesVisibleAndRefreshSwapsWithoutAnimations() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    try (Store routes = new Store(context)) {
+      routes.saveRoute(List.of(new Point(45, 6)), "Steady drawer");
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      View library = openLibrary(activity);
+      AlertDialog routes = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      java.lang.reflect.Field executor = MainActivity.class.getDeclaredField("io");
+      executor.setAccessible(true);
+      ExecutorService io = (ExecutorService) executor.get(activity);
+      CountDownLatch release = new CountDownLatch(1);
+      io.submit(() -> release.await(5, TimeUnit.SECONDS));
+      try {
+        find(library, "No offline corridor for Steady drawer").performClick();
+        assertTrue("Routes must cover the map while the corridor loads", routes.isShowing());
+        assertSame(routes, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+      } finally {
+        release.countDown();
+      }
+      drain(activity);
+      AlertDialog corridor = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      assertNotSame(routes, corridor);
+      assertTrue(routes.isShowing());
+      assertTrue(corridor.isShowing());
+      assertEquals(0, corridor.getWindow().getAttributes().windowAnimations);
+
+      CountDownLatch finish = new CountDownLatch(1);
+      io.submit(() -> finish.await(5, TimeUnit.SECONDS));
+      try {
+        activity.sendBroadcast(
+            new Intent(DownloadService.EVENT)
+                .setPackage(activity.getPackageName())
+                .putExtra("finished", true));
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(
+            "Keep the old corridor visible until its replacement is ready", corridor.isShowing());
+      } finally {
+        finish.countDown();
+      }
+      drain(activity);
+      AlertDialog refreshed = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      assertNotSame(corridor, refreshed);
+      assertFalse(corridor.isShowing());
+      assertTrue(refreshed.isShowing());
+      assertEquals(0, refreshed.getWindow().getAttributes().windowAnimations);
+      refreshed.dismiss();
+      assertTrue("Closing the corridor returns to Routes", routes.isShowing());
+    }
+  }
+
+  @Test
+  @LooperMode(LooperMode.Mode.PAUSED)
+  public void dismissingRoutesCancelsAPendingCorridorDrawer() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    try (Store routes = new Store(context)) {
+      routes.saveRoute(List.of(new Point(45, 6)), "Canceled drawer");
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      View library = openLibrary(activity);
+      AlertDialog routes = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      java.lang.reflect.Field executor = MainActivity.class.getDeclaredField("io");
+      executor.setAccessible(true);
+      CountDownLatch release = new CountDownLatch(1);
+      ((ExecutorService) executor.get(activity)).submit(() -> release.await(5, TimeUnit.SECONDS));
+      try {
+        find(library, "No offline corridor for Canceled drawer").performClick();
+        routes.dismiss();
+      } finally {
+        release.countDown();
+      }
+      drain(activity);
+      assertFalse(routes.isShowing());
+      assertSame(routes, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+    }
+  }
+
+  @Test
   public void startsOfflineAndRoutesToDownloadControlsWithoutLocationPermission() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       View root = activity.getWindow().getDecorView();
       assertNull(find(root, "Offline"));
+      assertNull(find(root, "Saved maps and downloads"));
       root = openLibrary(activity);
       assertNotNull(find(root, "Add files"));
       assertNull(find(root, "Import GPX"));
       assertNull(find(root, "Import OruxMaps sources XML"));
-      org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().dismiss();
-      java.lang.reflect.Method menu = MainActivity.class.getDeclaredMethod("mapMenu");
-      menu.setAccessible(true);
-      menu.invoke(activity);
-      View maps =
-          org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
-              .getWindow()
-              .getDecorView();
-      assertNull(find(maps, "Routing data"));
-      find(maps, "Clear all routing data").performClick();
+      View maps = find(root, "MAPS & ROUTING");
+      assertNotNull(maps);
+      ViewGroup content = (ViewGroup) maps.getParent();
+      assertTrue(content.indexOfChild(maps) > content.indexOfChild(find(root, "RECORDED HIKES")));
+      assertNotNull(find(root, "Clear viewed-map cache"));
+      assertNotNull(find(root, "Default routing preferences"));
+      assertNull(find(root, "Routing data"));
+      find(root, "Clear all routing data").performClick();
       AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
       assertNotNull(find(dialog.getWindow().getDecorView(), "Clear all routing data?"));
       assertEquals("Clear", dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());

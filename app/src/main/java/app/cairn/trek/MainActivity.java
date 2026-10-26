@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
   private TextView updateStatus;
   private AlertDialog libraryDialog;
   private FrameLayout libraryBody;
-  private TextView downloadStatus;
+  private TextView downloadStatus, corridorDownloadStatus;
   private String pendingDownload;
   private EmbeddedRouter router;
   private FrameLayout root;
@@ -110,6 +110,8 @@ public final class MainActivity extends Activity {
           }
           if (DownloadService.EVENT.equals(i.getAction())) {
             if (downloadStatus != null) downloadStatus.setText(i.getStringExtra("message"));
+            if (corridorDownloadStatus != null)
+              corridorDownloadStatus.setText(i.getStringExtra("message"));
             boolean finished = i.getBooleanExtra("finished", false);
             if (finished) map.refreshTiles(true);
             else map.tilesAdded();
@@ -117,10 +119,6 @@ public final class MainActivity extends Activity {
               reloadLibrary();
               if (corridorDialog != null && corridorDialog.isShowing())
                 routeCorridorMenu(corridorEntry);
-            }
-            if (finished && mapDialog != null && mapDialog.isShowing()) {
-              mapDialog.dismiss();
-              mapMenu();
             }
             return;
           }
@@ -446,6 +444,7 @@ public final class MainActivity extends Activity {
           if (libraryDialog != popout) return;
           libraryDialog = null;
           libraryBody = null;
+          downloadStatus = null;
           currentPage = "Map";
           if (libraryButton != null) setIconActive(libraryButton, false);
           if (!destroyed) refreshStatus();
@@ -469,10 +468,6 @@ public final class MainActivity extends Activity {
     updateButton = iconButton(MapIcon.UPDATE, "Update Cairn", () -> appUpdates.update());
     styleUpdateButton(false);
     controls.addView(updateButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
-    LinearLayout.LayoutParams featureParams = new LinearLayout.LayoutParams(dp(48), dp(48));
-    featureParams.topMargin = dp(16);
-    controls.addView(
-        iconButton(MapIcon.MAPS, "Saved maps and downloads", this::mapMenu), featureParams);
     previewButton =
         iconButton(
             ignMap.online() ? MapIcon.ONLINE : MapIcon.OFFLINE,
@@ -657,7 +652,8 @@ public final class MainActivity extends Activity {
   private long profileGeometryKey;
   private LinearLayout selectionPanel;
   private int libraryGeneration;
-  private AlertDialog mapDialog, corridorDialog;
+  private AlertDialog corridorDialog;
+  private int corridorGeneration;
   private Store.LibraryEntry corridorEntry;
 
   private void reloadLibrary() {
@@ -752,6 +748,8 @@ public final class MainActivity extends Activity {
     }
     if (!hasRecordings)
       content.addView(label("Your recordings will appear here.", 14, MUTED, false));
+    content.addView(spacer(24));
+    addSavedMapControls(content);
     content.addView(attributionFooter());
   }
 
@@ -1362,9 +1360,8 @@ public final class MainActivity extends Activity {
         .show();
   }
 
-  private void mapMenu() {
-    LinearLayout content = column();
-    content.setPadding(dp(20), dp(8), dp(20), dp(16));
+  private void addSavedMapControls(LinearLayout content) {
+    content.addView(label("MAPS & ROUTING", 11, MUTED, true));
     content.addView(
         label(
             "Plan IGN tiles viewed online stay on this phone automatically. Only visited zoom"
@@ -1391,7 +1388,6 @@ public final class MainActivity extends Activity {
               pack.name + "\n" + pack.description(),
               false,
               () -> {
-                if (mapDialog != null) mapDialog.dismiss();
                 savedCorridorMenu(pack, null);
               }));
     }
@@ -1404,7 +1400,7 @@ public final class MainActivity extends Activity {
                 setMapOnline(false);
                 store.prefs.edit().putBoolean("importedMap", true).apply();
                 map.source(offlineMap);
-                if (mapDialog != null) mapDialog.dismiss();
+                if (libraryDialog != null) libraryDialog.dismiss();
               }));
     if (map.tileSource() != ignMap)
       content.addView(
@@ -1413,7 +1409,7 @@ public final class MainActivity extends Activity {
               false,
               () -> {
                 selectPlanIgn();
-                if (mapDialog != null) mapDialog.dismiss();
+                if (libraryDialog != null) libraryDialog.dismiss();
               }));
     content.addView(
         button(
@@ -1433,7 +1429,6 @@ public final class MainActivity extends Activity {
                       "Clear",
                       (d, w) -> {
                         setMapOnline(false);
-                        if (mapDialog != null) mapDialog.dismiss();
                         io.execute(
                             () -> {
                               mapStore.clearViewed();
@@ -1441,7 +1436,8 @@ public final class MainActivity extends Activity {
                                   () -> {
                                     if (!destroyed) {
                                       map.refreshTiles(true);
-                                      mapMenu();
+                                      if (libraryDialog != null && libraryDialog.isShowing())
+                                        showLibrary();
                                     }
                                   });
                             });
@@ -1450,12 +1446,6 @@ public final class MainActivity extends Activity {
             }));
     content.addView(button("Clear all routing data", false, this::clearRoutingData));
     content.addView(button("Default routing preferences", false, this::defaultRoutingPreferences));
-    content.addView(attributionFooter());
-    ScrollView scroll = new ScrollView(this);
-    scroll.addView(content);
-    mapDialog =
-        CairnDialogs.drawer(this).fullHeight().setTitle("Saved maps").setView(scroll).create();
-    mapDialog.show();
   }
 
   private boolean routingDataInUse() {
@@ -1557,8 +1547,10 @@ public final class MainActivity extends Activity {
   }
 
   private void routeCorridorMenu(Store.LibraryEntry entry) {
-    if (libraryDialog != null) libraryDialog.dismiss();
-    if (corridorDialog != null) corridorDialog.dismiss();
+    int generation = ++corridorGeneration;
+    AlertDialog library = libraryDialog;
+    AlertDialog previous = corridorDialog;
+    boolean replacing = previous != null && previous.isShowing();
     io.execute(
         () -> {
           List<Point> points = store.read(entry.id);
@@ -1567,7 +1559,9 @@ public final class MainActivity extends Activity {
             if (entry.id.equals(pack.routeId)) packs.add(pack);
           main.post(
               () -> {
-                if (destroyed || !resumed) return;
+                if (destroyed || !resumed || generation != corridorGeneration) return;
+                if (library != null && !library.isShowing()) return;
+                if (replacing && (!previous.isShowing() || previous != corridorDialog)) return;
                 routeCorridors.put(entry.id, packs);
                 corridorEntry = entry;
                 prepareDownload(points, entry.title, entry.id);
@@ -1616,7 +1610,6 @@ public final class MainActivity extends Activity {
                                         map.refreshTiles(true);
                                         reloadLibrary();
                                         if (corridorDialog != null) corridorDialog.dismiss();
-                                        if (entry == null) mapMenu();
                                       });
                                 }))
                     .show();
@@ -1646,9 +1639,10 @@ public final class MainActivity extends Activity {
             13,
             MUTED,
             false));
+    corridorDownloadStatus = null;
     if (existing != null) {
-      downloadStatus = label(existing.description(), 13, ACCENT, false);
-      content.addView(downloadStatus);
+      corridorDownloadStatus = label(existing.description(), 13, ACCENT, false);
+      content.addView(corridorDownloadStatus);
     }
     content.addView(spacer(16));
     String[] detailLabels = {
@@ -1785,7 +1779,11 @@ public final class MainActivity extends Activity {
     selection.detail = detail;
     selection.width = width;
     selection.dialog = dialog;
-    dialog.setOnDismissListener(d -> selection.revision.incrementAndGet());
+    dialog.setOnDismissListener(
+        d -> {
+          selection.revision.incrementAndGet();
+          if (corridorDialog == dialog) corridorDownloadStatus = null;
+        });
     dialog.setOnShowListener(
         d -> {
           dialog
@@ -1820,8 +1818,17 @@ public final class MainActivity extends Activity {
                   });
           selection.run();
         });
+    AlertDialog previous = corridorDialog;
+    // Routes stays underneath while data loads. Swap full-height drawers without an
+    // exit/entry animation that briefly exposes the map or restarts on download completion.
+    if ((libraryDialog != null && libraryDialog.isShowing())
+        || (previous != null && previous.isShowing())) dialog.getWindow().setWindowAnimations(0);
     corridorDialog = dialog;
     dialog.show();
+    if (previous != null) {
+      previous.getWindow().setWindowAnimations(0);
+      previous.dismiss();
+    }
   }
 
   private SeekBar downloadSlider(
