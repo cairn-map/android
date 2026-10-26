@@ -33,7 +33,7 @@ public final class MainActivity extends Activity {
   private AlertDialog libraryDialog;
   private FrameLayout libraryBody;
   private final Map<String, List<ProgressButton>> downloadButtons = new HashMap<>();
-  private ProgressButton mapDownloadButton, corridorDownloadButton;
+  private ProgressButton corridorDownloadButton;
   private ProgressButton updateProgressButton;
   private String pendingDownload;
   private EmbeddedRouter router;
@@ -112,8 +112,6 @@ public final class MainActivity extends Activity {
           }
           if (DownloadService.EVENT.equals(i.getAction())) {
             boolean finished = i.getBooleanExtra("finished", false);
-            if (mapDownloadButton != null)
-              updateDownloadButton(mapDownloadButton, DownloadService.activePack);
             if (corridorDownloadButton != null)
               updateDownloadButton(
                   corridorDownloadButton, corridorDownloadButton.getTag().toString());
@@ -462,7 +460,6 @@ public final class MainActivity extends Activity {
           if (libraryDialog != popout) return;
           libraryDialog = null;
           libraryBody = null;
-          mapDownloadButton = null;
           downloadButtons.clear();
           currentPage = "Map";
           if (libraryButton != null) setIconActive(libraryButton, false);
@@ -803,7 +800,7 @@ public final class MainActivity extends Activity {
                     ? "Offline corridor ready for "
                     : present ? "Offline corridor incomplete for " : "No offline corridor for ")
                 + entry.title,
-            () -> routeCorridorMenu(entry));
+            () -> toggleRouteCorridor(entry));
     ((MapIcon) status.getDrawable()).colors(ready ? ACCENT : MUTED, SURFACE);
     status.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
     ProgressButton corridor = new ProgressButton(status);
@@ -890,7 +887,7 @@ public final class MainActivity extends Activity {
           routeCorridors.getOrDefault(entry.id, Collections.emptyList()).isEmpty()
               ? "Save offline corridor"
               : "Offline corridor",
-          () -> routeCorridorMenu(entry));
+          () -> toggleRouteCorridor(entry));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
       // Keep Center and Edit beside GPS in both modes, with secondary actions to the left.
@@ -1408,20 +1405,6 @@ public final class MainActivity extends Activity {
             14,
             MUTED,
             false));
-    mapDownloadButton = null;
-    if (DownloadService.running) {
-      mapDownloadButton =
-          new ProgressButton(
-              button(
-                  "Pause map download",
-                  false,
-                  () ->
-                      startService(
-                          new Intent(this, DownloadService.class)
-                              .setAction(DownloadService.PAUSE))));
-      updateDownloadButton(mapDownloadButton, DownloadService.activePack);
-      content.addView(mapDownloadButton);
-    }
     for (PlanIgnStore.Pack pack : mapStore.packs()) {
       if (pack.routeId != null && !pack.routeId.isEmpty()) continue;
       content.addView(
@@ -1429,6 +1412,7 @@ public final class MainActivity extends Activity {
               pack.name + "\n" + pack.description(),
               false,
               () -> {
+                if (pauseMapDownload(pack.id)) return;
                 savedCorridorMenu(pack, null);
               }));
     }
@@ -1585,6 +1569,13 @@ public final class MainActivity extends Activity {
             busy ? AppPalette.ON_UPDATE : AppPalette.UPDATE, AppPalette.UPDATE_BORDER, 24));
     if (Build.VERSION.SDK_INT >= 30)
       updateButton.setStateDescription(busy ? "Updating" : "Ready to check for updates");
+  }
+
+  private void toggleRouteCorridor(Store.LibraryEntry entry) {
+    for (PlanIgnStore.Pack pack :
+        routeCorridors.getOrDefault(entry.id, Collections.emptyList()))
+      if (pauseMapDownload(pack.id)) return;
+    routeCorridorMenu(entry);
   }
 
   private void routeCorridorMenu(Store.LibraryEntry entry) {
@@ -1941,6 +1932,13 @@ public final class MainActivity extends Activity {
       return;
     }
     launchDownload(id);
+  }
+
+  private boolean pauseMapDownload(String packId) {
+    if (!DownloadService.running || !Objects.equals(packId, DownloadService.activePack))
+      return false;
+    startService(new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE));
+    return true;
   }
 
   private void updateDownloadButton(ProgressButton button, String packId) {

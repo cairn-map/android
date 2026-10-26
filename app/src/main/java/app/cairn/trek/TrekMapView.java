@@ -103,6 +103,9 @@ public final class TrekMapView extends View {
   private int panX, panY;
   private long lastPanMove;
   private boolean multiplePointers, releasingPointers;
+  private int remainingPointer = -1;
+  private float remainingX, remainingY;
+  private boolean remainingPanning;
   private float multiVelocityX, multiVelocityY;
   private long multiEventTime, lastMultiPanMove;
   private float firstFingerX, firstFingerY, secondFingerX, secondFingerY;
@@ -146,6 +149,14 @@ public final class TrekMapView extends View {
 
               @Override
               public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (searchMarker != null
+                    && Math.abs(e.getX() - px(searchMarker.lon)) <= dp(24)
+                    && e.getY() >= py(searchMarker.lat) - dp(48)
+                    && e.getY() <= py(searchMarker.lat) + dp(8)) {
+                  searchMarker = null;
+                  invalidate();
+                  return true;
+                }
                 if (editing) {
                   if (nodeAt(e.getX(), e.getY()) < 0 && onNodeAdded != null) {
                     Point point = pointAt(e.getX(), e.getY());
@@ -445,6 +456,8 @@ public final class TrekMapView extends View {
     quickZoomEligible = false;
     twoFingerTap = false;
     releasingPointers = false;
+    remainingPointer = -1;
+    remainingPanning = false;
     multiVelocityX = multiVelocityY = 0;
     pinched = false;
     pinchVelocity = pinchDirection = 0;
@@ -893,6 +906,9 @@ public final class TrekMapView extends View {
     }
     if (zoomVelocity != null) zoomVelocity.addMovement(e);
     if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+      if (releasingPointers) stopMotion();
+      remainingPointer = -1;
+      remainingPanning = false;
       pinched = false;
       pinchVelocity = pinchDirection = 0;
       pinchX = focus(e, true, -1);
@@ -944,9 +960,14 @@ public final class TrekMapView extends View {
     if (e.getActionMasked() == MotionEvent.ACTION_POINTER_UP && !releasingPointers) {
       checkTwoFingerTap(e);
       if (e.getPointerCount() == 2) {
-        // Release momentum while the velocity still describes both fingers. The remaining
-        // contact belongs to this gesture, even if it sends MOVE events before lifting.
+        // Preserve a quick release's momentum; deliberate movement of the remaining
+        // finger takes over below without starting a tap, long press or quick zoom.
         releasingPointers = true;
+        int remaining = e.getActionIndex() == 0 ? 1 : 0;
+        remainingPointer = e.getPointerId(remaining);
+        remainingX = e.getX(remaining);
+        remainingY = e.getY(remaining);
+        multiEventTime = e.getEventTime();
         if (!twoFingerTap) {
           if (pinched && e.getEventTime() - lastPinchMove <= 100)
             startZoomFling(pinchVelocity, pinchFocusX, pinchFocusY);
@@ -961,6 +982,36 @@ public final class TrekMapView extends View {
       }
     }
     if (e.getActionMasked() == MotionEvent.ACTION_MOVE
+        && e.getPointerCount() == 1
+        && remainingPointer >= 0) {
+      int index = e.findPointerIndex(remainingPointer);
+      if (index >= 0) {
+        float x = e.getX(index), y = e.getY(index);
+        float dx = remainingX - x, dy = remainingY - y;
+        if (remainingPanning
+            || Math.hypot(dx, dy)
+                > ViewConfiguration.get(getContext()).getScaledTouchSlop()) {
+          if (!remainingPanning) {
+            panScroller.forceFinished(true);
+            zoomFling = tapZoom = twoFingerTap = false;
+            multiVelocityX = multiVelocityY = 0;
+            remainingPanning = true;
+          }
+          long dt = e.getEventTime() - multiEventTime;
+          if (dt > 0) {
+            multiVelocityX = dx * 1000 / dt;
+            multiVelocityY = dy * 1000 / dt;
+          }
+          if (dx != 0 || dy != 0) lastMultiPanMove = e.getEventTime();
+          multiEventTime = e.getEventTime();
+          remainingX = x;
+          remainingY = y;
+          panBy(dx, dy);
+          invalidate();
+        }
+      }
+    }
+    if (e.getActionMasked() == MotionEvent.ACTION_MOVE
         && Math.hypot(e.getX() - downX, e.getY() - downY)
             > ViewConfiguration.get(getContext()).getScaledTouchSlop()) tapCandidate = false;
     scales.onTouchEvent(e);
@@ -972,6 +1023,10 @@ public final class TrekMapView extends View {
       twoFingerTap = false;
     }
     if (e.getActionMasked() == MotionEvent.ACTION_UP && tapCandidate) performClick();
+    if (e.getActionMasked() == MotionEvent.ACTION_UP
+        && remainingPanning
+        && e.getEventTime() - lastMultiPanMove <= 100)
+      startPanFling(multiVelocityX, multiVelocityY);
     if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
       tapCandidate = false;
       stopMotion();
@@ -982,6 +1037,8 @@ public final class TrekMapView extends View {
       gestures.setIsLongpressEnabled(true);
       doubleTap = false;
       quickZoomEligible = false;
+      remainingPointer = -1;
+      remainingPanning = false;
       if (zoomVelocity != null) zoomVelocity.recycle();
       zoomVelocity = null;
     }

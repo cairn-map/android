@@ -226,12 +226,13 @@ final class ElevationGraph extends SeekBar {
     ink.setTextSize(dp(10));
     ink.setColor(AppPalette.MUTED);
     ink.setTextAlign(Paint.Align.LEFT);
-    canvas.drawText("0 km", getPaddingLeft(), getHeight() - dp(5), ink);
+    float distanceBaseline = bottom() + dp(4) - ink.ascent();
+    canvas.drawText("0 km", getPaddingLeft(), distanceBaseline, ink);
     ink.setTextAlign(Paint.Align.RIGHT);
     canvas.drawText(
         String.format(Locale.getDefault(), "%.1f km", profile.distance / 1000),
         getWidth() - getPaddingRight(),
-        getHeight() - dp(5),
+        distanceBaseline,
         ink);
     if (profile.hasElevation()) {
       canvas.drawText(

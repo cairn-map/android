@@ -613,6 +613,10 @@ public class MapControlsTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       drain(activity);
+      while (Shadows.shadowOf(activity).getNextStartedService() != null) {}
+      find(activity.getWindow().getDecorView(), "Offline corridor").performClick();
+      assertEquals(
+          DownloadService.PAUSE, Shadows.shadowOf(activity).getNextStartedService().getAction());
       ((View) field(activity, "libraryButton")).performClick();
       AlertDialog dialog = (AlertDialog) field(activity, "libraryDialog");
       View decor = dialog.getWindow().getDecorView();
@@ -635,6 +639,14 @@ public class MapControlsTest {
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       assertEquals(7000, corridor.bar.getProgress());
       assertSame(row, route.getParent());
+      assertNull(find(decor, "Pause map download"));
+      while (Shadows.shadowOf(activity).getNextStartedService() != null) {}
+      corridor.getChildAt(0).performClick();
+      android.content.Intent pause = Shadows.shadowOf(activity).getNextStartedService();
+      assertNotNull(pause);
+      assertEquals(DownloadService.class.getName(), pause.getComponent().getClassName());
+      assertEquals(DownloadService.PAUSE, pause.getAction());
+      assertSame(dialog, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
       DownloadService.running = false;
       activity.sendBroadcast(
           new android.content.Intent(DownloadService.EVENT)
