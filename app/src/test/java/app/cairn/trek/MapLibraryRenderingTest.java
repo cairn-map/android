@@ -91,7 +91,44 @@ public class MapLibraryRenderingTest {
         assertEquals(Color.WHITE, selected.getPixel(393, 607));
       }
       map.selectedPathId = "";
-      assertEquals(0xffC36C39, draw(map).getPixel(393, 600));
+      assertEquals(AppPalette.PAST_TRACK, draw(map).getPixel(393, 600));
+    } finally {
+      map.dispose();
+    }
+  }
+
+  @Test
+  public void liveRecordingStaysBrightAboveSelectedPathsAndStopsHighlightingWhenFinished() {
+    TrekMapView map = new TrekMapView(RuntimeEnvironment.getApplication());
+    try {
+      map.layout(0, 0, 786, 1200);
+      map.restoreCamera(new double[] {45, 6, 12});
+      List<Point> points = List.of(new Point(45, 5.98), new Point(45, 6.02));
+      map.track = points;
+      map.liveTrackId = "live";
+      map.recordingActive = true;
+      map.libraryPaths = List.of(
+          new TrekMapView.LibraryPath(new Store.LibraryEntry("old", "Past hike", true, true), points),
+          new TrekMapView.LibraryPath(new Store.LibraryEntry("live", "Current hike", true, true),
+              Collections.emptyList()));
+      for (String selected : List.of("old", "live", "")) {
+        map.selectedPathId = selected;
+        Bitmap image = draw(map);
+        assertEquals(AppPalette.LIVE_TRACK, image.getPixel(393, 600));
+        assertEquals(AppPalette.LIVE_TRACK, image.getPixel(393, 604));
+        assertEquals(0xff3B240B, image.getPixel(393, 607));
+      }
+      map.recordingActive = false;
+      assertEquals(AppPalette.PAST_TRACK, draw(map).getPixel(393, 600));
+      assertNotEquals(AppPalette.PAST_TRACK, draw(map).getPixel(393, 604));
+      map.recordingActive = true;
+      map.libraryPaths = List.of(
+          new TrekMapView.LibraryPath(new Store.LibraryEntry("live", "Hidden hike", true, false),
+              Collections.emptyList()));
+      assertNotEquals(AppPalette.LIVE_TRACK, draw(map).getPixel(393, 600));
+      // The live list also draws before the asynchronous library has loaded its row.
+      map.libraryPaths = Collections.emptyList();
+      assertEquals(AppPalette.LIVE_TRACK, draw(map).getPixel(393, 600));
     } finally {
       map.dispose();
     }
@@ -118,7 +155,7 @@ public class MapLibraryRenderingTest {
                   new Store.LibraryEntry("trek", "Recording", true, false),
                   Collections.emptyList()));
       assertNotEquals(0xff235D4D, draw(map).getPixel(393, 600));
-      assertNotEquals(0xffC36C39, draw(map).getPixel(393, 600));
+      assertNotEquals(AppPalette.PAST_TRACK, draw(map).getPixel(393, 600));
     } finally {
       map.dispose();
     }

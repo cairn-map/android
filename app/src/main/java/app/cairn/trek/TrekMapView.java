@@ -49,6 +49,7 @@ public final class TrekMapView extends View {
 
   public List<LibraryPath> libraryPaths;
   public String selectedPathId = "", liveTrackId = "", editingPathId = "";
+  public boolean recordingActive;
   public java.util.function.Consumer<String> onPathSelected;
   public int topOverlay, leftOverlay, bottomOverlay, scaleBottomOverlay;
   private double lat = 45.9237, lon = 6.8694;
@@ -1201,22 +1202,34 @@ public final class TrekMapView extends View {
         line(c, otherRoutes.get(i), colors[i % colors.length], 3);
       line(c, route, Color.WHITE, 8);
       line(c, route, 0xff235D4D, 5);
-      line(c, track, 0xffC36C39, 3);
+      drawTrack(c);
     } else {
       LibraryPath selected = null;
       boolean liveIncluded = false;
+      boolean liveVisible = false;
       for (LibraryPath path : libraryPaths) {
-        if (path.entry.id.equals(liveTrackId)) liveIncluded = true;
+        if (path.entry.id.equals(liveTrackId)) {
+          liveIncluded = true;
+          liveVisible = path.entry.visible && !path.entry.id.equals(editingPathId);
+          if (recordingActive) continue;
+        }
         if (!path.entry.visible) continue;
         if (path.entry.id.equals(editingPathId)) continue;
         if (path.entry.id.equals(selectedPathId)) selected = path;
-        else line(c, pathPoints(path), path.entry.recording ? 0xffC36C39 : 0xff647BAC, 3);
+        else
+          line(
+              c,
+              pathPoints(path),
+              path.entry.recording ? AppPalette.PAST_TRACK : 0xff647BAC,
+              path.entry.recording ? 2 : 3);
       }
-      if (!liveIncluded) line(c, track, 0xffC36C39, 3);
+      if (!liveIncluded && !recordingActive) drawTrack(c);
       if (selected != null) {
         line(c, pathPoints(selected), Color.WHITE, 9);
         line(c, pathPoints(selected), 0xff235D4D, 5);
       }
+      // Keep the current hike above even a selected overlapping saved path.
+      if (recordingActive && (!liveIncluded || liveVisible)) drawTrack(c);
     }
     line(c, editRoute, Color.WHITE, 9);
     line(c, editRoute, 0xff235D4D, 5);
@@ -1502,25 +1515,41 @@ public final class TrekMapView extends View {
     return path.entry.id.equals(liveTrackId) ? track : path.points;
   }
 
+  private void drawTrack(Canvas canvas) {
+    if (recordingActive) {
+      line(canvas, track, 0xff3B240B, 9);
+      line(canvas, track, AppPalette.LIVE_TRACK, 6);
+    } else line(canvas, track, AppPalette.PAST_TRACK, 2);
+  }
+
   private void drawRouteStarts(Canvas canvas) {
     if (libraryPaths == null) {
       int[] colors = {0xff647BAC, 0xffA079A3, 0xffA27D37};
       for (int i = 0; i < otherRoutes.size(); i++)
         routeStart(canvas, otherRoutes.get(i), colors[i % colors.length]);
       routeStart(canvas, route, 0xff235D4D);
-      routeStart(canvas, track, 0xffC36C39);
+      routeStart(canvas, track, recordingActive ? AppPalette.LIVE_TRACK : AppPalette.PAST_TRACK);
       return;
     }
     LibraryPath selected = null;
     boolean liveIncluded = false;
+    boolean liveVisible = false;
     for (LibraryPath path : libraryPaths) {
-      if (path.entry.id.equals(liveTrackId)) liveIncluded = true;
+      if (path.entry.id.equals(liveTrackId)) {
+        liveIncluded = true;
+        liveVisible = path.entry.visible && !path.entry.id.equals(editingPathId);
+        if (recordingActive) continue;
+      }
       if (!path.entry.visible || path.entry.id.equals(editingPathId)) continue;
       if (path.entry.id.equals(selectedPathId)) selected = path;
-      else routeStart(canvas, pathPoints(path), path.entry.recording ? 0xffC36C39 : 0xff647BAC);
+      else
+        routeStart(
+            canvas, pathPoints(path), path.entry.recording ? AppPalette.PAST_TRACK : 0xff647BAC);
     }
-    if (!liveIncluded) routeStart(canvas, track, 0xffC36C39);
+    if (!liveIncluded && !recordingActive) routeStart(canvas, track, AppPalette.PAST_TRACK);
     if (selected != null) routeStart(canvas, pathPoints(selected), 0xff235D4D);
+    if (recordingActive && (!liveIncluded || liveVisible))
+      routeStart(canvas, track, AppPalette.LIVE_TRACK);
   }
 
   private void routeStart(Canvas canvas, List<Point> points, int color) {

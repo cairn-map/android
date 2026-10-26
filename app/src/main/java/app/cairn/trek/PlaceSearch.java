@@ -30,6 +30,9 @@ final class PlaceSearch implements AutoCloseable {
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
   private Future<?> pending;
   private volatile int generation;
+  private String activeQuery;
+  private Point activeCenter;
+  private Callback activeCallback;
 
   PlaceSearch(Context context) {
     this(context, new PhotonClient());
@@ -45,19 +48,30 @@ final class PlaceSearch implements AutoCloseable {
   }
 
   void suggest(String query, Callback callback) {
-    cancel();
     String text = query.trim();
+    if (sameRequest(text, callback)) return;
+    cancel();
     if (text.length() < 2) return;
-    main.postDelayed(() -> search(text, callback), 350);
+    main.postDelayed(() -> search(text, callback), 200);
+  }
+
+  private boolean sameRequest(String query, Callback callback) {
+    return query.equals(activeQuery) && center == activeCenter && callback == activeCallback;
   }
 
   @SuppressWarnings("deprecation")
   void search(String query, Callback callback) {
+    String text = query.trim();
+    if (sameRequest(text, callback)) return;
     cancel();
+    activeQuery = text;
+    activeCenter = center;
+    activeCallback = callback;
     int request = generation;
     Point focus = center;
-    Address coordinates = coordinates(query);
+    Address coordinates = coordinates(text);
     if (coordinates != null) {
+      cancel();
       callback.results(Collections.singletonList(coordinates));
       return;
     }
@@ -76,16 +90,17 @@ final class PlaceSearch implements AutoCloseable {
                 List<Address> places = Collections.emptyList();
                 IOException primaryError = null;
                 try {
-                  places = rank(query, focus, lookup.search(query, focus));
+                  places = rank(text, focus, lookup.search(text, focus));
                 } catch (IOException error) {
                   primaryError = error;
                 }
                 if (request != generation) return;
                 if (places == null || places.isEmpty()) {
-                  if (Geocoder.isPresent()) places = geocoder.getFromLocationName(query, 10);
+                  if (Geocoder.isPresent())
+                    places = rank(text, focus, geocoder.getFromLocationName(text, 10));
                   else if (primaryError != null) throw primaryError;
                 }
-                List<Address> usable = rank(query, focus, places);
+                List<Address> usable = places;
                 main.post(
                     () -> {
                       if (request != generation) return;
@@ -105,8 +120,10 @@ final class PlaceSearch implements AutoCloseable {
 
   /** Favor hiking destinations among relevant matches; distance remains a soft tie-breaker. */
   static List<Address> rank(String query, Point center, List<Address> places) {
-    List<Address> ranked = new ArrayList<>();
-    if (places == null) return ranked;
+    List<RankedPlace> ranked = new ArrayList<>();
+    if (places == null) return new ArrayList<>();
+    String text = normalized(query);
+    String[] tokens = text.split(" ");
     for (Address place : places) {
       if (place == null
           || !place.hasLatitude()
@@ -115,39 +132,52 @@ final class PlaceSearch implements AutoCloseable {
           || !Double.isFinite(place.getLongitude())
           || Math.abs(place.getLatitude()) > 90
           || Math.abs(place.getLongitude()) > 180) continue;
-      ranked.add(place);
+      ranked.add(new RankedPlace(place, text, tokens, center));
     }
-    String text = normalized(query);
-    ranked.sort(
-        Comparator.comparingDouble((Address place) -> relevance(text, place, center)).reversed());
-    List<Address> unique = new ArrayList<>();
-    for (Address place : ranked) {
+    ranked.sort(Comparator.comparingDouble((RankedPlace place) -> place.score).reversed());
+    List<RankedPlace> unique = new ArrayList<>();
+    List<Address> results = new ArrayList<>();
+    for (RankedPlace place : ranked) {
       boolean duplicate = false;
-      for (Address other : unique) {
-        if (normalized(place.getFeatureName()).equals(normalized(other.getFeatureName()))
-            && Geo.distance(
-                    new Point(place.getLatitude(), place.getLongitude()),
-                    new Point(other.getLatitude(), other.getLongitude()))
-                < 100) {
+      for (RankedPlace other : unique) {
+        if (place.name.equals(other.name) && Geo.distance(place.point, other.point) < 100) {
           duplicate = true;
           break;
         }
       }
-      if (!duplicate) unique.add(place);
+      if (!duplicate) {
+        unique.add(place);
+        results.add(place.address);
+      }
     }
-    return unique;
+    return results;
   }
 
-  private static double relevance(String query, Address place, Point center) {
-    String name = normalized(place.getFeatureName());
-    String label = normalized(label(place));
+  private static final class RankedPlace {
+    final Address address;
+    final String name;
+    final Point point;
+    final double score;
+
+    RankedPlace(Address address, String query, String[] tokens, Point center) {
+      this.address = address;
+      name = normalized(address.getFeatureName());
+      point = new Point(address.getLatitude(), address.getLongitude());
+      score = relevance(query, tokens, address, name, point, center);
+    }
+  }
+
+  private static double relevance(
+      String query, String[] tokens, Address place, String name, Point point, Point center) {
+    String[] nameWords = name.split(" ");
+    String[] labelWords = normalized(label(place)).split(" ");
     double score =
         name.equals(query) ? 240 : name.startsWith(query) ? 170 : name.contains(query) ? 130 : 0;
     boolean matchesAllTokens = !query.isEmpty();
     boolean matchesName = false;
-    for (String token : query.split(" ")) {
-      boolean nameMatch = Arrays.stream(name.split(" ")).anyMatch(word -> word.startsWith(token));
-      boolean labelMatch = Arrays.stream(label.split(" ")).anyMatch(word -> word.startsWith(token));
+    for (String token : tokens) {
+      boolean nameMatch = startsWithToken(nameWords, token);
+      boolean labelMatch = startsWithToken(labelWords, token);
       score += nameMatch ? 35 : labelMatch ? 20 : -100;
       matchesAllTokens &= nameMatch || labelMatch;
       matchesName |= nameMatch;
@@ -174,10 +204,15 @@ final class PlaceSearch implements AutoCloseable {
         break;
     }
     if (center != null) {
-      double km = Geo.distance(center, new Point(place.getLatitude(), place.getLongitude())) / 1000;
+      double km = Geo.distance(center, point) / 1000;
       score += 20 / (1 + km / 100);
     }
     return score;
+  }
+
+  private static boolean startsWithToken(String[] words, String token) {
+    for (String word : words) if (word.startsWith(token)) return true;
+    return false;
   }
 
   private static boolean hikingDestination(Address place, String kind) {
@@ -264,6 +299,9 @@ final class PlaceSearch implements AutoCloseable {
   }
 
   void cancel() {
+    activeQuery = null;
+    activeCenter = null;
+    activeCallback = null;
     generation++;
     main.removeCallbacksAndMessages(null);
     if (pending != null) pending.cancel(true);

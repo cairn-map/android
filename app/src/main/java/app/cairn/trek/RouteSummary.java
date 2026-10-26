@@ -11,6 +11,7 @@ final class RouteSummary {
   private final RecordingElevation recordingElevation;
   private double previousElevation = Double.NaN;
   private boolean hasRawElevation;
+  private long firstTime, lastTime;
 
   RouteSummary() {
     this(false);
@@ -31,6 +32,10 @@ final class RouteSummary {
   }
 
   void add(Point point) {
+    if (point.time > 0) {
+      if (firstTime == 0) firstTime = point.time;
+      lastTime = point.time;
+    }
     boolean connected = previous != null && previous.segment == point.segment;
     double step = connected ? Geo.distance(previous, point) : 0;
     double elevation =
@@ -76,7 +81,23 @@ final class RouteSummary {
         "%.1f km · ↑ %s m   ↓ %s m",
         distance / 1000,
         profileChange(ascent),
-        profileChange(descent));
+        profileChange(descent))
+        + (firstTime > 0 && lastTime >= firstTime
+            ? " · " + durationText(lastTime - firstTime)
+            : "");
+  }
+
+  static String durationText(long millis) {
+    long minutes = Math.max(0, millis) / 60000;
+    return minutes < 60
+        ? String.format(Locale.getDefault(), "%dm", minutes)
+        : String.format(Locale.getDefault(), "%dh %02dm", minutes / 60, minutes % 60);
+  }
+
+  String timeDescription() {
+    return firstTime > 0 && lastTime >= firstTime
+        ? " Elapsed time " + durationText(lastTime - firstTime) + "."
+        : "";
   }
 
   private String profileChange(double value) {

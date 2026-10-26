@@ -82,12 +82,15 @@ final class ElevationGraph extends SeekBar {
     if (point == null) return "";
     return String.format(
         Locale.getDefault(),
-        "%s%.2f km · %s m · %.0f%%",
+        "%s%.2f km · %s m%s · %.0f%%",
         cursor ? "" : "GPS ",
         profile.distance * fraction / 1000,
         Double.isFinite(point.elevation)
             ? String.format(Locale.getDefault(), "%.0f", point.elevation)
             : "—",
+        profile.startTime > 0 && point.time >= profile.startTime
+            ? " · " + RouteSummary.durationText(point.time - profile.startTime)
+            : "",
         fraction * 100);
   }
 

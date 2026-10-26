@@ -24,6 +24,7 @@ final class ElevationProfile {
   double distance, minimum = Double.POSITIVE_INFINITY, maximum = Double.NEGATIVE_INFINITY;
   long geometryKey = 1;
   boolean hasExcludedElevation;
+  long startTime;
   private final RecordingElevation recordingElevation;
 
   ElevationProfile() {
@@ -35,6 +36,7 @@ final class ElevationProfile {
   }
 
   void add(Point point) {
+    if (startTime == 0 && point.time > 0) startTime = point.time;
     int index = points.size();
     if (index > 0 && points.get(index - 1).segment != point.segment) lastAccepted = -1;
     double step =
