@@ -1189,7 +1189,7 @@ public final class TrekMapView extends View {
       paint.setColor(stale ? 0xff777777 : 0xff2767AE);
       c.drawCircle(px(position.lon), py(position.lat), dp(6), paint);
     }
-    if (profilePoint != null && !editing) {
+    if (profilePoint != null) {
       float x = px(profilePoint.lon), y = py(profilePoint.lat);
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(AppPalette.SELECTION);

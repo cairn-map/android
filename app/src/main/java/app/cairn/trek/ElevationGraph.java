@@ -24,7 +24,9 @@ final class ElevationGraph extends SeekBar {
     super(context);
     setMax(10000);
     setKeyProgressIncrement(100);
-    setPadding(dp(52), dp(12), dp(14), dp(24));
+    setBackground(null);
+    setThumb(null);
+    setPadding(dp(52), dp(6), dp(14), dp(24));
     setLayoutDirection(LAYOUT_DIRECTION_LTR);
     setContentDescription("Elevation along route. Slide to inspect a point.");
   }
@@ -140,9 +142,6 @@ final class ElevationGraph extends SeekBar {
       ink.setStrokeWidth(dp(1));
       ink.setColor(AppPalette.ACCENT);
       canvas.drawLine(x, getPaddingTop(), x, bottom(), ink);
-      ink.setStyle(Paint.Style.FILL);
-      canvas.drawCircle(
-          x, Double.isFinite(point.elevation) ? y(point.elevation) : bottom(), dp(5), ink);
     }
   }
 

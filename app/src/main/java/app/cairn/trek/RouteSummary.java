@@ -31,9 +31,9 @@ final class RouteSummary {
 
   String text() {
     String length = String.format(Locale.getDefault(), "%.1f km", distance / 1000);
-    if (!hasElevation) return length + "\nElevation unavailable";
+    if (!hasElevation) return length + " · Elevation unavailable";
     return length
-        + String.format(Locale.getDefault(), "\n↑ %.0f m   ↓ %.0f m", ascent, descent)
+        + String.format(Locale.getDefault(), " · ↑ %.0f m   ↓ %.0f m", ascent, descent)
         + (partialElevation ? " · partial" : "");
   }
 

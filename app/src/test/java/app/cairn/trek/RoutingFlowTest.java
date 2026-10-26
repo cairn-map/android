@@ -182,6 +182,14 @@ public class RoutingFlowTest {
     drain();
     assertTrue("Automatic routing leaves the editor open", (boolean) field("planning"));
     assertTrue(((List<?>) field("plannedRoute")).size() > 2);
+    assertEquals(View.VISIBLE, ((View) field("selectionInfo")).getVisibility());
+    ElevationGraph graph = (ElevationGraph) field("elevationGraph");
+    graph.setProgress(graph.getMax());
+    List<?> planned = (List<?>) field("plannedRoute");
+    Point endpoint = (Point) planned.get(planned.size() - 1);
+    assertEquals(endpoint.lat, graph.selectedPoint().lat, 0);
+    assertEquals(endpoint.elevation, graph.selectedPoint().elevation, 0);
+    assertTrue(graph.selectedDistance() > 0);
     tap("Finish editing");
     drain();
     assertFalse((boolean) field("planning"));
