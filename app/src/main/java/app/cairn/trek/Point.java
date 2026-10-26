@@ -4,6 +4,7 @@ public final class Point {
   public final double lat, lon, elevation;
   public final long time;
   public final float accuracy;
+  public final float verticalAccuracy;
   public final int segment;
 
   public Point(double lat, double lon) {
@@ -11,6 +12,17 @@ public final class Point {
   }
 
   public Point(double lat, double lon, double elevation, long time, float accuracy, int segment) {
+    this(lat, lon, elevation, time, accuracy, segment, Float.NaN);
+  }
+
+  public Point(
+      double lat,
+      double lon,
+      double elevation,
+      long time,
+      float accuracy,
+      int segment,
+      float verticalAccuracy) {
     if (!Double.isFinite(lat)
         || !Double.isFinite(lon)
         || lat < -90
@@ -22,6 +34,7 @@ public final class Point {
     this.elevation = elevation;
     this.time = time;
     this.accuracy = accuracy;
+    this.verticalAccuracy = verticalAccuracy;
     this.segment = segment;
   }
 }

@@ -26,7 +26,7 @@ public class RecordingEditingTest {
   private String trekId, title, routeId;
   private final List<Point> recording =
       List.of(
-          new Point(46, 7, 1200, 1000, 3, 0),
+          new Point(46, 7, 1200, 1000, 3, 0, 8),
           new Point(46.001, 7.001, 1210, 2000, 4, 0),
           new Point(46.002, 7.002, 1220, 3000, 5, 1),
           new Point(46.003, 7.003, 1230, 4000, 6, 1));
@@ -101,9 +101,37 @@ public class RecordingEditingTest {
     assertEquals(expected.lat, actual.lat, 0);
     assertEquals(expected.lon, actual.lon, 0);
     assertEquals(expected.elevation, actual.elevation, 0);
+    if (Float.isNaN(expected.verticalAccuracy)) assertTrue(Float.isNaN(actual.verticalAccuracy));
+    else assertEquals(expected.verticalAccuracy, actual.verticalAccuracy, 0);
     assertEquals(expected.time, actual.time);
     assertEquals(expected.accuracy, actual.accuracy, 0);
     assertEquals(expected.segment, actual.segment);
+  }
+
+  @Test
+  public void recordingDraftKeepsQualityAndCanStillReadThePreviousFormat() throws Exception {
+    android.app.Application context = RuntimeEnvironment.getApplication();
+    String id = "quality-regression";
+    try {
+      RecordingDraft.write(context, id, recording);
+      List<Point> restored = RecordingDraft.read(context, id);
+      for (int i = 0; i < recording.size(); i++) assertPoint(recording.get(i), restored.get(i));
+      Point legacy = recording.get(1);
+      try (DataOutputStream output =
+          new DataOutputStream(
+              new FileOutputStream(new File(context.getFilesDir(), "recording-edit-" + id)))) {
+        output.writeInt(1);
+        output.writeDouble(legacy.lat);
+        output.writeDouble(legacy.lon);
+        output.writeDouble(legacy.elevation);
+        output.writeLong(legacy.time);
+        output.writeFloat(legacy.accuracy);
+        output.writeInt(legacy.segment);
+      }
+      assertPoint(legacy, RecordingDraft.read(context, id).get(0));
+    } finally {
+      RecordingDraft.delete(context, id);
+    }
   }
 
   @Test
@@ -127,7 +155,7 @@ public class RecordingEditingTest {
     }
     Point moved = map.waypoints.get(0);
     assertNotEquals(recording.get(0).lon, moved.lon, 0);
-    assertPoint(new Point(moved.lat, moved.lon, 1200, 1000, 3, 0), moved);
+    assertPoint(new Point(moved.lat, moved.lon, 1200, 1000, 3, 0, 8), moved);
     map.onNodeDeleted.accept(1);
     // Insert within the second segment; new points carry no invented GPS measurements.
     map.onNodeAdded.accept(2, new Point(46.0025, 7.0025));

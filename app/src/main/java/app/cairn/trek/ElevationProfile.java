@@ -9,8 +9,27 @@ final class ElevationProfile {
   private double[] distances = new double[64];
   double distance, minimum = Double.POSITIVE_INFINITY, maximum = Double.NEGATIVE_INFINITY;
   long geometryKey = 1;
+  private final RecordingElevation recordingElevation;
+
+  ElevationProfile() {
+    this(false);
+  }
+
+  ElevationProfile(boolean recording) {
+    recordingElevation = recording ? new RecordingElevation() : null;
+  }
 
   void add(Point point) {
+    if (recordingElevation != null)
+      point =
+          new Point(
+              point.lat,
+              point.lon,
+              recordingElevation.add(point),
+              point.time,
+              point.accuracy,
+              point.segment,
+              point.verticalAccuracy);
     // Stable across reloads, and updated only with the existing per-point profile work.
     geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.lat);
     geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.lon);

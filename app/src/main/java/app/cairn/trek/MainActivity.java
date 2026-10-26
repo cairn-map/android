@@ -72,7 +72,7 @@ public final class MainActivity extends Activity {
   private final Handler main = new Handler(Looper.getMainLooper());
   private List<Point> route = new ArrayList<>(), track = new ArrayList<>();
   private double trackLength;
-  private RouteSummary trackSummary = new RouteSummary();
+  private RouteSummary trackSummary = new RouteSummary(true);
   private final List<Point> waypoints = new ArrayList<>();
   private List<Point> exportPoints;
   private boolean planning = false,
@@ -131,7 +131,8 @@ public final class MainActivity extends Activity {
                     i.getDoubleExtra("elevation", Double.NaN),
                     i.getLongExtra("time", 0),
                     i.getFloatExtra("accuracy", 0),
-                    0);
+                    0,
+                    i.getFloatExtra("verticalAccuracy", Float.NaN));
             if (track.isEmpty() || track.get(track.size() - 1).time < p.time) {
               track.add(p);
               trackSummary.add(p);
@@ -392,7 +393,7 @@ public final class MainActivity extends Activity {
                   for (Point point : track) if (point.time > last) loadedTrack.add(point);
                 if (revision == routeRevision) route = loadedRoute;
                 track = loadedTrack;
-                trackSummary = RouteSummary.from(track);
+                trackSummary = RouteSummary.from(track, true);
                 trackLength = trackSummary.distance;
                 map.route = route;
                 map.track = track;
@@ -692,7 +693,8 @@ public final class MainActivity extends Activity {
           }
           Store.LibraryEntry loadedSelection = selection;
           List<Point> loadedPoints = selectionPoints;
-          RouteSummary loadedSummary = RouteSummary.from(loadedPoints);
+          RouteSummary loadedSummary =
+              RouteSummary.from(loadedPoints, loadedSelection != null && loadedSelection.recording);
           boolean showActive = activeVisible;
           main.post(
               () -> {
@@ -886,7 +888,7 @@ public final class MainActivity extends Activity {
     if (planning) {
       if (editSummarySource != points) {
         editSummarySource = points;
-        editSummary = RouteSummary.from(points);
+        editSummary = RouteSummary.from(points, editingRecording());
       }
       summary = editSummary;
     } else summary = live ? trackSummary : selectedSummary;
@@ -897,7 +899,7 @@ public final class MainActivity extends Activity {
     String pathId = planning ? newRouteId : selectedEntry.id;
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
-    elevationGraph.bind(points);
+    elevationGraph.bind(points, planning ? editingRecording() : selectedEntry.recording);
     boolean routeProfile = planning ? !editingRecording() : !selectedEntry.recording;
     elevationGraph.setGpsPosition(routeProfile ? map.position : null);
     if (changed || profileGeometryKey != elevationGraph.geometryKey()) clearProfileCursor();
@@ -1059,7 +1061,15 @@ public final class MainActivity extends Activity {
     if (!planning || pendingRoute != null || finishEditing || savingEdit) return;
     if (editingRecording() && !waypoints.isEmpty()) {
       int segment = waypoints.get(index > 0 ? index - 1 : 0).segment;
-      point = new Point(point.lat, point.lon, point.elevation, point.time, point.accuracy, segment);
+      point =
+          new Point(
+              point.lat,
+              point.lon,
+              point.elevation,
+              point.time,
+              point.accuracy,
+              segment,
+              point.verticalAccuracy);
     }
     rememberNode(index, 0, null);
     waypoints.add(index, point);
@@ -1217,7 +1227,7 @@ public final class MainActivity extends Activity {
               if (entry.recording) store.updateTrek(id, geometry);
               else store.updateRoute(id, geometry, nodes, parameters);
             }
-            RouteSummary summary = RouteSummary.from(geometry);
+            RouteSummary summary = RouteSummary.from(geometry, entry != null && entry.recording);
             root.post(
                 () -> {
                   if (destroyed) return;
@@ -1226,7 +1236,7 @@ public final class MainActivity extends Activity {
                       && id.equals(store.prefs.getString("currentTrek", ""))) {
                     dataGeneration++;
                     track = new ArrayList<>(geometry);
-                    trackSummary = RouteSummary.from(track);
+                    trackSummary = RouteSummary.from(track, true);
                     trackLength = trackSummary.distance;
                     map.track = track;
                     map.position = track.get(track.size() - 1);
@@ -1262,7 +1272,7 @@ public final class MainActivity extends Activity {
         () -> {
           try {
             List<Point> points = store.select(entry);
-            RouteSummary summary = RouteSummary.from(points);
+            RouteSummary summary = RouteSummary.from(points, entry.recording);
             main.post(
                 () -> {
                   if (destroyed || !resumed || generation != libraryGeneration) return;
@@ -1320,7 +1330,7 @@ public final class MainActivity extends Activity {
                   if (entry.recording && entry.id.equals(map.liveTrackId)) {
                     track = new ArrayList<>();
                     trackLength = 0;
-                    trackSummary = new RouteSummary();
+                    trackSummary = new RouteSummary(true);
                     map.track = track;
                   }
                   loadPoints();
@@ -2066,7 +2076,7 @@ public final class MainActivity extends Activity {
     dataGeneration++;
     track = new ArrayList<>();
     trackLength = 0;
-    trackSummary = new RouteSummary();
+    trackSummary = new RouteSummary(true);
     map.track = track;
     map.position = null;
     if (DownloadService.running) stopService(new Intent(this, DownloadService.class));

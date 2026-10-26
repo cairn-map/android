@@ -119,10 +119,32 @@ data and regression handling. The existing Android power/map regressions still r
 Cairn uses one GPS provider subscription, no application-held continuous wake lock, no recording
 polling timer and no continuous screen-on request. Guidance consumes received fixes. Changing
 guidance preserves the subscription; stopping removes it. The map cancels gestures and tile work
-when paused/hidden/detached, rejects obsolete results and resumes its viewport on return. Recording
-notifications coalesce on received fixes, without a timer, while every accepted fix is persisted.
+when paused/hidden/detached, rejects obsolete results and resumes its viewport on return. The required recording
+notification stays static between interval changes, while every accepted fix is persisted.
 Projection is cached for each unchanged camera/list, the active route's two strokes share a path,
 and live-track appends project only new points. Camera changes still rebuild O(n) screen geometry.
 Guidance uses conservative block bounds with exact distance evaluation. Hidden fix broadcasts are
-suppressed and hidden notification refreshes coalesce to five minutes on received fixes; all
-accepted fixes remain persisted immediately. See [the multi-day audit and interval study](MULTIDAY-GPS.md).
+suppressed, and received fixes never refresh the recording notification; all accepted fixes
+remain persisted immediately. See [the multi-day audit and interval study](MULTIDAY-GPS.md).
+
+## Minimal recording notification and elevation estimates
+
+Android requires a foreground-service notification for background GPS recording. It shows
+recording status, the selected GPS interval and Stop recording. Only interval changes refresh it;
+fix callbacks and guidance-route updates do not. Android’s post-age timestamp is hidden. This
+removes periodic System UI work altogether, rather than increasing its frequency. Route-deviation
+alerts remain event-driven and separate. The existing baseline notification budgets are unchanged;
+current work is compared against previous main under the same harness.
+
+Raw fixes still use one SQLite insert each. Vertical accuracy, when present in that same Android
+Location, is retained in the existing insert and UI broadcast. No provider, sensor subscription,
+elevation download, timer or wake lock is added. Profile/summary estimation runs incrementally
+on existing foreground processing or when loading a recording. It retains a fixed amount of
+state per consumer and never changes raw samples or requests extra fixes to settle GPS altitude.
+The first 60 seconds of each segment are excluded; vertical uncertainty above 10 m, steps with
+less than 1 m horizontal displacement, and vertical jumps greater than max(5 m, 60% of horizontal
+displacement) break elevation continuity. Totals accumulate changes against a fixed altitude
+anchor until they exceed max(5 m, reported vertical accuracy), or 10 m without that metadata.
+This is a conservative estimate, not terrain correction: short changes may be omitted and slow
+GPS drift may remain. Raw GPX export is intentionally unchanged in altitude and preserves optional
+quality metadata. Baseline/previous/current work and CPU comparisons remain required in Actions.

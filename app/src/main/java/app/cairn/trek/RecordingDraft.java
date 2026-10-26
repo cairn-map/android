@@ -16,6 +16,7 @@ final class RecordingDraft {
     FileOutputStream stream = file.startWrite();
     try {
       DataOutputStream output = new DataOutputStream(new BufferedOutputStream(stream));
+      output.writeInt(-1); // Versioned format; nonnegative first words are legacy point counts.
       output.writeInt(points.size());
       for (Point point : points) {
         output.writeDouble(point.lat);
@@ -24,6 +25,7 @@ final class RecordingDraft {
         output.writeLong(point.time);
         output.writeFloat(point.accuracy);
         output.writeInt(point.segment);
+        output.writeFloat(point.verticalAccuracy);
       }
       output.flush();
       file.finishWrite(stream);
@@ -37,6 +39,8 @@ final class RecordingDraft {
     try (DataInputStream input =
         new DataInputStream(new BufferedInputStream(file(context, id).openRead()))) {
       int count = input.readInt();
+      boolean quality = count == -1;
+      if (quality) count = input.readInt();
       if (count < 0) throw new IOException("Invalid recording draft");
       List<Point> points = new ArrayList<>();
       for (int i = 0; i < count; i++)
@@ -47,7 +51,8 @@ final class RecordingDraft {
                 input.readDouble(),
                 input.readLong(),
                 input.readFloat(),
-                input.readInt()));
+                input.readInt(),
+                quality ? input.readFloat() : Float.NaN));
       return points;
     }
   }

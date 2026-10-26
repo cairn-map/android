@@ -84,12 +84,14 @@ public class PowerPolicyTest {
   @Test
   public void pausingCancelsPendingLongPressWork() {
     TrekMapView map = new TrekMapView(RuntimeEnvironment.getApplication());
-    java.util.concurrent.atomic.AtomicInteger callbacks = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger callbacks =
+        new java.util.concurrent.atomic.AtomicInteger();
     map.onLongPress = p -> callbacks.incrementAndGet();
     try {
       long now = SystemClock.uptimeMillis();
-      android.view.MotionEvent down = android.view.MotionEvent.obtain(
-          now, now, android.view.MotionEvent.ACTION_DOWN, 30, 30, 0);
+      android.view.MotionEvent down =
+          android.view.MotionEvent.obtain(
+              now, now, android.view.MotionEvent.ACTION_DOWN, 30, 30, 0);
       map.onTouchEvent(down);
       down.recycle();
       map.setRenderingEnabled(false);
@@ -120,12 +122,14 @@ public class PowerPolicyTest {
         .grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
     LocationManager manager = context.getSystemService(LocationManager.class);
     Shadows.shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true);
-    ServiceController<TrackingService> controller = Robolectric.buildService(TrackingService.class).create();
+    ServiceController<TrackingService> controller =
+        Robolectric.buildService(TrackingService.class).create();
     TrackingService service = controller.get();
     try {
       service.onStartCommand(new Intent(context, TrackingService.class).setAction("start"), 0, 1);
       barrier(service);
-      android.app.NotificationManager notifications = context.getSystemService(android.app.NotificationManager.class);
+      android.app.NotificationManager notifications =
+          context.getSystemService(android.app.NotificationManager.class);
       android.app.Notification first = null;
       for (int i = 0; i < 3; i++) {
         Location fix = new Location(LocationManager.GPS_PROVIDER);
@@ -150,7 +154,7 @@ public class PowerPolicyTest {
       org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMinutes(4));
       next.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
       service.onLocationChanged(next);
-      assertNotSame(first, Shadows.shadowOf(notifications).getNotification(1));
+      assertSame(first, Shadows.shadowOf(notifications).getNotification(1));
       assertEquals(5, store.read((String) field(service, "trekId")).size());
     } finally {
       controller.destroy();
@@ -164,13 +168,15 @@ public class PowerPolicyTest {
         .grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
     LocationManager manager = context.getSystemService(LocationManager.class);
     Shadows.shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true);
-    ServiceController<TrackingService> controller = Robolectric.buildService(TrackingService.class).create();
+    ServiceController<TrackingService> controller =
+        Robolectric.buildService(TrackingService.class).create();
     TrackingService service = controller.get();
     try {
       service.onStartCommand(new Intent(context, TrackingService.class).setAction("start"), 0, 1);
       barrier(service);
       assertEquals(0, TrackingService.fixObservers.get());
-      int before = Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().size();
+      int before =
+          Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().size();
       Location fix = new Location(LocationManager.GPS_PROVIDER);
       fix.setLatitude(45);
       fix.setLongitude(6);
@@ -178,14 +184,21 @@ public class PowerPolicyTest {
       fix.setTime(System.currentTimeMillis());
       fix.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
       service.onLocationChanged(fix);
-      assertEquals(before, Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().size());
+      assertEquals(
+          before,
+          Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().size());
       Store store = (Store) field(service, "store");
       assertEquals(1, store.read((String) field(service, "trekId")).size());
-      try (ActivityController<MainActivity> activity = Robolectric.buildActivity(MainActivity.class).setup()) {
+      try (ActivityController<MainActivity> activity =
+          Robolectric.buildActivity(MainActivity.class).setup()) {
         assertEquals(1, TrackingService.fixObservers.get());
         service.onLocationChanged(fix);
-        assertTrue(Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().stream()
-            .anyMatch(intent -> TrackingService.EVENT.equals(intent.getAction()) && intent.hasExtra("lat")));
+        assertTrue(
+            Shadows.shadowOf(RuntimeEnvironment.getApplication()).getBroadcastIntents().stream()
+                .anyMatch(
+                    intent ->
+                        TrackingService.EVENT.equals(intent.getAction())
+                            && intent.hasExtra("lat")));
         activity.pause();
         assertEquals(0, TrackingService.fixObservers.get());
         activity.resume();
@@ -201,11 +214,19 @@ public class PowerPolicyTest {
   public void distanceStatusDoesNotRescanAMultiDayTrackOnEveryFix() throws Exception {
     class CountedTrack extends java.util.ArrayList<Point> {
       int reads;
-      @Override public Point get(int index) { reads++; return super.get(index); }
+
+      @Override
+      public Point get(int index) {
+        reads++;
+        return super.get(index);
+      }
     }
-    try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
-      ((java.util.concurrent.ExecutorService) field(activity, "io")).submit(() -> {}).get(5, TimeUnit.SECONDS);
+      ((java.util.concurrent.ExecutorService) field(activity, "io"))
+          .submit(() -> {})
+          .get(5, TimeUnit.SECONDS);
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       CountedTrack track = new CountedTrack();
       for (int i = 0; i < 10000; i++) track.add(new Point(45 + i * .000001, 6, 0, i, 5, 0));
@@ -222,16 +243,23 @@ public class PowerPolicyTest {
       summary.set(activity, RouteSummary.from(track));
       track.reads = 0;
       Point next = new Point(45.01, 6, 0, 10000, 5, 0);
-      android.content.BroadcastReceiver receiver = (android.content.BroadcastReceiver) field(activity, "fixes");
-      Intent fix = new Intent(TrackingService.EVENT).putExtra("lat", next.lat).putExtra("lon", next.lon)
-          .putExtra("time", next.time).putExtra("accuracy", next.accuracy);
+      android.content.BroadcastReceiver receiver =
+          (android.content.BroadcastReceiver) field(activity, "fixes");
+      Intent fix =
+          new Intent(TrackingService.EVENT)
+              .putExtra("lat", next.lat)
+              .putExtra("lon", next.lon)
+              .putExtra("time", next.time)
+              .putExtra("accuracy", next.accuracy);
       receiver.onReceive(activity, fix);
       assertTrue("No historical rescan: " + track.reads, track.reads < 20);
-      assertEquals(expected + Geo.distance(track.get(9999), next), length.getDouble(activity), 1e-6);
+      assertEquals(
+          expected + Geo.distance(track.get(9999), next), length.getDouble(activity), 1e-6);
       receiver.onReceive(activity, fix); // A duplicate UI event must not add distance again.
       assertEquals(10001, track.size());
       assertEquals(Geo.length(track), length.getDouble(activity), 1e-6);
-      assertEquals(length.getDouble(activity), ((RouteSummary) summary.get(activity)).distance, 1e-6);
+      assertEquals(
+          length.getDouble(activity), ((RouteSummary) summary.get(activity)).distance, 1e-6);
     }
   }
 
@@ -246,13 +274,15 @@ public class PowerPolicyTest {
     try (Store settings = new Store(context)) {
       settings.prefs.edit().putInt("intervalSeconds", 20).commit();
     }
-    ServiceController<TrackingService> controller = Robolectric.buildService(TrackingService.class).create();
+    ServiceController<TrackingService> controller =
+        Robolectric.buildService(TrackingService.class).create();
     TrackingService service = controller.get();
     try {
       service.onStartCommand(new Intent(context, TrackingService.class).setAction("start"), 0, 1);
       barrier(service);
       assertEquals(0, TrackingService.fixObservers.get());
-      android.app.NotificationManager notifications = context.getSystemService(android.app.NotificationManager.class);
+      android.app.NotificationManager notifications =
+          context.getSystemService(android.app.NotificationManager.class);
       android.app.Notification previous = Shadows.shadowOf(notifications).getNotification(1);
       int changes = 0;
       int fixes = 3 * 24 * 3600 / 20;
@@ -269,15 +299,20 @@ public class PowerPolicyTest {
         previous = current;
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(20));
       }
-      assertEquals(3 * 24 * 12, changes);
+      assertEquals(0, changes);
       Store store = (Store) field(service, "store");
       assertEquals(fixes, store.read((String) field(service, "trekId")).size());
-      assertEquals(1, Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).size());
-      assertTrue(Shadows.shadowOf(manager).getLocationRequests(LocationManager.NETWORK_PROVIDER).isEmpty());
+      assertEquals(
+          1, Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).size());
+      assertTrue(
+          Shadows.shadowOf(manager)
+              .getLocationRequests(LocationManager.NETWORK_PROVIDER)
+              .isEmpty());
     } finally {
       controller.destroy();
     }
-    assertTrue(Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
+    assertTrue(
+        Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
   }
 
   @Test
@@ -313,5 +348,64 @@ public class PowerPolicyTest {
     }
     assertTrue(
         Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).isEmpty());
+  }
+
+  @Test
+  public void onlyIntervalChangesRefreshTheRecordingNotification() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    Shadows.shadowOf(RuntimeEnvironment.getApplication())
+        .grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
+    LocationManager manager = context.getSystemService(LocationManager.class);
+    Shadows.shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true);
+    ServiceController<TrackingService> controller =
+        Robolectric.buildService(TrackingService.class).create();
+    TrackingService service = controller.get();
+    try {
+      service.onStartCommand(new Intent(context, TrackingService.class).setAction("start"), 0, 1);
+      barrier(service);
+      android.app.NotificationManager notifications =
+          context.getSystemService(android.app.NotificationManager.class);
+      android.app.Notification initial = Shadows.shadowOf(notifications).getNotification(1);
+      assertEquals(
+          "Cairn · Recording your hike",
+          initial.extras.getCharSequence(android.app.Notification.EXTRA_TITLE));
+      assertEquals("Stop recording", initial.actions[0].title);
+      Location fix = new Location(LocationManager.GPS_PROVIDER);
+      fix.setAccuracy(5);
+      fix.setAltitude(123);
+      fix.setVerticalAccuracyMeters(7);
+      fix.setTime(1000000);
+      fix.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+      service.onLocationChanged(fix);
+      // Fixes are persisted without posting recording notifications.
+      fix.setTime(1001000);
+      service.onLocationChanged(fix);
+      service.onStartCommand(
+          new Intent(context, TrackingService.class).setAction(TrackingService.UPDATE), 0, 2);
+      barrier(service);
+      android.app.Notification notification = Shadows.shadowOf(notifications).getNotification(1);
+      assertSame(initial, notification);
+      Store store = (Store) field(service, "store");
+      store.prefs.edit().putInt("intervalSeconds", 5).commit();
+      service.onStartCommand(
+          new Intent(context, TrackingService.class).setAction(TrackingService.UPDATE), 0, 3);
+      barrier(service);
+      notification = Shadows.shadowOf(notifications).getNotification(1);
+      assertNotSame(initial, notification);
+      String text =
+          notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString();
+      assertEquals("GPS interval: 5 seconds", text);
+      assertFalse(text.contains("Waiting"));
+      assertFalse(text.contains("Last fix"));
+      assertFalse(notification.extras.getBoolean(android.app.Notification.EXTRA_SHOW_WHEN));
+      java.util.List<Point> points = store.read((String) field(service, "trekId"));
+      assertEquals(2, points.size());
+      assertEquals(123, points.get(1).elevation, 0);
+      assertEquals(7, points.get(1).verticalAccuracy, 0);
+      assertEquals(
+          1, Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).size());
+    } finally {
+      controller.destroy();
+    }
   }
 }

@@ -17,6 +17,7 @@ final class ElevationGraph extends SeekBar {
   private final Path gpsMarker = new Path();
   private List<Point> source = Collections.emptyList();
   private ElevationProfile profile = new ElevationProfile();
+  private boolean recordingProfile;
   private boolean dirty = true;
   private boolean cursorActive;
   private RouteProximity gpsRoute;
@@ -38,9 +39,16 @@ final class ElevationGraph extends SeekBar {
   }
 
   void bind(List<Point> points) {
-    if (source != points || points.size() < profile.points.size()) {
+    bind(points, false);
+  }
+
+  void bind(List<Point> points, boolean recording) {
+    if (source != points
+        || points.size() < profile.points.size()
+        || recordingProfile != recording) {
       source = points;
-      profile = new ElevationProfile();
+      recordingProfile = recording;
+      profile = new ElevationProfile(recording);
       dirty = true;
     }
     for (int i = profile.points.size(); i < points.size(); i++) {

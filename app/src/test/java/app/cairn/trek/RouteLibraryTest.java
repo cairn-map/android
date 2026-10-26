@@ -138,7 +138,9 @@ public class RouteLibraryTest {
       b = store.saveRoute(points(46), "Second GPX");
       assertEquals(2, store.routes().size());
       store.activateRoute(a);
-      store.getWritableDatabase().execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {b});
+      store
+          .getWritableDatabase()
+          .execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {b});
       store.renameRoute(a, "Weekend");
     }
     try (Store store = new Store(context)) {
@@ -233,6 +235,32 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void versionThreeUpgradePreservesRawAltitudeAndUnknownVerticalAccuracy() {
+    try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
+      db.execSQL(
+          "CREATE TABLE points(id INTEGER PRIMARY KEY,collection TEXT,lat REAL,lon REAL,"
+              + "elevation REAL,time INTEGER,accuracy REAL,segment INTEGER)");
+      db.execSQL("CREATE TABLE treks(id TEXT PRIMARY KEY,title TEXT)");
+      db.execSQL(
+          "CREATE TABLE routes(id TEXT PRIMARY KEY,title TEXT NOT NULL,visible INTEGER,"
+              + "created INTEGER,routing_preferences TEXT)");
+      db.execSQL("INSERT INTO points VALUES(1,'trek-old',45,6,229,1000,5,0)");
+      db.setVersion(3);
+    }
+    try (Store store = new Store(context)) {
+      Point old = store.read("trek-old").get(0);
+      assertEquals(229, old.elevation, 0);
+      assertTrue(Float.isNaN(old.verticalAccuracy));
+      store.add("trek-old", new Point(45.01, 6, 216.492, 2000, 5, 0, 25));
+    }
+    try (Store store = new Store(context)) {
+      Point saved = store.read("trek-old").get(1);
+      assertEquals(216.492, saved.elevation, 0);
+      assertEquals(25, saved.verticalAccuracy, 0);
+    }
+  }
+
+  @Test
   public void upgradesThePreviousSingleRouteDatabaseWithoutLosingHikes() {
     try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
       db.execSQL(
@@ -246,8 +274,7 @@ public class RouteLibraryTest {
     }
     try (Store store = new Store(context)) {
       assertEquals(1, store.routes().size());
-      assertEquals(
-          RoutingPreferences.read(store.prefs), store.routePreferences("route-legacy"));
+      assertEquals(RoutingPreferences.read(store.prefs), store.routePreferences("route-legacy"));
       assertEquals(2, store.read("route-legacy").size());
       assertEquals(2, store.read("route").size());
       assertEquals(1, store.read("trek-old").size());
