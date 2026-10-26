@@ -477,8 +477,16 @@ public class PlaceSearchTest {
       TrekMapView map = (TrekMapView) field(activity, "map");
       assertEquals(48.8566, map.center().lat, 1e-6);
       assertEquals(2.3522, map.center().lon, 1e-6);
+      assertNotNull(map.searchMarker);
+      assertEquals(48.8566, map.searchMarker.lat, 1e-6);
+      assertEquals(2.3522, map.searchMarker.lon, 1e-6);
       assertFalse(((IgnMap) map.tileSource()).online());
       assertFalse(dialog.isShowing());
+      controller.recreate();
+      TrekMapView restored = (TrekMapView) field(controller.get(), "map");
+      assertNotNull(restored.searchMarker);
+      assertEquals(48.8566, restored.searchMarker.lat, 1e-6);
+      assertEquals(2.3522, restored.searchMarker.lon, 1e-6);
     }
   }
 
@@ -537,6 +545,9 @@ public class PlaceSearchTest {
       TrekMapView map = (TrekMapView) field(activity, "map");
       assertEquals(48.8566, map.center().lat, 1e-6);
       assertEquals(2.3522, map.center().lon, 1e-6);
+      assertNotNull(map.searchMarker);
+      assertEquals(48.8566, map.searchMarker.lat, 1e-6);
+      assertEquals(2.3522, map.searchMarker.lon, 1e-6);
       assertFalse(((IgnMap) field(activity, "ignMap")).online());
       assertEquals(137000L, store.intervalMillis());
       assertTrue(TrackingService.running);

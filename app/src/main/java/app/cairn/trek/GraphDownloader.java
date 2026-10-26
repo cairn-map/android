@@ -37,7 +37,7 @@ final class GraphDownloader {
       File dir,
       String name,
       java.util.function.BooleanSupplier stop,
-      java.util.function.Consumer<String> progress,
+      java.util.function.BiConsumer<Long, Long> progress,
       SpaceCheck space)
       throws IOException {
     if (!RoutingData.validName(name)) throw new IOException("Invalid routing region filename");
@@ -122,15 +122,7 @@ final class GraphDownloader {
           long now = (System.nanoTime() / 1000000);
           if (now - last > 2000) {
             last = now;
-            progress.accept(
-                name
-                    + " · "
-                    + done * 100 / Math.max(1, expected)
-                    + "% · "
-                    + done / (1024 * 1024)
-                    + "/"
-                    + (expected + 1024 * 1024 - 1) / (1024 * 1024)
-                    + " MB");
+            progress.accept(done, expected);
           }
         }
       }

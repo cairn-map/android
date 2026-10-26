@@ -61,6 +61,32 @@ public class MapRenderingTest {
     }
   }
 
+  @Test
+  public void searchPinPointsAtTheSelectedCoordinateAndMovesWithTheMap() throws Exception {
+    TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
+    try {
+      view.restoreCamera(new double[] {45, 6, 13});
+      view.searchMarker = new Point(45, 6);
+      Bitmap centered = draw(view);
+      File preview = new File("build/test-previews/search-result-pin.png");
+      preview.getParentFile().mkdirs();
+      try (OutputStream out = new FileOutputStream(preview)) {
+        centered.compress(Bitmap.CompressFormat.PNG, 100, out);
+      }
+      // At xhdpi the white center is 52 px above the coordinate at the pin's tip.
+      assertEquals(Color.WHITE, centered.getPixel(393, 600 - 52));
+      assertEquals(AppPalette.PRIMARY, centered.getPixel(393 + 18, 600 - 52));
+      view.restoreCamera(new double[] {46, 7, 13});
+      Bitmap moved = draw(view);
+      assertNotEquals(Color.WHITE, moved.getPixel(393, 600 - 52));
+      assertEquals(45, view.searchMarker.lat, 0);
+      centered.recycle();
+      moved.recycle();
+    } finally {
+      view.dispose();
+    }
+  }
+
   private ThreadPoolExecutor executor(TrekMapView view) throws Exception {
     Field field = TrekMapView.class.getDeclaredField("executor");
     field.setAccessible(true);

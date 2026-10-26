@@ -87,7 +87,7 @@ public class GraphDownloaderTest {
   }
 
   private void download(GraphDownloader client, File directory) throws IOException {
-    client.download(directory, "E5_N45.rd5", () -> false, text -> {}, bytes -> {});
+    client.download(directory, "E5_N45.rd5", () -> false, (done, total) -> {}, bytes -> {});
   }
 
   @Test
@@ -172,7 +172,9 @@ public class GraphDownloaderTest {
       GraphDownloader client = new GraphDownloader(server.url());
       assertThrows(
           IOException.class,
-          () -> client.download(dir, "E5_N45.rd5", stop::get, text -> stop.set(true), space -> {}));
+          () ->
+              client.download(
+                  dir, "E5_N45.rd5", stop::get, (done, total) -> stop.set(true), space -> {}));
       server.finish();
       assertFalse(new File(dir, "E5_N45.rd5").isFile());
     }
