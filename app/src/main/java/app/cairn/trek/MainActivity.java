@@ -157,6 +157,8 @@ public final class MainActivity extends Activity {
     if (state != null) {
       profilePathId = state.getString("profilePathId", "");
       profileProgress = state.getInt("profileProgress");
+      profileCursorActive = state.getBoolean("profileCursorActive");
+      profileGeometryKey = state.getLong("profileGeometryKey");
     }
     store = new Store(this);
     appUpdates = new AppUpdates(this);
@@ -315,6 +317,8 @@ public final class MainActivity extends Activity {
     state.putLong("followResumeAt", followResumeAt);
     state.putString("profilePathId", profilePathId);
     state.putInt("profileProgress", profileProgress);
+    state.putBoolean("profileCursorActive", profileCursorActive);
+    state.putLong("profileGeometryKey", profileGeometryKey);
     state.putBoolean("planning", planning);
     state.putBoolean("editDirty", editDirty);
     state.putString("newRouteId", newRouteId);
@@ -548,11 +552,14 @@ public final class MainActivity extends Activity {
         new LinearLayout.LayoutParams(
             -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 48 : 100)));
     elevationGraph.setProgress(profileProgress);
+    elevationGraph.setCursorActive(profileCursorActive);
     elevationGraph.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
           @Override
           public void onProgressChanged(SeekBar slider, int progress, boolean fromUser) {
             profileProgress = progress;
+            profileCursorActive = true;
+            elevationGraph.setCursorActive(true);
             updateProfilePoint(true);
           }
 
@@ -646,6 +653,8 @@ public final class MainActivity extends Activity {
   private TextView profileDetails;
   private String profilePathId = "";
   private int profileProgress;
+  private boolean profileCursorActive;
+  private long profileGeometryKey;
   private LinearLayout selectionPanel;
   private int libraryGeneration;
   private AlertDialog mapDialog, corridorDialog;
@@ -750,7 +759,7 @@ public final class MainActivity extends Activity {
     boolean selected = entry.id.equals(store.selectedLibraryId()) && entry.visible;
     TextView item =
         button(
-            entry.title + (selected ? " · selected" : "") + (entry.visible ? "" : " · hidden"),
+            entry.title + (selected ? " · selected" : ""),
             selected,
             () -> selectLibraryEntry(entry));
     item.setSelected(selected);
@@ -850,7 +859,6 @@ public final class MainActivity extends Activity {
           () -> routeCorridorMenu(entry));
       addSelectionAction(
           MapIcon.EXPORT, "Export GPX", () -> export(selectionSnapshot(), entry.title + ".gpx"));
-      addSelectionAction(MapIcon.HIDE, "Hide", () -> hideLibraryEntry(entry));
       // Keep Center and Edit beside GPS in both modes, with secondary actions to the left.
       addSelectionAction(
           MapIcon.CENTER, "Center selected", () -> map.fitRoute(selectionSnapshot()));
@@ -892,10 +900,11 @@ public final class MainActivity extends Activity {
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
     elevationGraph.bind(points);
-    if (changed) {
-      profileProgress = 0;
-      elevationGraph.setProgress(0);
-    }
+    boolean routeProfile = planning ? !editingRecording() : !selectedEntry.recording;
+    elevationGraph.setGpsPosition(routeProfile ? map.position : null);
+    if (changed || profileGeometryKey != elevationGraph.geometryKey()) clearProfileCursor();
+    profileGeometryKey = elevationGraph.geometryKey();
+    elevationGraph.setCursorActive(profileCursorActive);
     updateProfilePoint(false);
     // Measure before fitRoute(), including wrapping and larger accessibility text.
     selectionInfo.measure(
@@ -924,11 +933,20 @@ public final class MainActivity extends Activity {
   private void updateProfilePoint(boolean reveal) {
     Point point = elevationGraph.selectedPoint();
     map.inspectProfilePoint(point, reveal);
+    String gps =
+        Double.isFinite(elevationGraph.gpsDistance())
+            ? String.format(Locale.getDefault(), "GPS %.2f km", elevationGraph.gpsDistance() / 1000)
+            : "";
     if (point == null) {
-      setStatusText(profileDetails, "No route points");
-      elevationGraph.setContentDescription("Elevation along route. No route points.");
+      profileDetails.setTextColor(ACCENT);
+      setStatusText(profileDetails, elevationGraph.isEnabled() ? gps : "No route points");
+      elevationGraph.setContentDescription(
+          elevationGraph.isEnabled()
+              ? "Elevation along route. Slide to inspect a point. " + gps
+              : "Elevation along route. No route points.");
       return;
     }
+    profileDetails.setTextColor(ON_SELECTION);
     String elevation =
         Double.isFinite(point.elevation)
             ? String.format(Locale.getDefault(), "%.0f m", point.elevation)
@@ -940,7 +958,14 @@ public final class MainActivity extends Activity {
             elevationGraph.selectedDistance() / 1000,
             elevation);
     setStatusText(profileDetails, details);
-    elevationGraph.setContentDescription("Elevation along route. " + details);
+    elevationGraph.setContentDescription("Elevation along route. " + details + ". " + gps);
+  }
+
+  private void clearProfileCursor() {
+    profileCursorActive = false;
+    profileProgress = 0;
+    elevationGraph.clearCursor();
+    updateProfilePoint(false);
   }
 
   private void toggleEditing() {
@@ -1072,6 +1097,7 @@ public final class MainActivity extends Activity {
   }
 
   private void nodesChanged() {
+    clearProfileCursor();
     editDirty = true;
     editRevision++;
     main.removeCallbacks(autoRoute);
@@ -1269,6 +1295,7 @@ public final class MainActivity extends Activity {
 
   private void clearLibrarySelection() {
     if (planning) return;
+    clearProfileCursor();
     libraryGeneration++;
     io.execute(() -> store.prefs.edit().putString("selectedLibraryId", "").apply());
     selectedEntry = null;
@@ -1276,15 +1303,6 @@ public final class MainActivity extends Activity {
     map.selectedPathId = "";
     map.invalidate();
     updateSelectionActions();
-  }
-
-  private void hideLibraryEntry(Store.LibraryEntry entry) {
-    libraryGeneration++;
-    io.execute(
-        () -> {
-          store.libraryVisible(entry, false);
-          main.post(this::reloadLibrary);
-        });
   }
 
   private void removeLibraryEntry(Store.LibraryEntry entry) {

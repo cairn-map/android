@@ -8,8 +8,14 @@ final class ElevationProfile {
   final List<Point> points = new ArrayList<>();
   private double[] distances = new double[64];
   double distance, minimum = Double.POSITIVE_INFINITY, maximum = Double.NEGATIVE_INFINITY;
+  long geometryKey = 1;
 
   void add(Point point) {
+    // Stable across reloads, and updated only with the existing per-point profile work.
+    geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.lat);
+    geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.lon);
+    geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.elevation);
+    geometryKey = 31 * geometryKey + point.segment;
     int index = points.size();
     if (index == distances.length)
       distances = java.util.Arrays.copyOf(distances, distances.length * 2);

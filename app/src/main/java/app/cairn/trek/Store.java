@@ -69,9 +69,9 @@ public final class Store extends SQLiteOpenHelper {
     try (Cursor cursor =
         getReadableDatabase()
             .rawQuery(
-                "SELECT id,title,visible FROM routes ORDER BY created DESC,rowid DESC", null)) {
+                "SELECT id,title FROM routes ORDER BY created DESC,rowid DESC", null)) {
       while (cursor.moveToNext())
-        result.add(new RouteEntry(cursor.getString(0), cursor.getString(1), cursor.getInt(2) != 0));
+        result.add(new RouteEntry(cursor.getString(0), cursor.getString(1), true));
     }
     return result;
   }
@@ -98,7 +98,7 @@ public final class Store extends SQLiteOpenHelper {
               trek.getKey(),
               trek.getValue(),
               true,
-              !prefs.getBoolean("hiddenTrek:" + trek.getKey(), false)));
+              true));
     return entries;
   }
 
@@ -109,16 +109,8 @@ public final class Store extends SQLiteOpenHelper {
   public List<Point> select(LibraryEntry entry) {
     List<Point> points = entry.recording ? read(entry.id) : activateRoute(entry.id);
     if (points.isEmpty()) throw new IllegalArgumentException("This item has no points yet");
-    libraryVisible(entry, true);
     prefs.edit().putString("selectedLibraryId", entry.id).apply();
     return points;
-  }
-
-  public void libraryVisible(LibraryEntry entry, boolean visible) {
-    if (entry.recording) prefs.edit().putBoolean("hiddenTrek:" + entry.id, !visible).apply();
-    else routeVisible(entry.id, visible);
-    if (!visible && entry.id.equals(selectedLibraryId()))
-      prefs.edit().putString("selectedLibraryId", "").apply();
   }
 
   private void clearLibrarySelection(String id) {
@@ -239,12 +231,6 @@ public final class Store extends SQLiteOpenHelper {
     } finally {
       db.endTransaction();
     }
-  }
-
-  public void routeVisible(String id, boolean visible) {
-    ContentValues value = new ContentValues();
-    value.put("visible", visible ? 1 : 0);
-    getWritableDatabase().update("routes", value, "id=?", new String[] {id});
   }
 
   public void renameRoute(String id, String title) {

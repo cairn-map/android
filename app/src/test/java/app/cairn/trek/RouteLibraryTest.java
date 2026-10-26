@@ -82,7 +82,7 @@ public class RouteLibraryTest {
     Map<String, String> frozen;
     try (Store store = new Store(context)) {
       assertEquals("Weekend", store.routes().get(0).title);
-      assertFalse(store.routes().get(0).visible);
+      assertTrue(store.routes().get(0).visible);
       assertEquals(45, store.read("old").get(0).lat, 0);
       assertEquals(45, store.routeNodes("old").get(0).lat, 0);
       assertEquals(45, store.read("route").get(0).lat, 0);
@@ -138,7 +138,7 @@ public class RouteLibraryTest {
       b = store.saveRoute(points(46), "Second GPX");
       assertEquals(2, store.routes().size());
       store.activateRoute(a);
-      store.routeVisible(b, false);
+      store.getWritableDatabase().execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {b});
       store.renameRoute(a, "Weekend");
     }
     try (Store store = new Store(context)) {
@@ -147,7 +147,7 @@ public class RouteLibraryTest {
       assertEquals(46, store.read(b).get(0).lat, 0);
       assertEquals(a, store.prefs.getString("activeRouteId", ""));
       assertTrue(store.prefs.getBoolean("follow", false));
-      assertFalse(store.routes().get(0).visible);
+      assertTrue(store.routes().get(0).visible);
       assertEquals("Weekend", store.routes().get(1).title);
     }
   }

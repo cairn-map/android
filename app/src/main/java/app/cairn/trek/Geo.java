@@ -40,6 +40,16 @@ public final class Geo {
     return Math.hypot(ax + t * dx, ay + t * dy);
   }
 
+  static double segmentFraction(Point p, Point a, Point b) {
+    double cos = Math.cos(Math.toRadians(p.lat));
+    double ax = Math.toRadians(wrap(a.lon - p.lon)) * cos,
+        ay = Math.toRadians(a.lat - p.lat);
+    double dx = Math.toRadians(wrap(b.lon - p.lon)) * cos - ax,
+        dy = Math.toRadians(b.lat - p.lat) - ay;
+    double length = dx * dx + dy * dy;
+    return length == 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / length));
+  }
+
   public static double routeDistance(Point p, List<Point> route) {
     double best = Double.POSITIVE_INFINITY;
     for (int i = 0; i < route.size(); i++) {

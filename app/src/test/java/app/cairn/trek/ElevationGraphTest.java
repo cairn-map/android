@@ -46,6 +46,18 @@ public class ElevationGraphTest {
     return field.get(object);
   }
 
+  private void invoke(MainActivity activity, String name) throws Exception {
+    java.lang.reflect.Method method = MainActivity.class.getDeclaredMethod(name);
+    method.setAccessible(true);
+    method.invoke(activity);
+  }
+
+  private void assertCleared(MainActivity activity) throws Exception {
+    assertNull(((ElevationGraph) field(activity, "elevationGraph")).selectedPoint());
+    assertNull(field(field(activity, "map"), "profilePoint"));
+    assertEquals("", ((TextView) field(activity, "profileDetails")).getText().toString());
+  }
+
   private void drain(MainActivity activity) throws Exception {
     for (int i = 0; i < 4; i++) {
       ((ExecutorService) field(activity, "io")).submit(() -> {}).get(5, TimeUnit.SECONDS);
@@ -76,6 +88,8 @@ public class ElevationGraphTest {
       layout(activity.getWindow().getDecorView(), 786, 1550);
       ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
       TrekMapView map = (TrekMapView) field(activity, "map");
+      assertNull(graph.selectedPoint());
+      assertNull(field(map, "profilePoint"));
       Point gps = new Point(44, 5);
       map.position = gps;
       assertEquals(View.VISIBLE, ((View) field(activity, "selectionInfo")).getVisibility());
@@ -134,13 +148,14 @@ public class ElevationGraphTest {
       drain(activity);
       ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
       assertEquals(0, graph.getProgress());
-      assertEquals(46, ((Point) field(map, "profilePoint")).lat, 0);
+      assertNull(field(map, "profilePoint"));
+      assertEquals("", ((TextView) field(activity, "profileDetails")).getText().toString());
+      graph.setProgress(7500);
       assertTrue(
           ((TextView) field(activity, "profileDetails"))
               .getText()
               .toString()
               .contains("Elevation unavailable"));
-      graph.setProgress(7500);
       controller.recreate();
       activity = controller.get();
       drain(activity);
@@ -151,6 +166,7 @@ public class ElevationGraphTest {
       drain(activity);
       assertEquals(View.VISIBLE, ((View) field(activity, "selectionInfo")).getVisibility());
       graph = (ElevationGraph) field(activity, "elevationGraph");
+      assertNull(graph.selectedPoint());
       graph.setProgress(graph.getMax());
       assertEquals(46.01, graph.selectedPoint().lat, 0);
       assertEquals(46.01, ((Point) field(field(activity, "map"), "profilePoint")).lat, 0);
@@ -174,7 +190,13 @@ public class ElevationGraphTest {
       drain(activity);
       TrekMapView map = (TrekMapView) field(activity, "map");
       ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      graph.setProgress(graph.getMax() / 2);
+      double[] camera = map.camera();
       map.onNodeDeleted.accept(1);
+      assertNull(graph.selectedPoint());
+      assertNull(field(map, "profilePoint"));
+      assertEquals("", ((TextView) field(activity, "profileDetails")).getText().toString());
+      assertArrayEquals(camera, map.camera(), 0);
       graph.setProgress(graph.getMax() / 2);
       assertEquals(125, graph.selectedPoint().elevation, .001);
       assertTrue(
@@ -182,6 +204,9 @@ public class ElevationGraphTest {
       java.lang.reflect.Method undo = MainActivity.class.getDeclaredMethod("undoNode");
       undo.setAccessible(true);
       undo.invoke(activity);
+      assertNull(graph.selectedPoint());
+      assertNull(field(map, "profilePoint"));
+      graph.setProgress(graph.getMax() / 2);
       assertEquals(200, graph.selectedPoint().elevation, .001);
       assertTrue(
           ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 100 m"));
@@ -193,10 +218,111 @@ public class ElevationGraphTest {
   }
 
   @Test
+  public void identicalReloadKeepsTheCursorButChangedGeometryClearsItWithoutPanning()
+      throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      layout(activity.getWindow().getDecorView(), 786, 1550);
+      ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      graph.setProgress(5000);
+      invoke(activity, "reloadLibrary");
+      drain(activity);
+      assertEquals(5000, graph.getProgress());
+      assertEquals(200, graph.selectedPoint().elevation, .001);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      map.center(new Point(40, 2));
+      double[] camera = map.camera();
+      Store store = (Store) field(activity, "store");
+      store.updateRoute(
+          store.selectedLibraryId(),
+          List.of(points.get(0), new Point(45.015, 6, 400, 0, 0, 0), points.get(2)),
+          Collections.emptyList());
+      invoke(activity, "reloadLibrary");
+      drain(activity);
+      assertCleared(activity);
+      assertEquals(0, graph.getProgress());
+      assertArrayEquals(camera, map.camera(), 0);
+      // Selecting the same zero endpoint still activates a fresh cursor.
+      touch(graph, MotionEvent.ACTION_DOWN, graph.getPaddingLeft());
+      assertNotNull(graph.selectedPoint());
+    }
+  }
+
+  @Test
+  public void movingAnEditNodeClearsTheCursorBeforeRoutingFinishes() throws Exception {
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      invoke(activity, "toggleEditing");
+      drain(activity);
+      ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      graph.setProgress(5000);
+      TrekMapView map = (TrekMapView) field(activity, "map");
+      double[] camera = map.camera();
+      map.onNodeMoved.accept(0, map.waypoints.get(0));
+      assertCleared(activity);
+      assertArrayEquals(camera, map.camera(), 0);
+      assertFalse(((List<?>) field(activity, "plannedRoute")).isEmpty());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void appendingALiveFixClearsTheCursor() throws Exception {
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      String id = store.newTrek();
+      for (Point point : points) store.add(id, point);
+      store.select(new Store.LibraryEntry(id, "Recording", true, true));
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      ((ElevationGraph) field(activity, "elevationGraph")).setProgress(5000);
+      ((List<Point>) field(activity, "track")).add(new Point(45.03, 6, 300, 0, 0, 0));
+      invoke(activity, "refreshStatus");
+      assertCleared(activity);
+    }
+  }
+
+  @Test
+  public void gpsProgressIsIndependentAndHidesDistantInaccurateOrStaleFixes() {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    graph.bind(points);
+    long now = System.currentTimeMillis();
+    graph.setGpsPosition(new Point(45.005, 6, 100, now, 5, 0));
+    assertEquals(Geo.length(points) / 4, graph.gpsDistance(), .01);
+    assertNull(graph.selectedPoint());
+    graph.setCursorActive(true);
+    graph.setProgress(5000);
+    Point inspected = graph.selectedPoint();
+    graph.setGpsPosition(new Point(45.015, 6, 100, now, 5, 0));
+    assertEquals(Geo.length(points) * .75, graph.gpsDistance(), .01);
+    assertEquals(inspected.lat, graph.selectedPoint().lat, 0);
+    for (Point invalid :
+        Arrays.asList(
+            new Point(46, 6, 100, now, 5, 0),
+            new Point(45.005, 6, 100, now, 100, 0),
+            new Point(45.005, 6, 100, now - 121_000, 5, 0),
+            null)) {
+      graph.setGpsPosition(invalid);
+      assertTrue(Double.isNaN(graph.gpsDistance()));
+      assertNotNull(graph.selectedPoint());
+    }
+    graph.bind(List.of(new Point(45, 6, 0, 0, 0, 0), new Point(45, 7, 0, 0, 0, 1)));
+    graph.setGpsPosition(new Point(45, 6.5, 100, now, 5, 0));
+    assertTrue(Double.isNaN(graph.gpsDistance()));
+  }
+
+  @Test
   public void liveAppendAndNewSelectionRefreshTheProfile() {
     ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
     List<Point> live = new ArrayList<>(points);
     graph.bind(live);
+    graph.setCursorActive(true);
     graph.setProgress(graph.getMax());
     assertEquals(150, graph.selectedPoint().elevation, 0);
     live.add(new Point(45.03, 6, 300, 0, 0, 0));
@@ -213,30 +339,37 @@ public class ElevationGraphTest {
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void profileAndMarkerRenderInPortrait() throws Exception {
-    renderPreview(786, 1550, "route-elevation-portrait", false);
+    renderPreview(786, 1550, "route-elevation-portrait", false, false);
   }
 
   @Test
   @Config(qualifiers = "w640dp-h360dp-land-xhdpi")
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void profileAndMarkerRenderInLandscape() throws Exception {
-    renderPreview(1280, 640, "route-elevation-landscape", false);
+    renderPreview(1280, 640, "route-elevation-landscape", false, false);
   }
 
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void editorProfileAndMarkerRenderInPortrait() throws Exception {
-    renderPreview(786, 1550, "route-elevation-editor-portrait", true);
+    renderPreview(786, 1550, "route-elevation-editor-portrait", true, false);
   }
 
   @Test
   @Config(qualifiers = "w640dp-h360dp-land-xhdpi")
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void editorProfileAndMarkerRenderInLandscape() throws Exception {
-    renderPreview(1280, 640, "route-elevation-editor-landscape", true);
+    renderPreview(1280, 640, "route-elevation-editor-landscape", true, false);
   }
 
-  private void renderPreview(int width, int height, String name, boolean editing) throws Exception {
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void gpsProgressAndInspectionRenderIndependently() throws Exception {
+    renderPreview(786, 1550, "route-elevation-gps-progress", false, true);
+  }
+
+  private void renderPreview(int width, int height, String name, boolean editing, boolean gps)
+      throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -252,12 +385,31 @@ public class ElevationGraphTest {
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.fitRoute(points);
       ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      if (gps) {
+        map.position = new Point(45.005, 6, 150, System.currentTimeMillis(), 5, 0);
+        invoke(activity, "refreshStatus");
+        assertNull(graph.selectedPoint());
+        assertTrue(
+            ((TextView) field(activity, "profileDetails")).getText().toString().startsWith("GPS "));
+      }
       touch(
           graph,
           MotionEvent.ACTION_DOWN,
           (graph.getPaddingLeft() + graph.getWidth() - graph.getPaddingRight()) / 2f);
       Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
       root.draw(new Canvas(bitmap));
+      if (gps) {
+        int[] origin = new int[2];
+        graph.getLocationInWindow(origin);
+        int gpsX =
+            origin[0]
+                + graph.getPaddingLeft()
+                + Math.round(
+                    (graph.getWidth() - graph.getPaddingLeft() - graph.getPaddingRight()) / 4f);
+        assertEquals(
+            AppPalette.ACCENT,
+            bitmap.getPixel(gpsX, origin[1] + graph.getPaddingTop() + 10));
+      }
       assertTrue(graph.getHeight() > 0);
       View panel = (View) field(activity, "selectionInfo");
       View parent = (View) panel.getParent();

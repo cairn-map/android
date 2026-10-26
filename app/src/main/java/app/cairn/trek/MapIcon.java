@@ -16,7 +16,6 @@ final class MapIcon extends Drawable {
       INFO = 8,
       SAVE_MAP = 9,
       EXPORT = 10,
-      HIDE = 11,
       CENTER = 12,
       EDIT = 13,
       TUNE = 14,
@@ -131,19 +130,6 @@ final class MapIcon extends Drawable {
       canvas.drawLine(11, 13, 21, 3, paint);
       canvas.drawLine(14, 3, 21, 3, paint);
       canvas.drawLine(21, 3, 21, 10, paint);
-    } else if (kind == HIDE) {
-      Path eye = new Path();
-      eye.moveTo(2, 12);
-      eye.cubicTo(7, 3, 17, 3, 22, 12);
-      eye.cubicTo(17, 21, 7, 21, 2, 12);
-      canvas.drawPath(eye, paint);
-      canvas.drawCircle(12, 12, 3, paint);
-      paint.setColor(background);
-      paint.setStrokeWidth(4);
-      canvas.drawLine(3, 3, 21, 21, paint);
-      paint.setColor(foreground);
-      paint.setStrokeWidth(1.8f);
-      canvas.drawLine(3, 3, 21, 21, paint);
     } else if (kind == INFO) {
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(background);
