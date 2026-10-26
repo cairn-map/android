@@ -72,6 +72,22 @@ final class ElevationGraph extends SeekBar {
     return gpsDistance;
   }
 
+  String pointText(boolean cursor) {
+    double fraction = cursor ? getProgress() / (double) getMax() : gpsFraction;
+    Point point = cursor ? selectedPoint() : Double.isFinite(gpsDistance) ? profile.at(fraction) : null;
+    if (point == null) return "";
+    double grade = Double.isFinite(point.elevation) ? profile.gradeAt(fraction) : Double.NaN;
+    return String.format(
+        Locale.getDefault(),
+        "%s%.2f km · %s m · %s%%",
+        cursor ? "" : "GPS ",
+        profile.distance * fraction / 1000,
+        Double.isFinite(point.elevation)
+            ? String.format(Locale.getDefault(), "%.0f", point.elevation)
+            : "—",
+        Double.isFinite(grade) ? String.format(Locale.getDefault(), "%+.1f", grade) : "—");
+  }
+
   String statusText() {
     if (profile.points.isEmpty()) return "";
     if (profile.hasExcludedElevation)
@@ -237,7 +253,7 @@ final class ElevationGraph extends SeekBar {
     } else {
       ink.setTextAlign(Paint.Align.CENTER);
       canvas.drawText(
-          "Elevation unavailable",
+          "—",
           getPaddingLeft() + plotWidth() / 2,
           (getPaddingTop() + bottom()) / 2,
           ink);
