@@ -141,10 +141,18 @@ Location, is retained in the existing insert and UI broadcast. No provider, sens
 elevation download, timer or wake lock is added. Profile/summary estimation runs incrementally
 on existing foreground processing or when loading a recording. It retains a fixed amount of
 state per consumer and never changes raw samples or requests extra fixes to settle GPS altitude.
-The first 60 seconds of each segment are excluded; vertical uncertainty above 10 m, steps with
-less than 1 m horizontal displacement, and vertical jumps greater than max(5 m, 60% of horizontal
-displacement) break elevation continuity. Totals accumulate changes against a fixed altitude
-anchor until they exceed max(5 m, reported vertical accuracy), or 10 m without that metadata.
-This is a conservative estimate, not terrain correction: short changes may be omitted and slow
-GPS drift may remain. Raw GPX export is intentionally unchanged in altitude and preserves optional
-quality metadata. Baseline/previous/current work and CPU comparisons remain required in Actions.
+There is no fixed startup wait. Reported vertical accuracy of 10 m or better is usable from the
+first fix. Without quality metadata, three readings within a 3 m range must span ten seconds
+(three readings when timestamps are absent). This is an observed-data gate, not a scheduled wait;
+it never changes the selected GPS cadence. Poor reported accuracy, near-stationary movement and
+abrupt jumps break continuity. Each consumer uses the same deterministic filtered signal: changes
+inside a 5 m/reported-accuracy band (10 m without metadata) are held, and only the portion outside
+the band moves the estimate. This suppresses jitter without drawing fluctuations that totals ignore.
+The existing distance calculation is reused, avoiding duplicate geographic calculations per sample.
+
+The chart caches excluded-area shading alongside its line path and spans at least 20 m vertically.
+Its legend explains excluded sections; the recap reports unresolved changes instead of a misleading
+zero. Existing saved recordings are processed on load without rewriting their original measurements.
+Filtering is a conservative GPS estimate, not terrain correction: small real changes and the start
+of a trend may be omitted, and slow drift may remain. Raw GPX export is unchanged. The same required
+baseline/previous/current performance comparison still applies; no budgets or workload are changed.

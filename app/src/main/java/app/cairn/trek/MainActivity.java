@@ -547,6 +547,10 @@ public final class MainActivity extends Activity {
         elevationGraph,
         new LinearLayout.LayoutParams(
             -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 48 : 100)));
+    profileStatus = label("", 10, ON_SELECTION, false);
+    profileStatus.setPadding(dp(10), 0, dp(10), dp(6));
+    profileStatus.setVisibility(View.GONE);
+    selectionInfo.addView(profileStatus, new LinearLayout.LayoutParams(-1, -2));
     elevationGraph.setProgress(profileProgress);
     elevationGraph.setCursorActive(profileCursorActive);
     elevationGraph.setOnSeekBarChangeListener(
@@ -642,7 +646,7 @@ public final class MainActivity extends Activity {
   private RouteSummary selectedSummary = new RouteSummary();
   private List<Point> editSummarySource;
   private RouteSummary editSummary;
-  private TextView selectionRecap;
+  private TextView selectionRecap, profileStatus;
   private LinearLayout selectionInfo;
   private ScrollView controlRail;
   private ElevationGraph elevationGraph;
@@ -900,6 +904,9 @@ public final class MainActivity extends Activity {
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
     elevationGraph.bind(points, planning ? editingRecording() : selectedEntry.recording);
+    String elevationStatus = elevationGraph.statusText();
+    setStatusText(profileStatus, elevationStatus);
+    profileStatus.setVisibility(elevationStatus.isEmpty() ? View.GONE : View.VISIBLE);
     boolean routeProfile = planning ? !editingRecording() : !selectedEntry.recording;
     elevationGraph.setGpsPosition(routeProfile ? map.position : null);
     if (changed || profileGeometryKey != elevationGraph.geometryKey()) clearProfileCursor();
@@ -942,7 +949,10 @@ public final class MainActivity extends Activity {
       setStatusText(profileDetails, elevationGraph.isEnabled() ? gps : "No route points");
       elevationGraph.setContentDescription(
           elevationGraph.isEnabled()
-              ? "Elevation along route. Slide to inspect a point. " + gps
+              ? "Elevation along route. Slide to inspect a point. "
+                  + elevationGraph.statusText()
+                  + ". "
+                  + gps
               : "Elevation along route. No route points.");
       return;
     }
@@ -958,7 +968,8 @@ public final class MainActivity extends Activity {
             elevationGraph.selectedDistance() / 1000,
             elevation);
     setStatusText(profileDetails, details);
-    elevationGraph.setContentDescription("Elevation along route. " + details + ". " + gps);
+    elevationGraph.setContentDescription(
+        "Elevation along route. " + details + ". " + elevationGraph.statusText() + ". " + gps);
   }
 
   private void clearProfileCursor() {

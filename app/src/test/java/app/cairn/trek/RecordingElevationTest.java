@@ -13,82 +13,123 @@ public class RecordingElevationTest {
   }
 
   @Test
-  public void startupDropAndStationaryDriftLeaveGapsWithoutChangingRawPoints() {
-    List<Point> points =
-        List.of(
-            point(0, 229, 0, 3),
-            point(10, 229, 5, 3),
-            point(11, 216, 6, 3),
-            point(80, 207, 60, 3),
-            point(90, 207, 65, 3),
-            point(90.1, 202, 70, 3),
-            point(100, 202, 75, 3),
-            point(110, 202, 80, 3));
-    RouteSummary summary = RouteSummary.from(points, true);
-    assertEquals(0, summary.ascent, 0);
-    assertEquals(0, summary.descent, 0);
-    assertEquals(Geo.length(points), summary.distance, .001);
-    assertTrue(summary.partialElevation);
-    assertTrue(summary.text().contains("GPS estimate"));
+  public void accurateAltitudeIsUsableFromTheFirstFixWithoutWaitingAMinute() {
+    List<Point> points = List.of(point(0, 100, 0, 3), point(10, 102, 5, 3), point(20, 108, 10, 3));
     ElevationProfile profile = new ElevationProfile(true);
     for (Point point : points) profile.add(point);
-    assertTrue(Double.isNaN(profile.points.get(0).elevation));
-    assertTrue(Double.isNaN(profile.points.get(5).elevation));
-    assertEquals(229, points.get(0).elevation, 0);
-    assertEquals(202, points.get(5).elevation, 0);
+    assertEquals(100, profile.points.get(0).elevation, 0);
+    assertEquals(100, profile.points.get(1).elevation, 0);
+    assertEquals(103, profile.points.get(2).elevation, 0);
+    RouteSummary summary = RouteSummary.from(points, true);
+    assertFalse(summary.partialElevation);
+    assertEquals(3, summary.ascent, .001);
+    assertTrue(summary.text().contains("↑ 3 m"));
+    assertFalse(summary.text().contains("↓ 0 m"));
+    assertTrue(summary.description().contains("descent estimate not reliably resolved"));
+    assertConsistent(points);
   }
 
   @Test
-  public void smallNoiseIsIgnoredButSlowSustainedClimbingAndDescendingStillCount() {
-    List<Point> points = new ArrayList<>();
-    points.add(point(0, 100, 0, 3));
-    for (int i = 0; i <= 30; i++) points.add(point(100 + i * 10, 100 + i, 60 + i * 5, 3));
-    for (int i = 1; i <= 20; i++) points.add(point(400 + i * 10, 130 - i, 210 + i * 5, 3));
+  public void missingQualityWaitsForObservedStabilityRatherThanAnElapsedMinute() {
+    List<Point> points =
+        List.of(
+            point(0, 229, 0, Float.NaN),
+            point(10, 225, 5, Float.NaN),
+            point(11.2, 216.3, 6, Float.NaN),
+            point(20, 212, 10, Float.NaN),
+            point(30, 211, 15, Float.NaN),
+            point(40, 211.5, 20, Float.NaN),
+            point(50, 211.8, 25, Float.NaN));
+    ElevationProfile profile = new ElevationProfile(true);
+    for (Point point : points) profile.add(point);
+    assertTrue(Double.isNaN(profile.points.get(0).elevation));
+    assertEquals(211.5, profile.points.get(5).elevation, 0);
+    assertTrue(profile.hasExcludedElevation);
+    assertEquals(229, points.get(0).elevation, 0);
     RouteSummary summary = RouteSummary.from(points, true);
-    assertEquals(30, summary.ascent, 0);
-    assertEquals(20, summary.descent, 0);
+    assertEquals(Geo.length(points), summary.distance, .001);
+    assertTrue(summary.text().contains("Elevation change not reliably resolved"));
+    assertFalse(summary.text().contains("↑ 0 m"));
+    assertConsistent(points);
+  }
+
+  @Test
+  public void sustainedSlopesUseTheSameFilteredSignalInGraphAndLiveOrLoadedTotals() {
+    List<Point> points = new ArrayList<>();
+    for (int i = 0; i <= 30; i++) points.add(point(i * 10, 100 + i, i * 5, 3));
+    for (int i = 1; i <= 20; i++) points.add(point(300 + i * 10, 130 - i, 150 + i * 5, 3));
+    RouteSummary summary = RouteSummary.from(points, true);
+    // The uncertainty band suppresses the beginning of a trend and small reversals.
+    assertEquals(25, summary.ascent, .001);
+    assertEquals(10, summary.descent, .001);
+    assertConsistent(points);
     RouteSummary live = new RouteSummary(true);
     for (Point point : points) live.add(point);
     assertEquals(summary.ascent, live.ascent, 0);
     assertEquals(summary.descent, live.descent, 0);
-
-    List<Point> noise = new ArrayList<>();
-    noise.add(point(0, 100, 0, Float.NaN));
-    for (int i = 0; i < 50; i++)
-      noise.add(point(100 + i * 10, 100 + (i % 3), 60 + i * 5, Float.NaN));
-    RouteSummary flat = RouteSummary.from(noise, true);
-    assertEquals(0, flat.ascent, 0);
-    assertEquals(0, flat.descent, 0);
   }
 
   @Test
-  public void poorVerticalAccuracyAndAbruptJumpsAreNotBridged() {
-    List<Point> points =
-        List.of(
-            point(0, 100, 0, 3),
-            point(100, 100, 60, 3),
-            point(110, 100, 65, 3),
-            point(120, 130, 70, 40),
-            point(130, 100, 75, 3),
-            point(140, 100, 80, 3),
-            point(141.2, 91.3, 81, 3),
-            point(151.2, 91.3, 86, 3),
-            point(161.2, 91.3, 91, 3));
+  public void noiseAndStationaryDriftDoNotProduceFalseFlatGroundTotals() {
+    List<Point> points = new ArrayList<>();
+    for (int i = 0; i < 20; i++) points.add(point(i * 10, 100 + i % 3, i * 5, 3));
+    points.add(point(190.1, 98, 100, 3));
+    points.add(point(200, 98, 105, 3));
+    points.add(point(210, 99, 110, 3));
     RouteSummary summary = RouteSummary.from(points, true);
     assertEquals(0, summary.ascent, 0);
     assertEquals(0, summary.descent, 0);
     assertTrue(summary.partialElevation);
-    // Planned/imported route geometry continues to use its supplied elevations exactly.
+    assertTrue(summary.text().contains("not reliably resolved"));
+    assertTrue(summary.description().contains("excluded"));
+    assertConsistent(points);
+  }
+
+  @Test
+  public void poorQualitySpikesMissingAltitudeAndSegmentGapsNeverBridgeTotals() {
+    List<Point> points =
+        List.of(
+            point(0, 100, 0, 3),
+            point(10, 100, 5, 3),
+            point(20, 130, 10, 40),
+            point(30, 100, 15, 3),
+            point(40, 100, 20, 3),
+            point(41.2, 91.3, 21, 3),
+            point(51.2, 91.3, 26, 3),
+            point(61.2, Double.NaN, 31, 3),
+            new Point(46, 7, 300, 1040000, 3, 1, 3),
+            new Point(46.001, 7, 300, 1045000, 3, 1, 3));
+    RouteSummary summary = RouteSummary.from(points, true);
+    assertEquals(0, summary.ascent, 0);
+    assertEquals(0, summary.descent, 0);
+    assertTrue(summary.partialElevation);
+    assertConsistent(points);
     assertTrue(RouteSummary.from(points).descent > 30);
   }
 
   @Test
-  public void shortRecordingsAndNewSegmentsDoNotClaimReliableElevation() {
-    Point first = point(0, 100, 0, 3), last = point(10, 80, 10, 3);
-    assertFalse(RouteSummary.from(List.of(first, last), true).hasElevation);
+  public void unresolvedAltitudeIsDifferentFromHavingNoAltitudeAtAll() {
+    assertTrue(
+        RouteSummary.from(List.of(point(0, 100, 0, Float.NaN), point(10, 101, 1, Float.NaN)), true)
+            .text()
+            .contains("not reliably resolved"));
+    assertTrue(
+        RouteSummary.from(List.of(new Point(45, 6), new Point(45.01, 6)), true)
+            .text()
+            .contains("Elevation unavailable"));
     RecordingElevation filter = new RecordingElevation();
-    filter.add(first);
-    assertEquals(100, filter.add(point(100, 100, 60, 3)), 0);
-    assertTrue(Double.isNaN(filter.add(new Point(46, 7, 300, first.time + 70000, 3, 1, 3))));
+    assertTrue(Double.isNaN(filter.add(point(0, 100, 0, Float.POSITIVE_INFINITY))));
+    assertEquals(100, filter.add(point(10, 100, 5, 3)), 0);
+    assertEquals(300, filter.add(new Point(46, 7, 300, 1060000, 3, 1, 3)), 0);
+  }
+
+  private void assertConsistent(List<Point> points) {
+    ElevationProfile profile = new ElevationProfile(true);
+    for (Point point : points) profile.add(point);
+    RouteSummary visibleGeometry = RouteSummary.from(profile.points);
+    RouteSummary summary = RouteSummary.from(points, true);
+    assertEquals(visibleGeometry.ascent, summary.ascent, .000001);
+    assertEquals(visibleGeometry.descent, summary.descent, .000001);
+    assertEquals(visibleGeometry.distance, summary.distance, .000001);
   }
 }

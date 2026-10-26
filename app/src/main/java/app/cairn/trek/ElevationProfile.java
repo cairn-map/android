@@ -9,6 +9,7 @@ final class ElevationProfile {
   private double[] distances = new double[64];
   double distance, minimum = Double.POSITIVE_INFINITY, maximum = Double.NEGATIVE_INFINITY;
   long geometryKey = 1;
+  boolean hasExcludedElevation;
   private final RecordingElevation recordingElevation;
 
   ElevationProfile() {
@@ -20,12 +21,17 @@ final class ElevationProfile {
   }
 
   void add(Point point) {
+    int index = points.size();
+    double step =
+        index > 0 && points.get(index - 1).segment == point.segment
+            ? Geo.distance(points.get(index - 1), point)
+            : 0;
     if (recordingElevation != null)
       point =
           new Point(
               point.lat,
               point.lon,
-              recordingElevation.add(point),
+              recordingElevation.add(point, step),
               point.time,
               point.accuracy,
               point.segment,
@@ -35,17 +41,15 @@ final class ElevationProfile {
     geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.lon);
     geometryKey = 31 * geometryKey + Double.doubleToLongBits(point.elevation);
     geometryKey = 31 * geometryKey + point.segment;
-    int index = points.size();
     if (index == distances.length)
       distances = java.util.Arrays.copyOf(distances, distances.length * 2);
-    if (index > 0 && points.get(index - 1).segment == point.segment)
-      distance += Geo.distance(points.get(index - 1), point);
+    distance += step;
     distances[index] = distance;
     points.add(point);
     if (Double.isFinite(point.elevation)) {
       minimum = Math.min(minimum, point.elevation);
       maximum = Math.max(maximum, point.elevation);
-    }
+    } else hasExcludedElevation = true;
   }
 
   boolean hasElevation() {
