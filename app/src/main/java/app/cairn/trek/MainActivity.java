@@ -132,7 +132,9 @@ public final class MainActivity extends Activity {
                     i.getLongExtra("time", 0),
                     i.getFloatExtra("accuracy", 0),
                     0,
-                    i.getFloatExtra("verticalAccuracy", Float.NaN));
+                    i.getFloatExtra("verticalAccuracy", Float.NaN),
+                    i.getIntExtra("elevationDatum", Point.SEA_LEVEL),
+                    i.getDoubleExtra("mslElevation", Double.NaN));
             if (track.isEmpty() || track.get(track.size() - 1).time < p.time) {
               track.add(p);
               trackSummary.add(p);
@@ -1080,7 +1082,9 @@ public final class MainActivity extends Activity {
               point.time,
               point.accuracy,
               segment,
-              point.verticalAccuracy);
+              point.verticalAccuracy,
+              point.elevationDatum,
+              point.mslElevation);
     }
     rememberNode(index, 0, null);
     waypoints.add(index, point);
@@ -2808,7 +2812,8 @@ public final class MainActivity extends Activity {
   }
 
   private void showAttribution() {
-    try (InputStream input = getAssets().open("routing/LICENSE-BROUTER.txt")) {
+    try (InputStream input = getAssets().open("routing/LICENSE-BROUTER.txt");
+        InputStream geoidNotice = Geoid.class.getResourceAsStream("EGM96-NOTICE.txt")) {
       String text =
           "Plan IGN: IGN, Licence Ouverte 2.0.\n"
               + "Source and update information: https://www.data.gouv.fr/datasets/plan-ign\n"
@@ -2818,9 +2823,13 @@ public final class MainActivity extends Activity {
               + "Place search: Photon, provided by komoot; device geocoder fallback.\n\n";
       if (map.tileSource() instanceof OfflineMap)
         text += "Imported map: " + map.tileSource().attribution() + "\n\n";
-      android.text.SpannableString links =
-          new android.text.SpannableString(
-              text + new String(MapCatalog.bytes(input), java.nio.charset.StandardCharsets.UTF_8));
+      String notices = new String(MapCatalog.bytes(input), java.nio.charset.StandardCharsets.UTF_8);
+      if (geoidNotice != null)
+        notices +=
+            "\n\n"
+                + new String(
+                    MapCatalog.bytes(geoidNotice), java.nio.charset.StandardCharsets.UTF_8);
+      android.text.SpannableString links = new android.text.SpannableString(text + notices);
       android.text.util.Linkify.addLinks(links, android.text.util.Linkify.WEB_URLS);
       AlertDialog dialog =
           CairnDialogs.dialog(this)

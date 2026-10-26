@@ -54,11 +54,7 @@ public final class IgnMap implements TileSource, AutoCloseable {
                 tile,
                 null,
                 null,
-                () ->
-                    obsolete.getAsBoolean()
-                        || request != generation
-                        || !online
-                        || closed);
+                () -> obsolete.getAsBoolean() || request != generation || !online || closed);
         synchronized (this) {
           if (closed) return null;
           store.save(tile, result);
@@ -80,6 +76,9 @@ public final class IgnMap implements TileSource, AutoCloseable {
     } else if (!online) base = enlargedParent(tile);
     synchronized (this) {
       if (closed || obsolete.getAsBoolean()) return null;
+      // IGN changes cartography with scale. Close-up tiles can omit contours present
+      // at the requested zoom, so use saved descendants only to fill missing tiles.
+      if (cached != null && base != null) return base;
       return store.detail(tile, base, obsolete);
     }
   }

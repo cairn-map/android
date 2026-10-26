@@ -250,8 +250,7 @@ public class MapControlsTest {
   }
 
   @Test
-  public void onlineToggleChangesItsFillAndIconContrastIncludingDuringRecording()
-      throws Exception {
+  public void onlineToggleChangesItsFillAndIconContrastIncludingDuringRecording() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -297,7 +296,8 @@ public class MapControlsTest {
             .setProviderEnabled(android.location.LocationManager.GPS_PROVIDER, true);
         if (online) ((ImageButton) field(activity, "previewButton")).performClick();
         find(activity.getWindow().getDecorView(), "Start hike").performClick();
-        assertEquals(TrackingService.class.getName(),
+        assertEquals(
+            TrackingService.class.getName(),
             Shadows.shadowOf(activity).getNextStartedService().getComponent().getClassName());
         assertEquals(online, ((IgnMap) field(activity, "ignMap")).online());
         assertEquals(137000L, store.intervalMillis());
@@ -322,7 +322,9 @@ public class MapControlsTest {
       Store store = (Store) field(activity, "store");
       List<Point> points = Arrays.asList(new Point(45, 6), new Point(46, 7), new Point(45, 6.1));
       String id = store.saveRoute(points, "Mountain loop");
-      store.getWritableDatabase().execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {id});
+      store
+          .getWritableDatabase()
+          .execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {id});
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.layout(0, 0, 786, 1400);
       map.restoreCamera(new double[] {48, 2, 18});
@@ -345,9 +347,7 @@ public class MapControlsTest {
       assertTrue(find(content, "GPS settings").getGlobalVisibleRect(gpsBounds));
       int previousRight = 0;
       for (String action :
-          new String[] {
-            "Save offline corridor", "Export GPX", "Center selected", "Edit route"
-          }) {
+          new String[] {"Save offline corridor", "Export GPX", "Center selected", "Edit route"}) {
         View icon = find(content, action);
         assertTrue(icon instanceof ImageButton);
         assertEquals(AppPalette.SELECTION, fill(icon));
@@ -384,8 +384,7 @@ public class MapControlsTest {
       drain(activity);
       assertTrue(map.editing);
       assertTrue(find(content, "Finish editing").isSelected());
-      for (String oldAction : List.of("Route", "More"))
-        assertNull(find(content, oldAction));
+      for (String oldAction : List.of("Route", "More")) assertNull(find(content, oldAction));
       assertNotNull(find(content, "Undo last edit"));
       assertFalse(find(content, "Undo last edit").isEnabled());
       savePreview(content, 786, 1550, "route-edit-toggle");
@@ -495,6 +494,7 @@ public class MapControlsTest {
       TextView body = dialog.findViewById(android.R.id.message);
       assertTrue(body.getText().toString().contains("https://www.data.gouv.fr/datasets/plan-ign"));
       assertTrue(body.getText().toString().contains("OpenStreetMap contributors"));
+      assertTrue(body.getText().toString().contains("Bundled EGM96 geoid data"));
       assertTrue(body.getText() instanceof android.text.Spanned);
       assertTrue(
           ((android.text.Spanned) body.getText())
@@ -652,7 +652,9 @@ public class MapControlsTest {
   }
 
   @Test
-  @Config(sdk = {28, 35}, qualifiers = "w393dp-h851dp-xhdpi")
+  @Config(
+      sdk = {28, 35},
+      qualifiers = "w393dp-h851dp-xhdpi")
   public void tappingAboveTheRightControlRailAddsAnEditNode() throws Exception {
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {

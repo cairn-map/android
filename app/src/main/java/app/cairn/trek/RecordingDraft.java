@@ -16,7 +16,7 @@ final class RecordingDraft {
     FileOutputStream stream = file.startWrite();
     try {
       DataOutputStream output = new DataOutputStream(new BufferedOutputStream(stream));
-      output.writeInt(-1); // Versioned format; nonnegative first words are legacy point counts.
+      output.writeInt(-2); // Reference-aware format; -1/positive counts are older GPS drafts.
       output.writeInt(points.size());
       for (Point point : points) {
         output.writeDouble(point.lat);
@@ -26,6 +26,8 @@ final class RecordingDraft {
         output.writeFloat(point.accuracy);
         output.writeInt(point.segment);
         output.writeFloat(point.verticalAccuracy);
+        output.writeInt(point.elevationDatum);
+        output.writeDouble(point.mslElevation);
       }
       output.flush();
       file.finishWrite(stream);
@@ -39,7 +41,8 @@ final class RecordingDraft {
     try (DataInputStream input =
         new DataInputStream(new BufferedInputStream(file(context, id).openRead()))) {
       int count = input.readInt();
-      boolean quality = count == -1;
+      boolean reference = count == -2;
+      boolean quality = reference || count == -1;
       if (quality) count = input.readInt();
       if (count < 0) throw new IOException("Invalid recording draft");
       List<Point> points = new ArrayList<>();
@@ -52,7 +55,9 @@ final class RecordingDraft {
                 input.readLong(),
                 input.readFloat(),
                 input.readInt(),
-                quality ? input.readFloat() : Float.NaN));
+                quality ? input.readFloat() : Float.NaN,
+                reference ? input.readInt() : Point.WGS84_ELLIPSOID,
+                reference ? input.readDouble() : Double.NaN));
       return points;
     }
   }

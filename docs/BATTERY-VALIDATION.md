@@ -154,5 +154,16 @@ The chart caches excluded-area shading alongside its line path and spans at leas
 Its legend explains excluded sections; the recap reports unresolved changes instead of a misleading
 zero. Existing saved recordings are processed on load without rewriting their original measurements.
 Filtering is a conservative GPS estimate, not terrain correction: small real changes and the start
-of a trend may be omitted, and slow drift may remain. Raw GPX export is unchanged. The same required
+of a trend may be omitted, and slow drift may remain. GPX sea-level heights now retain original GPS heights in an optional extension. The same required
 baseline/previous/current performance comparison still applies; no budgets or workload are changed.
+
+## Sea-level reference conversion
+
+The recorder only copies WGS84 height and any already supplied Android 14+ MSL height into its
+existing insert and visible-fix broadcast. It never loads or queries the geoid. Display and
+user-requested export convert explicitly tagged WGS84 heights, using a supplied MSL value first
+and otherwise the bundled EGM96 model. Ordinary sea-level routes bypass conversion. The global
+model is loaded once on first use (about 2 MB cached, 1.7 MB APK data); each lookup interpolates
+four values. This introduces no extra GPS/provider/sensor requests, cadence change, timer,
+wake lock or recording-time download. The unchanged virtual workload and budgets still apply.
+See [elevation reference and model provenance](ELEVATION.md).

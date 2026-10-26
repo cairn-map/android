@@ -19,6 +19,7 @@ public final class Gpx {
     List<Point> tracks = new ArrayList<>(), routes = new ArrayList<>();
     boolean pointOpen = false, routePoint = false;
     double lat = 0, lon = 0, ele = Double.NaN;
+    double ellipsoidHeight = Double.NaN;
     long time = 0;
     float accuracy = 0, verticalAccuracy = Float.NaN;
     int segment = -1;
@@ -36,6 +37,7 @@ public final class Gpx {
           lat = Double.parseDouble(parser.getAttributeValue(null, "lat"));
           lon = Double.parseDouble(parser.getAttributeValue(null, "lon"));
           ele = Double.NaN;
+          ellipsoidHeight = Double.NaN;
           time = 0;
           accuracy = 0;
           verticalAccuracy = Float.NaN;
@@ -49,11 +51,25 @@ public final class Gpx {
           if ("verticalAccuracy".equals(tag))
             verticalAccuracy = Float.parseFloat(parser.nextText());
           else if ("horizontalAccuracy".equals(tag)) accuracy = Float.parseFloat(parser.nextText());
+          else if ("ellipsoidHeight".equals(tag))
+            ellipsoidHeight = Double.parseDouble(parser.nextText());
         }
       } else if (type == XmlPullParser.END_TAG
           && ("trkpt".equals(parser.getName()) || "rtept".equals(parser.getName()))) {
-        (routePoint ? routes : tracks)
-            .add(new Point(lat, lon, ele, time, accuracy, Math.max(0, segment), verticalAccuracy));
+        Point point =
+            Double.isFinite(ellipsoidHeight)
+                ? new Point(
+                    lat,
+                    lon,
+                    ellipsoidHeight,
+                    time,
+                    accuracy,
+                    Math.max(0, segment),
+                    verticalAccuracy,
+                    Point.WGS84_ELLIPSOID,
+                    ele)
+                : new Point(lat, lon, ele, time, accuracy, Math.max(0, segment), verticalAccuracy);
+        (routePoint ? routes : tracks).add(point);
         pointOpen = false;
         if (tracks.size() + routes.size() > 100000)
           throw new IOException("GPX limit: 100,000 points");
@@ -84,15 +100,22 @@ public final class Gpx {
         segment = p.segment;
       }
       writer.write("<trkpt lat=\"" + p.lat + "\" lon=\"" + p.lon + "\">");
-      if (Double.isFinite(p.elevation)) writer.write("<ele>" + p.elevation + "</ele>");
+      double seaLevel = p.seaLevelElevation();
+      if (Double.isFinite(seaLevel)) writer.write("<ele>" + seaLevel + "</ele>");
       if (p.time > 0) writer.write("<time>" + Instant.ofEpochMilli(p.time) + "</time>");
-      if ((Float.isFinite(p.accuracy) && p.accuracy > 0) || Float.isFinite(p.verticalAccuracy)) {
+      boolean rawGpsHeight =
+          p.elevationDatum == Point.WGS84_ELLIPSOID && Double.isFinite(p.elevation);
+      if ((Float.isFinite(p.accuracy) && p.accuracy > 0)
+          || Float.isFinite(p.verticalAccuracy)
+          || rawGpsHeight) {
         writer.write("<extensions>");
         if (Float.isFinite(p.accuracy) && p.accuracy > 0)
           writer.write("<cairn:horizontalAccuracy>" + p.accuracy + "</cairn:horizontalAccuracy>");
         if (Float.isFinite(p.verticalAccuracy))
           writer.write(
               "<cairn:verticalAccuracy>" + p.verticalAccuracy + "</cairn:verticalAccuracy>");
+        if (rawGpsHeight)
+          writer.write("<cairn:ellipsoidHeight>" + p.elevation + "</cairn:ellipsoidHeight>");
         writer.write("</extensions>");
       }
       writer.write("</trkpt>\n");

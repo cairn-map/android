@@ -34,8 +34,11 @@ final class RouteSummary {
     boolean connected = previous != null && previous.segment == point.segment;
     double step = connected ? Geo.distance(previous, point) : 0;
     double elevation =
-        recordingElevation == null ? point.elevation : recordingElevation.add(point, step);
-    if (Double.isFinite(point.elevation)) hasRawElevation = true;
+        recordingElevation == null
+            ? point.seaLevelElevation()
+            : recordingElevation.add(point, step);
+    if (Double.isFinite(point.elevation) || Double.isFinite(point.mslElevation))
+      hasRawElevation = true;
     if (!Double.isFinite(elevation)) partialElevation = true;
     if (connected) {
       distance += step;

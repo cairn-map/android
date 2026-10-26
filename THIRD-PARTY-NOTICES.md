@@ -35,3 +35,12 @@ The app fetches Plan IGN from IGN's public service when the user explicitly enab
 Name searches use Photon, provided by komoot, over OpenStreetMap data (© OpenStreetMap contributors, ODbL: https://www.openstreetmap.org/copyright). Partial names, natural features, multilingual names and typo tolerance come from Photon. Source/API and public service policy: https://github.com/komoot/photon and https://github.com/komoot/photon/blob/master/docs/api-v1.md. The public service permits reasonable use and has no availability guarantee. Search is debounced, bounded to 40 candidates and 512 KiB per response, locally ranked and deduplicated to at most 10 suggestions, cached in activity memory, and performs no automatic HTTP retries. Android's device geocoder is a fallback if Photon is unavailable or returns no matches.
 
 Only text entered into the search and the current map center (as a soft ranking bias) are sent to Photon; no GPS/network-location fix is requested and online map tiles remain off. The device geocoder receives the text only when the fallback runs. Search is canceled on dismissal, pause and recording start. No background polling or persistent place database is created. Search attribution links appear at the bottom of the search drawer and in Licences & attribution. Live backend coverage/availability can vary.
+
+## EGM96 geoid data
+
+The APK bundles the complete 15-arc-minute global EGM96 geoid grid, derived from PROJ's
+`egm96_15.gtx` as distributed by Debian `proj-data`. It is compressed and quantized to centimetres
+for offline sea-level conversion; it is not a terrain dataset. EGM96 originated with US government
+agencies (NIMA/NASA). The PROJ distribution's attribution and MIT-style terms are preserved in
+`app/src/main/resources/app/cairn/trek/EGM96-NOTICE.txt` and the in-app Licences & attribution
+dialog. Source/provenance, hashes, format and reproduction are documented in [elevation reference](docs/ELEVATION.md).

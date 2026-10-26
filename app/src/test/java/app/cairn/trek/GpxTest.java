@@ -34,6 +34,36 @@ public class GpxTest {
   }
 
   @Test
+  public void exportsSeaLevelWithOriginalGpsHeightAndDoesNotConvertAgainOnImport()
+      throws Exception {
+    Point gps =
+        new Point(48.75, 2, 212, 1700000000000L, 5, 0, 7, Point.WGS84_ELLIPSOID, Double.NaN);
+    ByteArrayOutputStream first = new ByteArrayOutputStream();
+    Gpx.write(first, List.of(gps), "Recording");
+    String xml = first.toString("UTF-8");
+    assertTrue(xml.contains("<ele>167.19</ele>"));
+    assertTrue(xml.contains("<cairn:ellipsoidHeight>212.0</cairn:ellipsoidHeight>"));
+    Point restored = Gpx.read(new ByteArrayInputStream(first.toByteArray())).get(0);
+    assertEquals(212, restored.elevation, 0);
+    assertEquals(Point.WGS84_ELLIPSOID, restored.elevationDatum);
+    assertEquals(167.19, restored.seaLevelElevation(), .001);
+    ByteArrayOutputStream second = new ByteArrayOutputStream();
+    Gpx.write(second, List.of(restored), "Recording");
+    assertEquals(xml, second.toString("UTF-8"));
+  }
+
+  @Test
+  public void unmarkedGpxElevationsKeepTheirStandardSeaLevelReference() throws Exception {
+    Point point =
+        parse(
+                "<gpx creator='Cairn'><trk><name>Hike</name><trkseg>"
+                    + "<trkpt lat='48.75' lon='2'><ele>165</ele></trkpt></trkseg></trk></gpx>")
+            .get(0);
+    assertEquals(Point.SEA_LEVEL, point.elevationDatum);
+    assertEquals(165, point.seaLevelElevation(), 0);
+  }
+
+  @Test
   public void routeOnlyGpxSupported() throws Exception {
     assertEquals(
         2,

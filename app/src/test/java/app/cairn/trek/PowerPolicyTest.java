@@ -351,6 +351,7 @@ public class PowerPolicyTest {
   }
 
   @Test
+  @Config(sdk = {26, 28, 35})
   public void onlyIntervalChangesRefreshTheRecordingNotification() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
     Shadows.shadowOf(RuntimeEnvironment.getApplication())
@@ -374,6 +375,7 @@ public class PowerPolicyTest {
       fix.setAccuracy(5);
       fix.setAltitude(123);
       fix.setVerticalAccuracyMeters(7);
+      if (Build.VERSION.SDK_INT >= 34) fix.setMslAltitudeMeters(80);
       fix.setTime(1000000);
       fix.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
       service.onLocationChanged(fix);
@@ -401,6 +403,11 @@ public class PowerPolicyTest {
       java.util.List<Point> points = store.read((String) field(service, "trekId"));
       assertEquals(2, points.size());
       assertEquals(123, points.get(1).elevation, 0);
+      assertEquals(Point.WGS84_ELLIPSOID, points.get(1).elevationDatum);
+      if (Build.VERSION.SDK_INT >= 34) {
+        assertEquals(80, points.get(1).mslElevation, 0);
+        assertEquals(80, points.get(1).seaLevelElevation(), 0);
+      } else assertTrue(Double.isNaN(points.get(1).mslElevation));
       assertEquals(7, points.get(1).verticalAccuracy, 0);
       assertEquals(
           1, Shadows.shadowOf(manager).getLocationRequests(LocationManager.GPS_PROVIDER).size());
