@@ -31,6 +31,12 @@ final class AppUpdates {
   private boolean busy, waitingForPermission;
   private volatile int generation;
   private String status = "";
+  private int downloadPercent = -1;
+
+  double fraction() {
+    return downloadPercent < 0 ? -1 : downloadPercent / 100.0;
+  }
+
   private final Runnable dismissStatus =
       () -> {
         status = "";
@@ -127,7 +133,7 @@ final class AppUpdates {
                         release,
                         part,
                         stopped,
-                        percent -> report(epoch, "Downloading update · " + percent + "%"));
+                        percent -> report(epoch, "Downloading update…", percent));
                     report(epoch, "Verifying update…");
                     verifier.verify(part, manifest, stopped);
                     if (stopped.getAsBoolean()) throw new InterruptedIOException("Update canceled");
@@ -162,9 +168,15 @@ final class AppUpdates {
   }
 
   private void report(int epoch, String message) {
+    report(epoch, message, -1);
+  }
+
+  private void report(int epoch, String message, int percent) {
     main.post(
         () -> {
-          if (active && epoch == generation && !canceled) progress(message);
+          if (active && epoch == generation && !canceled) {
+            progress(message, percent);
+          }
         });
   }
 
@@ -223,6 +235,11 @@ final class AppUpdates {
   }
 
   private void progress(String message) {
+    progress(message, -1);
+  }
+
+  private void progress(String message, int percent) {
+    downloadPercent = busy ? percent : -1;
     main.removeCallbacks(dismissStatus);
     status = message;
     publish();

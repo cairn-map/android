@@ -9,6 +9,7 @@ public final class DownloadService extends Service {
   public static final String EVENT = "app.cairn.trek.DOWNLOAD", PAUSE = "pause";
   public static volatile boolean running = false;
   public static volatile String activePack;
+  static volatile int completedTiles, totalTiles;
   private volatile boolean cancelled = false;
   private volatile Thread coordinator;
   IgnClient client = new IgnClient();
@@ -38,6 +39,7 @@ public final class DownloadService extends Service {
     }
     running = true;
     activePack = id;
+    completedTiles = totalTiles = 0;
     cancelled = false;
     startForeground(3, notification("Preparing your map…", 0, 0));
     worker.execute(() -> download(id));
@@ -58,6 +60,7 @@ public final class DownloadService extends Service {
         done = pack.done;
         total = pack.total;
         store.state(id, "downloading", null);
+        progress("Saving offline map…", done, total, false);
         long lastProgress = 0;
         // Snapshot only unfinished coordinates; no bytes or database handles go to workers.
         java.util.Iterator<TilePlanner.Tile> remaining =
@@ -93,7 +96,7 @@ public final class DownloadService extends Service {
           long now = android.os.SystemClock.elapsedRealtime();
           if (now - lastProgress >= 1000) {
             lastProgress = now;
-            String message = "Plan IGN · " + done + " / " + total + " tiles";
+            String message = "Saving offline map…";
             getSystemService(NotificationManager.class)
                 .notify(3, notification(message, done, total));
             progress(message, done, total, false);
@@ -122,8 +125,8 @@ public final class DownloadService extends Service {
           .post(
               () -> {
                 running = false;
-                activePack = null;
                 progress(message, finalDone, finalTotal, true);
+                activePack = null;
                 stopSelf();
               });
     }
@@ -152,10 +155,13 @@ public final class DownloadService extends Service {
   }
 
   private void progress(String text, int done, int total, boolean finished) {
+    completedTiles = done;
+    totalTiles = total;
     sendBroadcast(
         new Intent(EVENT)
             .setPackage(getPackageName())
             .putExtra("message", text)
+            .putExtra("pack", activePack)
             .putExtra("done", done)
             .putExtra("total", total)
             .putExtra("finished", finished));

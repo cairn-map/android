@@ -125,8 +125,8 @@ public class MapControlsTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       TextView feedback = (TextView) field(activity, "updateStatus");
-      feedback.setText("You’re up to date · Cairn " + BuildConfig.VERSION_NAME);
-      feedback.setVisibility(View.VISIBLE);
+      ((AppFeedback) field(activity, "feedback"))
+          .show("You’re up to date · Cairn " + BuildConfig.VERSION_NAME, 6000);
       View root = activity.getWindow().getDecorView();
       savePreview(root, 786, 1550, "top-centered-update-feedback");
       View parent = (View) feedback.getParent();
@@ -170,7 +170,7 @@ public class MapControlsTest {
       assertTrue(banner.getText().toString().startsWith("Position ±"));
       assertEquals(
           Gravity.TOP | Gravity.CENTER_HORIZONTAL,
-          ((FrameLayout.LayoutParams) banner.getLayoutParams()).gravity);
+          ((FrameLayout.LayoutParams) ((View) banner.getParent()).getLayoutParams()).gravity);
       controller.pause();
       assertEquals(View.GONE, banner.getVisibility());
     } finally {
@@ -588,6 +588,66 @@ public class MapControlsTest {
       positions[i * 2 + 1] = location[1];
     }
     return positions;
+  }
+
+  @Test
+  @Config(
+      sdk = {28, 35},
+      qualifiers = "w320dp-h800dp-xhdpi")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void corridorButtonMatchesWrappedRouteHeightAndUpdatesProgressInPlace() throws Exception {
+    String title = "A long mountain route title that wraps over several lines in the route library";
+    List<Point> points = List.of(new Point(45, 6), new Point(45.01, 6.01));
+    String routeId, packId;
+    try (Store store = new Store(RuntimeEnvironment.getApplication());
+        PlanIgnStore maps = new PlanIgnStore(RuntimeEnvironment.getApplication())) {
+      routeId = store.saveRoute(points, title);
+      packId =
+          maps.create(title + " · corridor", TilePlanner.corridor(points, 100, 10), routeId, 100);
+    }
+    DownloadService.running = true;
+    DownloadService.activePack = packId;
+    DownloadService.completedTiles = 4;
+    DownloadService.totalTiles = 10;
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      ((View) field(activity, "libraryButton")).performClick();
+      AlertDialog dialog = (AlertDialog) field(activity, "libraryDialog");
+      View decor = dialog.getWindow().getDecorView();
+      savePreview(decor, 640, 1500, "corridor-button-progress");
+      TextView route = (TextView) find(decor, title + " · selected");
+      ViewGroup row = (ViewGroup) route.getParent();
+      ProgressButton corridor = (ProgressButton) row.getChildAt(0);
+      assertTrue(route.getLineCount() > 1);
+      assertEquals(route.getHeight(), corridor.getHeight());
+      assertEquals(route.getTop(), corridor.getTop());
+      assertEquals(View.VISIBLE, corridor.bar.getVisibility());
+      assertEquals(4000, corridor.bar.getProgress());
+      DownloadService.completedTiles = 7;
+      activity.sendBroadcast(
+          new android.content.Intent(DownloadService.EVENT)
+              .setPackage(activity.getPackageName())
+              .putExtra("pack", packId));
+      Shadows.shadowOf(Looper.getMainLooper()).idle();
+      assertEquals(7000, corridor.bar.getProgress());
+      assertSame(row, route.getParent());
+      DownloadService.running = false;
+      activity.sendBroadcast(
+          new android.content.Intent(DownloadService.EVENT)
+              .setPackage(activity.getPackageName())
+              .putExtra("pack", packId)
+              .putExtra("finished", true));
+      drain(activity);
+      route = (TextView) find(decor, title + " · selected");
+      corridor = (ProgressButton) ((ViewGroup) route.getParent()).getChildAt(0);
+      assertEquals(View.GONE, corridor.bar.getVisibility());
+    } finally {
+      DownloadService.running = false;
+      DownloadService.activePack = null;
+      DownloadService.completedTiles = DownloadService.totalTiles = 0;
+    }
   }
 
   private void savePreview(View view, int width, int height, String name) throws Exception {

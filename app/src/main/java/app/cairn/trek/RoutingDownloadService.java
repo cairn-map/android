@@ -14,6 +14,8 @@ public final class RoutingDownloadService extends Service {
   static final String EVENT = "app.cairn.trek.ROUTING_DOWNLOAD";
   static volatile boolean running;
   static volatile Outcome lastOutcome;
+  static volatile String activeRequest;
+  static volatile double fraction = -1;
 
   static final class Outcome {
     final String request, message;
@@ -62,6 +64,8 @@ public final class RoutingDownloadService extends Service {
     activeInstance = this;
     canceled = false;
     String request = intent.getStringExtra("request");
+    activeRequest = request;
+    fraction = -1;
     startForeground(4, notification("Preparing routing data…"));
     worker.execute(
         () -> {
@@ -71,14 +75,18 @@ public final class RoutingDownloadService extends Service {
             for (int index = 0; index < names.size(); index++) {
               String name = names.get(index);
               String regionProgress = "Routing data · " + (index + 1) + "/" + names.size();
+              int completedRegions = index;
+              fraction = index / (double) names.size();
               if (canceled || TrackingService.running) throw new InterruptedIOException("Paused");
               if (!new File(RoutingData.directory(this), name).isFile())
                 client.download(
                     RoutingData.directory(this),
                     name,
                     () -> canceled || TrackingService.running,
-                    text -> {
-                      String progress = text.replace(name, regionProgress);
+                    (done, total) -> {
+                      fraction =
+                          (completedRegions + done / (double) Math.max(1, total)) / names.size();
+                      String progress = regionProgress + " · downloading…";
                       getSystemService(NotificationManager.class).notify(4, notification(progress));
                       sendProgress(request, progress, false, false);
                     },
@@ -108,6 +116,8 @@ public final class RoutingDownloadService extends Service {
                     if (activeInstance == this) {
                       running = false;
                       activeInstance = null;
+                      activeRequest = null;
+                      fraction = -1;
                     }
                     lastOutcome = new Outcome(request, finalMessage, ready);
                     sendProgress(request, finalMessage, true, ready);
@@ -128,6 +138,7 @@ public final class RoutingDownloadService extends Service {
             .setPackage(getPackageName())
             .putExtra("request", request)
             .putExtra("message", message)
+            .putExtra("fraction", fraction)
             .putExtra("finished", finished)
             .putExtra("success", success));
   }
@@ -149,6 +160,7 @@ public final class RoutingDownloadService extends Service {
         .setContentIntent(open)
         .setOnlyAlertOnce(true)
         .setOngoing(true)
+        .setProgress(10000, (int) (Math.max(0, fraction) * 10000), fraction < 0)
         .addAction(new Notification.Action.Builder(null, "Pause", pause).build())
         .build();
   }

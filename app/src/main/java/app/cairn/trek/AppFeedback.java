@@ -15,6 +15,8 @@ final class AppFeedback implements AutoCloseable {
   private static final Map<Activity, AppFeedback> owners = new WeakHashMap<>();
   private final Activity activity;
   private final TextView banner;
+  private final FrameLayout panel;
+  private final LoadingBar bar;
   private final Handler main = new Handler(Looper.getMainLooper());
   private final List<Window> windows = new ArrayList<>();
   private final ArrayDeque<Notice> queue = new ArrayDeque<>();
@@ -22,6 +24,7 @@ final class AppFeedback implements AutoCloseable {
   private Window overlayHost;
   private Notice current;
   private String progress = "", planningProgress = "", lastUpdate = "";
+  private double updateFraction = -1, planningFraction = -1;
   private final Runnable advance =
       () -> {
         current = null;
@@ -49,18 +52,28 @@ final class AppFeedback implements AutoCloseable {
     banner.setTextColor(AppPalette.TEXT);
     banner.setGravity(Gravity.CENTER);
     banner.setPadding(dp(24), dp(16), dp(24), dp(16));
-    banner.setElevation(dp(16));
+    panel = new FrameLayout(activity);
+    panel.setElevation(dp(16));
     banner.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
     GradientDrawable background = new GradientDrawable();
     background.setColor(AppPalette.SURFACE);
     background.setCornerRadius(dp(24));
     background.setStroke(dp(1), AppPalette.OUTLINE);
-    banner.setBackground(background);
+    panel.setBackground(background);
+    panel.addView(banner, new FrameLayout.LayoutParams(-1, -2));
+    bar = new LoadingBar(activity);
+    FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(-1, dp(4), Gravity.BOTTOM);
+    barParams.setMargins(dp(24), 0, dp(24), dp(8));
+    panel.addView(bar, barParams);
     render();
   }
 
   TextView view() {
     return banner;
+  }
+
+  FrameLayout panel() {
+    return panel;
   }
 
   void show(String text, int duration) {
@@ -88,6 +101,11 @@ final class AppFeedback implements AutoCloseable {
   }
 
   void update(String text, boolean busy) {
+    update(text, busy, -1);
+  }
+
+  void update(String text, boolean busy, double fraction) {
+    updateFraction = fraction;
     progress = busy ? text : "";
     if (!busy && !text.isEmpty() && !text.equals(lastUpdate)) show(text, 6000, "update");
     lastUpdate = text;
@@ -95,7 +113,12 @@ final class AppFeedback implements AutoCloseable {
   }
 
   void planningProgress(String text) {
-    if (planningProgress.equals(text)) return;
+    planningProgress(text, -1);
+  }
+
+  void planningProgress(String text, double fraction) {
+    if (planningProgress.equals(text) && planningFraction == fraction) return;
+    planningFraction = fraction;
     planningProgress = text;
     render();
   }
@@ -123,6 +146,10 @@ final class AppFeedback implements AutoCloseable {
         current != null ? current.text : planningProgress.isEmpty() ? progress : planningProgress;
     banner.setText(text);
     banner.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+    panel.setVisibility(banner.getVisibility());
+    boolean busy = current == null && !text.isEmpty();
+    bar.setVisibility(busy ? View.VISIBLE : View.GONE);
+    if (busy) bar.showProgress(planningProgress.isEmpty() ? updateFraction : planningFraction);
     // A subwindow inherits its parent drawer's frame even with LAYOUT_IN_SCREEN.
     // Use a sibling application window so every banner has the same screen origin.
     boolean overDialog = windows.size() > 1 && !text.isEmpty();
@@ -139,22 +166,22 @@ final class AppFeedback implements AutoCloseable {
       }
       decor = overlay;
     } else decor = (FrameLayout) activity.getWindow().getDecorView();
-    if (banner.getParent() != decor) {
-      if (banner.getParent() != null) ((ViewGroup) banner.getParent()).removeView(banner);
+    if (panel.getParent() != decor) {
+      if (panel.getParent() != null) ((ViewGroup) panel.getParent()).removeView(panel);
       FrameLayout.LayoutParams params =
           new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
       params.setMargins(dp(24), dp(12), dp(24), 0);
-      decor.addView(banner, params);
+      decor.addView(panel, params);
     }
     WindowInsets insets = activity.getWindow().getDecorView().getRootWindowInsets();
-    ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) banner.getLayoutParams();
+    ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) panel.getLayoutParams();
     // The activity decor includes the system bars; the overlay window is already
     // fitted below them and any cutout. Adding the activity inset there counts it
     // twice: LAYOUT_IN_SCREEN / fitInsetsTypes(0) cannot prevent cutout clipping.
     params.topMargin =
         dp(12) + (overDialog || insets == null ? 0 : insets.getSystemWindowInsetTop());
-    banner.setLayoutParams(params);
-    banner.bringToFront();
+    panel.setLayoutParams(params);
+    panel.bringToFront();
     if (overDialog && overlay.getParent() == null) {
       WindowManager.LayoutParams panel =
           new WindowManager.LayoutParams(
@@ -209,7 +236,7 @@ final class AppFeedback implements AutoCloseable {
   public void close() {
     clear();
     owners.remove(activity);
-    if (banner.getParent() != null) ((ViewGroup) banner.getParent()).removeView(banner);
+    if (panel.getParent() != null) ((ViewGroup) panel.getParent()).removeView(panel);
   }
 
   private int dp(int value) {

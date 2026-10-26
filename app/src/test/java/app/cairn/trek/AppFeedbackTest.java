@@ -14,7 +14,6 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 import java.time.Duration;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -34,6 +33,9 @@ public class AppFeedbackTest {
         AppFeedback feedback = new AppFeedback(controller.get())) {
       feedback.planningProgress("Calculating on this device…");
       assertEquals("Calculating on this device…", feedback.view().getText().toString());
+      android.widget.ProgressBar bar = (android.widget.ProgressBar) feedback.panel().getChildAt(1);
+      assertEquals(View.VISIBLE, bar.getVisibility());
+      assertTrue(bar.isIndeterminate());
       feedback.show("Route saved", 3500);
       feedback.planningProgress("");
       assertEquals("Route saved", feedback.view().getText().toString());
@@ -50,17 +52,22 @@ public class AppFeedbackTest {
     try (ActivityController<Activity> controller =
             Robolectric.buildActivity(Activity.class).setup();
         AppFeedback feedback = new AppFeedback(controller.get())) {
-      feedback.update("Downloading · 10%", true);
+      feedback.update("Downloading…", true, 0.1);
       feedback.show("GPX exported", 3500);
       feedback.show("GPX exported", 3500);
       feedback.show("Region ready", 3500);
-      feedback.update("Downloading · 80%", true);
+      feedback.update("Downloading…", true, 0.8);
       assertEquals("GPX exported", feedback.view().getText().toString());
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
       assertEquals("Region ready", feedback.view().getText().toString());
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
-      assertEquals("Downloading · 80%", feedback.view().getText().toString());
+      assertEquals("Downloading…", feedback.view().getText().toString());
+      android.widget.ProgressBar bar = (android.widget.ProgressBar) feedback.panel().getChildAt(1);
+      assertEquals(View.VISIBLE, bar.getVisibility());
+      assertFalse(bar.isIndeterminate());
+      assertEquals(8000, bar.getProgress());
       feedback.update("Update ready", false);
+      assertEquals(View.GONE, bar.getVisibility());
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6));
       assertEquals(View.GONE, feedback.view().getVisibility());
     }
@@ -73,27 +80,30 @@ public class AppFeedbackTest {
         AppFeedback feedback = new AppFeedback(controller.get())) {
       Activity activity = controller.get();
       feedback.show("Position found", 6000);
-      int topMargin = ((FrameLayout.LayoutParams) feedback.view().getLayoutParams()).topMargin;
+      int topMargin = ((FrameLayout.LayoutParams) feedback.panel().getLayoutParams()).topMargin;
       AlertDialog first = CairnDialogs.drawer(activity).setTitle("Saved maps").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
-      Object firstPanel = feedback.view().getParent();
-      feedback.update("Downloading · 10%", true);
+      assertScreenOverlay(feedback.panel(), activity.getWindow(), topMargin);
+      Object firstPanel = feedback.panel().getParent();
+      feedback.update("Downloading…", true, 0.1);
       feedback.show("Region ready", 3500);
-      assertSame(firstPanel, feedback.view().getParent());
+      assertSame(firstPanel, feedback.panel().getParent());
       AlertDialog second = CairnDialogs.drawer(activity).setTitle("Routing data").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
+      assertScreenOverlay(feedback.panel(), activity.getWindow(), topMargin);
       second.dismiss();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
+      assertScreenOverlay(feedback.panel(), activity.getWindow(), topMargin);
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6000));
       assertEquals("Region ready", feedback.view().getText().toString());
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
-      assertEquals("Downloading · 10%", feedback.view().getText().toString());
+      assertEquals("Downloading…", feedback.view().getText().toString());
+      android.widget.ProgressBar bar = (android.widget.ProgressBar) feedback.panel().getChildAt(1);
+      assertEquals(View.VISIBLE, bar.getVisibility());
+      assertFalse(bar.isIndeterminate());
       first.dismiss();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
-      assertSame(activity.getWindow().getDecorView(), feedback.view().getParent());
+      assertSame(activity.getWindow().getDecorView(), feedback.panel().getParent());
       feedback.clear();
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(20));
       assertEquals(View.GONE, feedback.view().getVisibility());
@@ -106,19 +116,19 @@ public class AppFeedbackTest {
             Robolectric.buildActivity(Activity.class).setup();
         AppFeedback feedback = new AppFeedback(controller.get())) {
       Activity activity = controller.get();
-      int topMargin = ((FrameLayout.LayoutParams) feedback.view().getLayoutParams()).topMargin;
+      int topMargin = ((FrameLayout.LayoutParams) feedback.panel().getLayoutParams()).topMargin;
       AlertDialog drawer = CairnDialogs.drawer(activity).setTitle("GPS").show();
       Shadows.shadowOf(Looper.getMainLooper()).idle();
       feedback.show("Position found", 3500);
-      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
+      assertScreenOverlay(feedback.panel(), activity.getWindow(), topMargin);
       feedback.clear();
       assertEquals(View.GONE, feedback.view().getVisibility());
-      assertSame(activity.getWindow().getDecorView(), feedback.view().getParent());
+      assertSame(activity.getWindow().getDecorView(), feedback.panel().getParent());
       feedback.show("GPX exported", 3500);
-      assertScreenOverlay(feedback.view(), activity.getWindow(), topMargin);
+      assertScreenOverlay(feedback.panel(), activity.getWindow(), topMargin);
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3500));
       assertEquals(View.GONE, feedback.view().getVisibility());
-      assertSame(activity.getWindow().getDecorView(), feedback.view().getParent());
+      assertSame(activity.getWindow().getDecorView(), feedback.panel().getParent());
       drawer.dismiss();
     }
   }
@@ -136,14 +146,14 @@ public class AppFeedbackTest {
         Activity activity = controller.get();
         setActivityTopInset(activity, safeTop);
         feedback.show("Position found", 6000);
-        int mapTop = ((FrameLayout.LayoutParams) feedback.view().getLayoutParams()).topMargin;
+        int mapTop = ((FrameLayout.LayoutParams) feedback.panel().getLayoutParams()).topMargin;
         AlertDialog drawer = CairnDialogs.drawer(activity).setTitle("GPS").show();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         setActivityTopInset(activity, safeTop);
         feedback.update("Downloading", true);
-        assertOverlayTop(feedback.view(), new Rect(0, 0, 1080, 2400), safeTop, 0, mapTop);
+        assertOverlayTop(feedback.panel(), new Rect(0, 0, 1080, 2400), safeTop, 0, mapTop);
         // A keyboard, a resized task and a nonzero task origin must not add an offset.
-        assertOverlayTop(feedback.view(), new Rect(100, 200, 900, 1400), safeTop, 400, mapTop);
+        assertOverlayTop(feedback.panel(), new Rect(100, 200, 900, 1400), safeTop, 400, mapTop);
         drawer.dismiss();
       }
     }
@@ -160,8 +170,7 @@ public class AppFeedbackTest {
   }
 
   private static void assertOverlayTop(
-      TextView banner, Rect bounds, int safeTop, int keyboardHeight, int expectedTop)
-      throws Exception {
+      View banner, Rect bounds, int safeTop, int keyboardHeight, int expectedTop) throws Exception {
     Class<?> stateClass = Class.forName("android.view.InsetsState");
     Object state = stateClass.getConstructor().newInstance();
     stateClass.getMethod("setDisplayFrame", Rect.class).invoke(state, bounds);
@@ -242,7 +251,7 @@ public class AppFeedbackTest {
     source.getClass().getMethod("setVisible", boolean.class).invoke(source, true);
   }
 
-  private static void assertScreenOverlay(TextView banner, Window host, int topMargin) {
+  private static void assertScreenOverlay(View banner, Window host, int topMargin) {
     assertNotSame(host.getDecorView(), banner.getParent());
     WindowManager.LayoutParams panel =
         (WindowManager.LayoutParams) banner.getRootView().getLayoutParams();

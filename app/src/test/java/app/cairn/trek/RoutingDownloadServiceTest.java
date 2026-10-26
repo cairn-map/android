@@ -125,7 +125,9 @@ public class RoutingDownloadServiceTest {
     Intent progress = events.get(0), complete = events.get(events.size() - 1);
     assertFalse(progress.getBooleanExtra("finished", true));
     assertTrue(progress.getStringExtra("message").contains("1/1"));
-    assertTrue(progress.getStringExtra("message").contains("MB"));
+    assertFalse(progress.getStringExtra("message").contains("%"));
+    assertTrue(progress.getDoubleExtra("fraction", -1) >= 0);
+    assertTrue(progress.getDoubleExtra("fraction", -1) <= 1);
     for (Intent event : events) {
       assertEquals("planned-route", event.getStringExtra("request"));
       assertEquals(context.getPackageName(), event.getPackage());

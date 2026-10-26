@@ -32,7 +32,8 @@ public final class MainActivity extends Activity {
   private TextView updateStatus;
   private AlertDialog libraryDialog;
   private FrameLayout libraryBody;
-  private TextView downloadStatus, corridorDownloadStatus;
+  private final Map<String, List<ProgressButton>> downloadButtons = new HashMap<>();
+  private ProgressButton mapDownloadButton, corridorDownloadButton;
   private String pendingDownload;
   private EmbeddedRouter router;
   private FrameLayout root;
@@ -109,13 +110,20 @@ public final class MainActivity extends Activity {
             return;
           }
           if (DownloadService.EVENT.equals(i.getAction())) {
-            if (downloadStatus != null) downloadStatus.setText(i.getStringExtra("message"));
-            if (corridorDownloadStatus != null)
-              corridorDownloadStatus.setText(i.getStringExtra("message"));
             boolean finished = i.getBooleanExtra("finished", false);
+            if (mapDownloadButton != null)
+              updateDownloadButton(mapDownloadButton, DownloadService.activePack);
+            if (corridorDownloadButton != null)
+              updateDownloadButton(
+                  corridorDownloadButton, corridorDownloadButton.getTag().toString());
+            for (Map.Entry<String, List<ProgressButton>> entry : downloadButtons.entrySet())
+              for (ProgressButton button : entry.getValue())
+                updateDownloadButton(button, entry.getKey());
             if (finished) map.refreshTiles(true);
             else map.tilesAdded();
             if (finished) {
+              if (i.hasExtra("pack") && i.getStringExtra("message") != null)
+                message(i.getStringExtra("message"));
               reloadLibrary();
               if (corridorDialog != null && corridorDialog.isShowing())
                 routeCorridorMenu(corridorEntry);
@@ -221,6 +229,8 @@ public final class MainActivity extends Activity {
     pages = column();
     root.addView(pages, new FrameLayout.LayoutParams(-1, -1));
     map = new TrekMapView(this);
+    if (state != null && state.containsKey("searchLat"))
+      map.searchMarker = new Point(state.getDouble("searchLat"), state.getDouble("searchLon"));
     map.source(ignMap);
     if (store.prefs.contains("mapLat"))
       map.restoreCamera(
@@ -315,6 +325,10 @@ public final class MainActivity extends Activity {
   @Override
   protected void onSaveInstanceState(Bundle state) {
     super.onSaveInstanceState(state);
+    if (map.searchMarker != null) {
+      state.putDouble("searchLat", map.searchMarker.lat);
+      state.putDouble("searchLon", map.searchMarker.lon);
+    }
     state.putLong("followResumeAt", followResumeAt);
     state.putString("profilePathId", profilePathId);
     state.putInt("profileProgress", profileProgress);
@@ -447,7 +461,8 @@ public final class MainActivity extends Activity {
           if (libraryDialog != popout) return;
           libraryDialog = null;
           libraryBody = null;
-          downloadStatus = null;
+          mapDownloadButton = null;
+          downloadButtons.clear();
           currentPage = "Map";
           if (libraryButton != null) setIconActive(libraryButton, false);
           if (!destroyed) refreshStatus();
@@ -544,7 +559,8 @@ public final class MainActivity extends Activity {
     profileDetails.setGravity(Gravity.TOP | Gravity.END);
     profileDetails.setTag("Elevation point details");
     profileHeader.addView(profileDetails, new LinearLayout.LayoutParams(-2, -2));
-    android.widget.HorizontalScrollView profileReadout = new android.widget.HorizontalScrollView(this);
+    android.widget.HorizontalScrollView profileReadout =
+        new android.widget.HorizontalScrollView(this);
     profileReadout.setHorizontalScrollBarEnabled(false);
     profileReadout.setFillViewport(true);
     profileReadout.addView(profileHeader, new FrameLayout.LayoutParams(-2, -2));
@@ -588,7 +604,7 @@ public final class MainActivity extends Activity {
     appUpdates.listen(
         (message, busy) -> {
           if (destroyed) return;
-          feedback.update(message, busy);
+          feedback.update(message, busy, appUpdates.fraction());
           updateButton.setEnabled(!busy);
           styleUpdateButton(busy);
           updateButton.setContentDescription(busy ? message : "Update Cairn");
@@ -733,6 +749,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showRoutes() {
+    downloadButtons.clear();
     LinearLayout content = libraryContent();
     content.addView(button("Add files", false, () -> openDocument(IMPORT_GPX)));
     content.addView(spacer(20));
@@ -786,7 +803,13 @@ public final class MainActivity extends Activity {
             () -> routeCorridorMenu(entry));
     ((MapIcon) status.getDrawable()).colors(ready ? ACCENT : MUTED, SURFACE);
     status.setBackground(buttonBackground(SURFACE, OUTLINE, 16));
-    row.addView(status, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    ProgressButton corridor = new ProgressButton(status);
+    if (present) {
+      String packId = corridors.get(0).id;
+      downloadButtons.computeIfAbsent(packId, key -> new ArrayList<>()).add(corridor);
+      updateDownloadButton(corridor, packId);
+    }
+    row.addView(corridor, new LinearLayout.LayoutParams(dp(52), -1));
     row.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
     if (!entry.recording)
       item.setOnLongClickListener(
@@ -1382,17 +1405,20 @@ public final class MainActivity extends Activity {
             14,
             MUTED,
             false));
-    downloadStatus =
-        label(DownloadService.running ? "Map download in progress…" : "", 13, ACCENT, false);
-    content.addView(downloadStatus);
-    if (DownloadService.running)
-      content.addView(
-          button(
-              "Pause map download",
-              false,
-              () ->
-                  startService(
-                      new Intent(this, DownloadService.class).setAction(DownloadService.PAUSE))));
+    mapDownloadButton = null;
+    if (DownloadService.running) {
+      mapDownloadButton =
+          new ProgressButton(
+              button(
+                  "Pause map download",
+                  false,
+                  () ->
+                      startService(
+                          new Intent(this, DownloadService.class)
+                              .setAction(DownloadService.PAUSE))));
+      updateDownloadButton(mapDownloadButton, DownloadService.activePack);
+      content.addView(mapDownloadButton);
+    }
     for (PlanIgnStore.Pack pack : mapStore.packs()) {
       if (pack.routeId != null && !pack.routeId.isEmpty()) continue;
       content.addView(
@@ -1651,10 +1677,22 @@ public final class MainActivity extends Activity {
             13,
             MUTED,
             false));
-    corridorDownloadStatus = null;
+    corridorDownloadButton = null;
     if (existing != null) {
-      corridorDownloadStatus = label(existing.description(), 13, ACCENT, false);
-      content.addView(corridorDownloadStatus);
+      if (DownloadService.running && existing.id.equals(DownloadService.activePack)) {
+        corridorDownloadButton =
+            new ProgressButton(
+                button(
+                    "Pause download",
+                    false,
+                    () ->
+                        startService(
+                            new Intent(this, DownloadService.class)
+                                .setAction(DownloadService.PAUSE))));
+        corridorDownloadButton.setTag(existing.id);
+        updateDownloadButton(corridorDownloadButton, existing.id);
+        content.addView(corridorDownloadButton);
+      } else content.addView(label(existing.description(), 13, ACCENT, false));
     }
     content.addView(spacer(16));
     String[] detailLabels = {
@@ -1794,7 +1832,7 @@ public final class MainActivity extends Activity {
     dialog.setOnDismissListener(
         d -> {
           selection.revision.incrementAndGet();
-          if (corridorDialog == dialog) corridorDownloadStatus = null;
+          if (corridorDialog == dialog) corridorDownloadButton = null;
         });
     dialog.setOnShowListener(
         d -> {
@@ -1900,6 +1938,15 @@ public final class MainActivity extends Activity {
       return;
     }
     launchDownload(id);
+  }
+
+  private void updateDownloadButton(ProgressButton button, String packId) {
+    boolean busy = DownloadService.running && Objects.equals(packId, DownloadService.activePack);
+    button.progress(
+        busy,
+        DownloadService.totalTiles <= 0
+            ? -1
+            : DownloadService.completedTiles / (double) DownloadService.totalTiles);
   }
 
   private void launchDownload(String id) {
@@ -2488,7 +2535,10 @@ public final class MainActivity extends Activity {
                 ? editingRecording() ? "Saving recording…" : "Saving route…"
                 : pendingRoute != null
                     ? routingProgress == null ? "Downloading routing data…" : routingProgress
-                    : calculationRunning ? "Calculating on this device…" : "");
+                    : calculationRunning ? "Calculating on this device…" : "",
+        pendingRoute != null && Objects.equals(routingRequest, RoutingDownloadService.activeRequest)
+            ? RoutingDownloadService.fraction
+            : -1);
     updateSelectionActions();
   }
 
@@ -2720,6 +2770,7 @@ public final class MainActivity extends Activity {
                       false,
                       () -> {
                         cancelLocate();
+                        map.searchMarker = new Point(place.getLatitude(), place.getLongitude());
                         double[] camera = map.camera();
                         map.restoreCamera(
                             new double[] {

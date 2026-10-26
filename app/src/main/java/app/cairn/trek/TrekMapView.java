@@ -27,6 +27,8 @@ public final class TrekMapView extends View {
       track = Collections.emptyList(),
       waypoints = Collections.emptyList();
   public Point position;
+  public Point searchMarker;
+  private final Path searchPin = new Path();
   private Point profilePoint;
   private PhoneHeading phoneHeading;
   private boolean phoneDirectionEnabled;
@@ -1192,6 +1194,24 @@ public final class TrekMapView extends View {
       c.drawCircle(px(position.lon), py(position.lat), dp(9), paint);
       paint.setColor(stale ? 0xff777777 : 0xff2767AE);
       c.drawCircle(px(position.lon), py(position.lat), dp(6), paint);
+    }
+    if (searchMarker != null) {
+      float x = px(searchMarker.lon), y = py(searchMarker.lat);
+      paint.setStyle(Paint.Style.FILL);
+      searchPin.rewind();
+      searchPin.moveTo(x, y);
+      searchPin.cubicTo(x - dp(5), y - dp(9), x - dp(14), y - dp(17), x - dp(14), y - dp(25));
+      searchPin.cubicTo(x - dp(14), y - dp(44), x + dp(14), y - dp(44), x + dp(14), y - dp(25));
+      searchPin.cubicTo(x + dp(14), y - dp(17), x + dp(5), y - dp(9), x, y);
+      searchPin.close();
+      paint.setColor(AppPalette.PRIMARY);
+      c.drawPath(searchPin, paint);
+      paint.setStyle(Paint.Style.STROKE);
+      paint.setStrokeWidth(dp(2));
+      paint.setColor(Color.WHITE);
+      c.drawPath(searchPin, paint);
+      paint.setStyle(Paint.Style.FILL);
+      c.drawCircle(x, y - dp(26), dp(5), paint);
     }
     if (profilePoint != null) {
       float x = px(profilePoint.lon), y = py(profilePoint.lat);
