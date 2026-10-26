@@ -5,8 +5,22 @@ import java.util.List;
 
 /** Distance-indexed stored geometry. Appending a live fix does not rescan the track. */
 final class ElevationProfile {
+  static final double MAX_DISPLAY_GAP_METERS = 50;
+
+  /** Endpoint indices only: no inferred value is written to points or used by at(). */
+  static final class Connector {
+    final int first, last;
+
+    Connector(int first, int last) {
+      this.first = first;
+      this.last = last;
+    }
+  }
+
   final List<Point> points = new ArrayList<>();
+  final List<Connector> connectors = new ArrayList<>();
   private double[] distances = new double[64];
+  private int lastAccepted = -1;
   double distance, minimum = Double.POSITIVE_INFINITY, maximum = Double.NEGATIVE_INFINITY;
   long geometryKey = 1;
   boolean hasExcludedElevation;
@@ -22,6 +36,7 @@ final class ElevationProfile {
 
   void add(Point point) {
     int index = points.size();
+    if (index > 0 && points.get(index - 1).segment != point.segment) lastAccepted = -1;
     double step =
         index > 0 && points.get(index - 1).segment == point.segment
             ? Geo.distance(points.get(index - 1), point)
@@ -49,6 +64,13 @@ final class ElevationProfile {
     distances[index] = distance;
     points.add(point);
     if (Double.isFinite(point.elevation)) {
+      if (lastAccepted >= 0 && index > lastAccepted + 1) {
+        double gap = distance - distances[lastAccepted];
+        if (gap > 0 && gap <= MAX_DISPLAY_GAP_METERS)
+          connectors.add(new Connector(lastAccepted, index));
+      }
+      // Constant work per appended fix, even after arbitrarily long excluded runs.
+      lastAccepted = index;
       minimum = Math.min(minimum, point.elevation);
       maximum = Math.max(maximum, point.elevation);
     } else hasExcludedElevation = true;

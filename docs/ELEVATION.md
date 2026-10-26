@@ -12,6 +12,21 @@ grid values. This aligns the vertical reference with the terrain-height conventi
 terrain snapping or a correction of GPS noise. Local national height references and terrain models
 can still differ, and unreliable altitude changes remain subject to the recording filter.
 
+## Short display gaps
+
+The profile draws a subdued dashed connector across an internal missing/excluded stretch only
+when accepted finite endpoints lie in the same uninterrupted track segment and are at most 50 m
+apart along the route (`ElevationProfile.MAX_DISPLAY_GAP_METERS`). Its straight line uses cumulative
+distance, rather than sample count, for linear interpolation. Existing uncertainty shading remains;
+the accessibility description identifies the dashes as a display-only estimate and retains
+“uncertain elevation excluded” for recordings or “elevation unavailable” for imported tracks.
+
+Leading/trailing gaps, segment boundaries, longer gaps and zero-distance endpoints remain
+unconnected. The cursor continues to show unavailable altitude inside these gaps, including dashed
+ones. No inferred samples enter stored points, GPS filtering, ascent/descent or GPX export. Connector
+endpoints are tracked incrementally with constant work per arriving fix; rendering caches their
+path alongside the accepted profile and shading. No elevation service or extra GPS request is used.
+
 ## Storage, old recordings and GPX
 
 Database version 5 tags historical points belonging to saved recordings as WGS84; their numeric

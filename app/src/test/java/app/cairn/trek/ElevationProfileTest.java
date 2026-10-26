@@ -67,4 +67,77 @@ public class ElevationProfileTest {
     assertEquals(150, middle.elevation, 0);
     assertEquals(2000, middle.time);
   }
+
+  private Point meters(double distance, double elevation, int segment) {
+    return point(Math.toDegrees(distance / 6371008.8), elevation, segment);
+  }
+
+  @Test
+  public void shortInternalGapHasSeparateEndpointsWithoutChangingCursorOrSamples() {
+    ElevationProfile profile = new ElevationProfile();
+    Point missing = meters(10, Double.NaN, 0);
+    profile.add(meters(0, 100, 0));
+    profile.add(missing);
+    assertTrue(profile.connectors.isEmpty()); // Still a trailing gap.
+    profile.add(meters(40, 140, 0));
+    assertEquals(1, profile.connectors.size());
+    assertEquals(0, profile.connectors.get(0).first);
+    assertEquals(2, profile.connectors.get(0).last);
+    assertEquals(.25, profile.fraction(1), .000001);
+    assertSame(missing, profile.points.get(1));
+    assertTrue(Double.isNaN(profile.at(.25).elevation));
+    assertTrue(Double.isNaN(profile.at(.75).elevation));
+    assertEquals(100, profile.minimum, 0);
+    assertEquals(140, profile.maximum, 0);
+  }
+
+  @Test
+  public void displayGapLimitIncludesFiftyMetersAndUsesCumulativeDistance() {
+    for (double length : new double[] {49.99, 50, 50.01}) {
+      ElevationProfile profile = new ElevationProfile();
+      profile.add(meters(0, 100, 0));
+      profile.add(meters(length / 2, Double.NaN, 0));
+      profile.add(meters(length, 200, 0));
+      assertEquals(length <= 50 ? 1 : 0, profile.connectors.size());
+    }
+    ElevationProfile detour = new ElevationProfile();
+    detour.add(meters(0, 100, 0));
+    detour.add(meters(40, Double.NaN, 0));
+    detour.add(meters(10, 200, 0));
+    assertEquals(70, detour.distance, .000001);
+    assertTrue(detour.connectors.isEmpty());
+  }
+
+  @Test
+  public void leadingTrailingAndCrossSegmentGapsHaveNoConnectors() {
+    ElevationProfile profile = new ElevationProfile();
+    profile.add(meters(0, Double.NaN, 0));
+    profile.add(meters(5, 100, 0));
+    profile.add(meters(10, Double.NaN, 0));
+    profile.add(meters(15, Double.NaN, 1));
+    // Even returning to the earlier segment ID must not bridge intervening boundaries.
+    profile.add(meters(20, 200, 0));
+    profile.add(meters(25, Double.NaN, 0));
+    assertTrue(profile.connectors.isEmpty());
+  }
+
+  @Test
+  public void singleMissingDuplicateAndAlternatingSamplesRemainSafe() {
+    ElevationProfile profile = new ElevationProfile();
+    profile.add(meters(0, Double.NaN, 0));
+    assertTrue(profile.connectors.isEmpty());
+    profile.add(meters(0, 100, 0));
+    profile.add(meters(0, Double.NaN, 0));
+    profile.add(meters(0, 200, 0));
+    assertTrue(profile.connectors.isEmpty()); // Never draw an inferred vertical spike.
+    profile.add(meters(0, Double.NaN, 0));
+    profile.add(meters(20, 220, 0));
+    profile.add(meters(25, Double.NaN, 0));
+    profile.add(meters(40, 240, 0));
+    assertEquals(2, profile.connectors.size());
+    assertEquals(3, profile.connectors.get(0).first);
+    assertEquals(5, profile.connectors.get(0).last);
+    assertEquals(5, profile.connectors.get(1).first);
+    assertEquals(7, profile.connectors.get(1).last);
+  }
 }
