@@ -112,10 +112,11 @@ public class UnifiedLibraryTest {
       assertNull(find(root, trekTitle));
       LinearLayout actions = (LinearLayout) field(activity, "selectionPanel");
       assertNull(actions.getBackground());
-      assertEquals(5, actions.getChildCount());
+      assertEquals(4, actions.getChildCount());
       assertEquals(LinearLayout.HORIZONTAL, actions.getOrientation());
       assertEquals(0, ((ViewGroup) actions.getParent()).indexOfChild(actions));
-      for (String action : List.of("Save offline corridor", "Export GPX", "Hide")) {
+      assertNull(find(root, "Hide"));
+      for (String action : List.of("Save offline corridor", "Export GPX")) {
         View icon = find(root, action);
         assertTrue(icon instanceof ImageButton);
         assertEquals(action, icon.getTooltipText());
@@ -132,6 +133,45 @@ public class UnifiedLibraryTest {
       Intent intent = Shadows.shadowOf(activity).getNextStartedActivityForResult().intent;
       assertEquals(Intent.ACTION_CREATE_DOCUMENT, intent.getAction());
       assertEquals("application/gpx+xml", intent.getType());
+    }
+  }
+
+  @Test
+  public void changingGuidanceRoutesKeepsTheSameActiveHike() throws Exception {
+    TrackingService.running = true;
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      Store store = (Store) field(activity, "store");
+      String other = store.saveRoute(List.of(new Point(47, 8), new Point(47.1, 8.1)), "Next route");
+      java.lang.reflect.Method reload = MainActivity.class.getDeclaredMethod("reloadLibrary");
+      reload.setAccessible(true);
+      reload.invoke(activity);
+      drain(activity);
+      for (String title : List.of("Next route", "Saved route")) {
+        View list = library(activity);
+        find(list, title).performClick();
+        drain(activity);
+        assertTrue(TrackingService.running);
+        assertEquals(trekId, store.prefs.getString("currentTrek", ""));
+        assertEquals(1, store.treks().size());
+        assertEquals(recording.size(), store.read(trekId).size());
+        assertEquals(
+            title.equals("Next route") ? other : routeId,
+            store.prefs.getString("activeRouteId", ""));
+      }
+      int guidanceUpdates = 0;
+      Intent service;
+      while ((service = Shadows.shadowOf(activity).getNextStartedService()) != null) {
+        if (service.getComponent().getClassName().equals(TrackingService.class.getName())) {
+          assertEquals(TrackingService.UPDATE, service.getAction());
+          guidanceUpdates++;
+        }
+      }
+      assertEquals(2, guidanceUpdates);
+    } finally {
+      TrackingService.running = false;
     }
   }
 
@@ -156,8 +196,12 @@ public class UnifiedLibraryTest {
   }
 
   @Test
-  public void hidingAndReselectingEitherKindPersistsVisibilityAndSelectionAcrossResume()
+  public void formerlyHiddenRoutesAndRecordingsStayVisibleWithoutAHideAction()
       throws Exception {
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      store.getWritableDatabase().execSQL("UPDATE routes SET visible=0");
+      store.prefs.edit().putBoolean("hiddenTrek:" + trekId, true).commit();
+    }
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
@@ -168,16 +212,7 @@ public class UnifiedLibraryTest {
         if (item == null) item = find(list, title + " · selected");
         item.performClick();
         drain(activity);
-        find(activity.getWindow().getDecorView(), "Hide").performClick();
-        drain(activity);
-        assertEquals("", ((Store) field(activity, "store")).selectedLibraryId());
         assertNull(find(activity.getWindow().getDecorView(), "Hide"));
-        controller.pause().resume();
-        drain(activity);
-        View hidden = find(library(activity), title + " · hidden");
-        assertNotNull(hidden);
-        hidden.performClick();
-        drain(activity);
         String expected = title.equals("Saved route") ? routeId : trekId;
         TrekMapView map = (TrekMapView) field(activity, "map");
         assertEquals(expected, map.selectedPathId);
@@ -250,7 +285,7 @@ public class UnifiedLibraryTest {
       drain(activity);
       recap = (TextView) field(activity, "selectionRecap");
       assertTrue(recap.getText().toString().contains("Elevation unavailable"));
-      find(activity.getWindow().getDecorView(), "Hide").performClick();
+      ((TrekMapView) field(activity, "map")).onPathSelected.accept(null);
       drain(activity);
       assertEquals(View.GONE, ((View) field(activity, "selectionRecap")).getVisibility());
     }

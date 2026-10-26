@@ -14,9 +14,15 @@ import java.util.Locale;
 final class ElevationGraph extends SeekBar {
   private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Path line = new Path();
+  private final Path gpsMarker = new Path();
   private List<Point> source = Collections.emptyList();
   private ElevationProfile profile = new ElevationProfile();
   private boolean dirty = true;
+  private boolean cursorActive;
+  private RouteProximity gpsRoute;
+  private long gpsRouteKey;
+  private Point gpsPosition;
+  private double gpsFraction, gpsDistance = Double.NaN;
   private int pointer = -1;
   private OnSeekBarChangeListener listener;
 
@@ -46,7 +52,64 @@ final class ElevationGraph extends SeekBar {
   }
 
   Point selectedPoint() {
-    return profile.at(getProgress() / (double) getMax());
+    return cursorActive ? profile.at(getProgress() / (double) getMax()) : null;
+  }
+
+  long geometryKey() {
+    return profile.geometryKey;
+  }
+
+  double gpsDistance() {
+    return gpsDistance;
+  }
+
+  void setGpsPosition(Point position) {
+    // Use existing fixes only. Hide stale, inaccurate or distant positions.
+    if (position == null
+        || position.time <= 0
+        || System.currentTimeMillis() - position.time > 120_000
+        || !Float.isFinite(position.accuracy)
+        || position.accuracy < 0
+        || position.accuracy > 50
+        || profile.points.isEmpty()) {
+      gpsPosition = null;
+      if (Double.isFinite(gpsDistance)) {
+        gpsDistance = Double.NaN;
+        invalidate();
+      }
+      return;
+    }
+    if (gpsRoute == null || gpsRouteKey != geometryKey()) {
+      gpsRoute = new RouteProximity(profile.points);
+      gpsRouteKey = geometryKey();
+      gpsPosition = null;
+    }
+    if (gpsPosition == position) return;
+    gpsPosition = position;
+    gpsDistance = Double.NaN;
+    RouteProximity.Match match = gpsRoute.locate(position);
+    if (match != null && match.distance <= 50) {
+      gpsFraction = profile.fraction(match.index);
+      if (match.fraction > 0)
+        gpsFraction +=
+            match.fraction * (profile.fraction(match.index + 1) - profile.fraction(match.index));
+      gpsDistance = profile.distance * gpsFraction;
+    }
+    invalidate();
+  }
+
+  void setCursorActive(boolean active) {
+    cursorActive = active;
+    invalidate();
+  }
+
+  void clearCursor() {
+    cursorActive = false;
+    // Reset keyboard/accessibility stepping without reporting a new inspected point.
+    super.setOnSeekBarChangeListener(null);
+    setProgress(0);
+    super.setOnSeekBarChangeListener(listener);
+    invalidate();
   }
 
   double selectedDistance() {
@@ -135,12 +198,26 @@ final class ElevationGraph extends SeekBar {
           (getPaddingTop() + bottom()) / 2,
           ink);
     }
+    if (Double.isFinite(gpsDistance)) {
+      float x = getPaddingLeft() + (float) gpsFraction * plotWidth();
+      ink.setStyle(Paint.Style.STROKE);
+      ink.setStrokeWidth(dp(2));
+      ink.setColor(AppPalette.ACCENT);
+      canvas.drawLine(x, getPaddingTop(), x, bottom(), ink);
+      gpsMarker.rewind();
+      gpsMarker.moveTo(x, bottom() - dp(6));
+      gpsMarker.lineTo(x - dp(4), bottom() + dp(2));
+      gpsMarker.lineTo(x + dp(4), bottom() + dp(2));
+      gpsMarker.close();
+      ink.setStyle(Paint.Style.FILL);
+      canvas.drawPath(gpsMarker, ink);
+    }
     Point point = selectedPoint();
     if (point != null) {
       float x = getPaddingLeft() + plotWidth() * getProgress() / getMax();
       ink.setStyle(Paint.Style.STROKE);
       ink.setStrokeWidth(dp(1));
-      ink.setColor(AppPalette.ACCENT);
+      ink.setColor(AppPalette.ON_SELECTION);
       canvas.drawLine(x, getPaddingTop(), x, bottom(), ink);
     }
   }

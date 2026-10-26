@@ -51,6 +51,41 @@ final class RouteProximity {
     return best;
   }
 
+  static final class Match {
+    final int index;
+    final double fraction, distance;
+
+    Match(int index, double fraction, double distance) {
+      this.index = index;
+      this.fraction = fraction;
+      this.distance = distance;
+    }
+  }
+
+  /** Find progress on the same nearest block, without another whole-route scan. */
+  Match locate(Point point) {
+    if (!Double.isFinite(distance(point))) return null;
+    int index = 0;
+    double best = Double.POSITIVE_INFINITY, fraction = 0;
+    for (int i = nearest * BLOCK; i < Math.min(points.length, (nearest + 1) * BLOCK); i++) {
+      double vertex = Geo.distance(point, points[i]);
+      if (vertex < best) {
+        best = vertex;
+        index = i;
+        fraction = 0;
+      }
+      if (i > 0 && points[i].segment == points[i - 1].segment) {
+        double segment = Geo.segmentDistance(point, points[i - 1], points[i]);
+        if (segment < best) {
+          best = segment;
+          index = i - 1;
+          fraction = Geo.segmentFraction(point, points[i - 1], points[i]);
+        }
+      }
+    }
+    return new Match(index, fraction, best);
+  }
+
   private double scan(Point point, int block, double best) {
     for (int i = block * BLOCK; i < Math.min(points.length, (block + 1) * BLOCK); i++) {
       testedPoints++;

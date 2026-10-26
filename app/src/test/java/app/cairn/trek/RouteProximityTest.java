@@ -7,6 +7,38 @@ import org.junit.Test;
 
 public class RouteProximityTest {
   @Test
+  public void nearestProgressInterpolatesSegmentInteriorsAndAllowsBacktracking() {
+    RouteProximity proximity =
+        new RouteProximity(List.of(new Point(45, 6), new Point(45.02, 6)));
+    for (double fraction : new double[] {.75, .25, 1, 0}) {
+      RouteProximity.Match match = proximity.locate(new Point(45 + .02 * fraction, 6.0001));
+      assertEquals(fraction, match.index + match.fraction, .00001);
+      assertTrue(match.distance < 10);
+    }
+  }
+
+  @Test
+  public void progressHandlesBlockBoundariesDateLineAndSegmentGaps() {
+    List<Point> route = new ArrayList<>();
+    for (int i = 0; i < 70; i++) route.add(new Point(45 + i * .001, 6));
+    RouteProximity.Match boundary = new RouteProximity(route).locate(new Point(45.0315, 6));
+    assertEquals(31, boundary.index);
+    assertEquals(.5, boundary.fraction, .00001);
+    RouteProximity.Match dateLine =
+        new RouteProximity(List.of(new Point(45, 179.9), new Point(45, -179.9)))
+            .locate(new Point(45, 180));
+    assertEquals(0, dateLine.index);
+    assertEquals(.5, dateLine.fraction, .00001);
+    RouteProximity.Match gap =
+        new RouteProximity(
+                List.of(new Point(45, 6, 0, 0, 0, 0), new Point(45, 7, 0, 0, 0, 1)))
+            .locate(new Point(45, 6.5));
+    assertTrue(gap.distance > 30000);
+    assertEquals(0, gap.fraction, 0);
+    assertNull(new RouteProximity(List.of()).locate(new Point(45, 6)));
+  }
+
+  @Test
   public void exactDistanceMatchesExhaustiveSearchAcrossGlobalAndLocalRoutes() {
     Random random = new Random(73921);
     for (boolean local : new boolean[] {false, true}) {

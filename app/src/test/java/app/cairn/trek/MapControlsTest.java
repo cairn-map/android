@@ -322,7 +322,7 @@ public class MapControlsTest {
       Store store = (Store) field(activity, "store");
       List<Point> points = Arrays.asList(new Point(45, 6), new Point(46, 7), new Point(45, 6.1));
       String id = store.saveRoute(points, "Mountain loop");
-      store.routeVisible(id, false);
+      store.getWritableDatabase().execSQL("UPDATE routes SET visible=0 WHERE id=?", new Object[] {id});
       TrekMapView map = (TrekMapView) field(activity, "map");
       map.layout(0, 0, 786, 1400);
       map.restoreCamera(new double[] {48, 2, 18});
@@ -332,13 +332,13 @@ public class MapControlsTest {
       drain(activity);
       ((View) field(activity, "libraryButton")).performClick();
       AlertDialog library = (AlertDialog) field(activity, "libraryDialog");
-      find(library.getWindow().getDecorView(), "Mountain loop · hidden").performClick();
+      find(library.getWindow().getDecorView(), "Mountain loop · selected").performClick();
       drain(activity);
       map.layout(0, 0, 786, 1400);
       View content = activity.getWindow().getDecorView();
       assertNotNull(find(content, "Save offline corridor"));
       assertNotNull(find(content, "Export GPX"));
-      assertNotNull(find(content, "Hide"));
+      assertNull(find(content, "Hide"));
       assertNull(find(content, "Mountain loop"));
       savePreview(content, 786, 1550, "selected-route-floating-actions");
       android.graphics.Rect gpsBounds = new android.graphics.Rect();
@@ -346,7 +346,7 @@ public class MapControlsTest {
       int previousRight = 0;
       for (String action :
           new String[] {
-            "Save offline corridor", "Export GPX", "Hide", "Center selected", "Edit route"
+            "Save offline corridor", "Export GPX", "Center selected", "Edit route"
           }) {
         View icon = find(content, action);
         assertTrue(icon instanceof ImageButton);
