@@ -83,7 +83,7 @@ public class RouteSummaryTest {
     RouteSummary summary = new RouteSummary();
     summary.add(new Point(45, 6, 100, 1_000_000, 3, 0));
     summary.add(new Point(45.01, 6, 150, 1_600_000, 3, 0));
-    assertTrue(summary.profileText().endsWith(" · 10m"));
+    assertTrue(summary.profileText().endsWith(" · 10 min"));
     summary.add(new Point(46, 6, 200, 4_900_000, 3, 1));
     assertTrue(summary.profileText().endsWith(" · 1h 05m"));
     assertFalse(summary.profileText().contains("\n"));

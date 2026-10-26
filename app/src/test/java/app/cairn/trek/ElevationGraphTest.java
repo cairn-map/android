@@ -526,7 +526,7 @@ public class ElevationGraphTest {
       TextView recap = (TextView) field(activity, "selectionRecap");
       assertTrue(recap.getText().toString().contains("↑ — m"));
       assertFalse(recap.getText().toString().contains("↑ 0 m"));
-      assertTrue(recap.getText().toString().endsWith(" · 1m"));
+      assertTrue(recap.getText().toString().endsWith(" · 1 min"));
       assertEquals(1, recap.getLineCount());
       assertEquals(2, ((android.view.ViewGroup) field(activity, "selectionInfo")).getChildCount());
       assertTrue(graph.getContentDescription().toString().contains("excluded"));

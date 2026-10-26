@@ -90,7 +90,7 @@ final class RouteSummary {
   static String durationText(long millis) {
     long minutes = Math.max(0, millis) / 60000;
     return minutes < 60
-        ? String.format(Locale.getDefault(), "%dm", minutes)
+        ? String.format(Locale.getDefault(), "%d min", minutes)
         : String.format(Locale.getDefault(), "%dh %02dm", minutes / 60, minutes % 60);
   }
 
