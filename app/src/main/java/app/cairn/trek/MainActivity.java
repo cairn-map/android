@@ -535,24 +535,26 @@ public final class MainActivity extends Activity {
     profileHeader.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
     profileHeader.setGravity(Gravity.TOP);
     selectionRecap = label("", 12, ON_SELECTION, true);
+    selectionRecap.setSingleLine(true);
     selectionRecap.setPadding(dp(10), dp(6), dp(10), dp(6));
-    profileHeader.addView(selectionRecap, new LinearLayout.LayoutParams(0, -2, 1));
+    profileHeader.addView(selectionRecap, new LinearLayout.LayoutParams(-2, -2));
     profileDetails = label("", 12, ON_SELECTION, false);
+    profileDetails.setSingleLine(true);
     profileDetails.setPadding(dp(10), dp(6), dp(10), dp(6));
     profileDetails.setGravity(Gravity.TOP | Gravity.END);
     profileDetails.setTag("Elevation point details");
-    profileHeader.addView(profileDetails, new LinearLayout.LayoutParams(0, -2, 1));
-    selectionInfo.addView(profileHeader, new LinearLayout.LayoutParams(-1, -2));
+    profileHeader.addView(profileDetails, new LinearLayout.LayoutParams(-2, -2));
+    android.widget.HorizontalScrollView profileReadout = new android.widget.HorizontalScrollView(this);
+    profileReadout.setHorizontalScrollBarEnabled(false);
+    profileReadout.setFillViewport(true);
+    profileReadout.addView(profileHeader, new FrameLayout.LayoutParams(-2, -2));
+    selectionInfo.addView(profileReadout, new LinearLayout.LayoutParams(-1, -2));
     elevationGraph = new ElevationGraph(this);
     elevationGraph.setTag("Route elevation");
     selectionInfo.addView(
         elevationGraph,
         new LinearLayout.LayoutParams(
             -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 48 : 100)));
-    profileStatus = label("", 10, ON_SELECTION, false);
-    profileStatus.setPadding(dp(10), 0, dp(10), dp(6));
-    profileStatus.setVisibility(View.GONE);
-    selectionInfo.addView(profileStatus, new LinearLayout.LayoutParams(-1, -2));
     elevationGraph.setProgress(profileProgress);
     elevationGraph.setCursorActive(profileCursorActive);
     elevationGraph.setOnSeekBarChangeListener(
@@ -648,7 +650,7 @@ public final class MainActivity extends Activity {
   private RouteSummary selectedSummary = new RouteSummary();
   private List<Point> editSummarySource;
   private RouteSummary editSummary;
-  private TextView selectionRecap, profileStatus;
+  private TextView selectionRecap;
   private LinearLayout selectionInfo;
   private ScrollView controlRail;
   private ElevationGraph elevationGraph;
@@ -898,7 +900,7 @@ public final class MainActivity extends Activity {
       }
       summary = editSummary;
     } else summary = live ? trackSummary : selectedSummary;
-    setStatusText(selectionRecap, summary.text());
+    setStatusText(selectionRecap, summary.profileText());
     String title =
         planning ? editingEntry == null ? "New route" : editingEntry.title : selectedEntry.title;
     selectionRecap.setContentDescription(title + ". " + summary.description());
@@ -906,9 +908,6 @@ public final class MainActivity extends Activity {
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
     elevationGraph.bind(points, planning ? editingRecording() : selectedEntry.recording);
-    String elevationStatus = elevationGraph.statusText();
-    setStatusText(profileStatus, elevationStatus);
-    profileStatus.setVisibility(elevationStatus.isEmpty() ? View.GONE : View.VISIBLE);
     boolean routeProfile = planning ? !editingRecording() : !selectedEntry.recording;
     elevationGraph.setGpsPosition(routeProfile ? map.position : null);
     if (changed || profileGeometryKey != elevationGraph.geometryKey()) clearProfileCursor();
@@ -942,13 +941,10 @@ public final class MainActivity extends Activity {
   private void updateProfilePoint(boolean reveal) {
     Point point = elevationGraph.selectedPoint();
     map.inspectProfilePoint(point, reveal);
-    String gps =
-        Double.isFinite(elevationGraph.gpsDistance())
-            ? String.format(Locale.getDefault(), "GPS %.2f km", elevationGraph.gpsDistance() / 1000)
-            : "";
+    String gps = elevationGraph.pointText(false);
     if (point == null) {
       profileDetails.setTextColor(ACCENT);
-      setStatusText(profileDetails, elevationGraph.isEnabled() ? gps : "No route points");
+      setStatusText(profileDetails, gps);
       elevationGraph.setContentDescription(
           elevationGraph.isEnabled()
               ? "Elevation along route. Slide to inspect a point. "
@@ -959,16 +955,7 @@ public final class MainActivity extends Activity {
       return;
     }
     profileDetails.setTextColor(ON_SELECTION);
-    String elevation =
-        Double.isFinite(point.elevation)
-            ? String.format(Locale.getDefault(), "%.0f m", point.elevation)
-            : "Elevation unavailable";
-    String details =
-        String.format(
-            Locale.getDefault(),
-            "%.2f km · %s",
-            elevationGraph.selectedDistance() / 1000,
-            elevation);
+    String details = elevationGraph.pointText(true);
     setStatusText(profileDetails, details);
     elevationGraph.setContentDescription(
         "Elevation along route. " + details + ". " + elevationGraph.statusText() + ". " + gps);

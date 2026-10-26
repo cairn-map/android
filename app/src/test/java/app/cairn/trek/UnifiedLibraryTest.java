@@ -287,7 +287,7 @@ public class UnifiedLibraryTest {
       find(library(activity), trekTitle).performClick();
       drain(activity);
       recap = (TextView) field(activity, "selectionRecap");
-      assertTrue(recap.getText().toString().contains("Elevation unavailable"));
+      assertTrue(recap.getText().toString().contains("↑ — m"));
       ((TrekMapView) field(activity, "map")).onPathSelected.accept(null);
       drain(activity);
       assertEquals(View.GONE, ((View) field(activity, "selectionRecap")).getVisibility());

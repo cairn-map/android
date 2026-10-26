@@ -70,6 +70,21 @@ final class RouteSummary {
         + (partialElevation ? " · partial" : "");
   }
 
+  String profileText() {
+    return String.format(
+        Locale.getDefault(),
+        "%.1f km · ↑ %s m   ↓ %s m",
+        distance / 1000,
+        profileChange(ascent),
+        profileChange(descent));
+  }
+
+  private String profileChange(double value) {
+    return !hasElevation || (recordingElevation != null && value < .5)
+        ? "—"
+        : String.format(Locale.getDefault(), "%.0f", value);
+  }
+
   String description() {
     if (unresolved())
       return String.format(

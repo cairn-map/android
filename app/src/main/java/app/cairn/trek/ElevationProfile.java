@@ -64,13 +64,22 @@ final class ElevationProfile {
         : index / (double) Math.max(1, points.size() - 1);
   }
 
-  Point at(double fraction) {
-    if (points.isEmpty()) return null;
-    fraction = Math.max(0, Math.min(1, fraction));
-    if (fraction == 0) return points.get(0);
-    if (fraction == 1) return points.get(points.size() - 1);
-    if (distance == 0) return points.get((int) Math.round(fraction * (points.size() - 1)));
-    double target = fraction * distance;
+  /** Signed rise/run percent on the connected edge drawn at this distance. */
+  double gradeAt(double fraction) {
+    if (points.size() < 2 || distance <= 0 || !Double.isFinite(fraction)) return Double.NaN;
+    double target = Math.max(0, Math.min(1, fraction)) * distance;
+    int right = rightIndex(target), left = right - 1;
+    Point a = points.get(left), b = points.get(right);
+    double length = distances[right] - distances[left];
+    if (length <= 0
+        || (fraction <= 0 && points.get(0).segment != a.segment)
+        || a.segment != b.segment
+        || !Double.isFinite(a.elevation)
+        || !Double.isFinite(b.elevation)) return Double.NaN;
+    return 100 * (b.elevation - a.elevation) / length;
+  }
+
+  private int rightIndex(double target) {
     int low = 0, high = points.size();
     // Upper bound skips zero-length edges and never interpolates across a segment gap.
     while (low < high) {
@@ -78,7 +87,17 @@ final class ElevationProfile {
       if (distances[middle] <= target) low = middle + 1;
       else high = middle;
     }
-    int right = Math.min(low, points.size() - 1), left = Math.max(0, right - 1);
+    return Math.min(low, points.size() - 1);
+  }
+
+  Point at(double fraction) {
+    if (points.isEmpty()) return null;
+    fraction = Math.max(0, Math.min(1, fraction));
+    if (fraction == 0) return points.get(0);
+    if (fraction == 1) return points.get(points.size() - 1);
+    if (distance == 0) return points.get((int) Math.round(fraction * (points.size() - 1)));
+    double target = fraction * distance;
+    int right = rightIndex(target), left = Math.max(0, right - 1);
     Point a = points.get(left), b = points.get(right);
     if (target == distances[left]) return a;
     double length = distances[right] - distances[left];

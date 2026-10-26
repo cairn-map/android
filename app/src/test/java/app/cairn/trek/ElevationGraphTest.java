@@ -102,6 +102,7 @@ public class ElevationGraphTest {
       TextView details = (TextView) field(activity, "profileDetails");
       assertTrue(details.getText().toString().contains("200 m"));
       assertTrue(details.getText().toString().contains("km"));
+      assertTrue(details.getText().toString().contains("%"));
       assertFalse(details.getText().toString().contains("45.01000"));
       assertFalse(graph.getContentDescription().toString().contains("45.01000"));
       touch(graph, MotionEvent.ACTION_UP, right + 50);
@@ -155,7 +156,7 @@ public class ElevationGraphTest {
           ((TextView) field(activity, "profileDetails"))
               .getText()
               .toString()
-              .contains("Elevation unavailable"));
+              .contains("— m · —%"));
       controller.recreate();
       activity = controller.get();
       drain(activity);
@@ -305,12 +306,16 @@ public class ElevationGraphTest {
     long now = System.currentTimeMillis();
     graph.setGpsPosition(new Point(45.005, 6, 100, now, 5, 0));
     assertEquals(Geo.length(points) / 4, graph.gpsDistance(), .01);
+    assertTrue(graph.pointText(false).contains("150 m"));
+    assertTrue(graph.pointText(false).contains("+9.0%"));
     assertNull(graph.selectedPoint());
     graph.setCursorActive(true);
     graph.setProgress(5000);
     Point inspected = graph.selectedPoint();
     graph.setGpsPosition(new Point(45.015, 6, 100, now, 5, 0));
     assertEquals(Geo.length(points) * .75, graph.gpsDistance(), .01);
+    assertTrue(graph.pointText(false).contains("175 m"));
+    assertTrue(graph.pointText(false).contains("-4.5%"));
     assertEquals(inspected.lat, graph.selectedPoint().lat, 0);
     for (Point invalid :
         Arrays.asList(
@@ -320,6 +325,7 @@ public class ElevationGraphTest {
             null)) {
       graph.setGpsPosition(invalid);
       assertTrue(Double.isNaN(graph.gpsDistance()));
+      assertEquals("", graph.pointText(false));
       assertNotNull(graph.selectedPoint());
     }
     graph.bind(List.of(new Point(45, 6, 0, 0, 0, 0), new Point(45, 7, 0, 0, 0, 1)));
@@ -412,13 +418,11 @@ public class ElevationGraphTest {
       layout(root, width, height);
       ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
       TextView recap = (TextView) field(activity, "selectionRecap");
-      TextView status = (TextView) field(activity, "profileStatus");
-      assertTrue(recap.getText().toString().contains("Elevation change not reliably resolved"));
+      assertTrue(recap.getText().toString().contains("↑ — m"));
       assertFalse(recap.getText().toString().contains("↑ 0 m"));
-      assertEquals(View.VISIBLE, status.getVisibility());
-      assertTrue(status.getText().toString().contains("shaded"));
+      assertEquals(1, recap.getLineCount());
+      assertEquals(2, ((android.view.ViewGroup) field(activity, "selectionInfo")).getChildCount());
       assertTrue(graph.getContentDescription().toString().contains("excluded"));
-      assertTrue(status.getTop() >= graph.getBottom());
       View panel = (View) field(activity, "selectionInfo");
       View rail = (View) field(activity, "controlRail");
       assertTrue(rail.getTop() >= panel.getBottom());
@@ -448,6 +452,17 @@ public class ElevationGraphTest {
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void profileAndMarkerRenderInPortrait() throws Exception {
     renderPreview(786, 1550, "route-elevation-portrait", false, false);
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void largeTextReadoutStaysOnOneLineAndCanScroll() throws Exception {
+    RuntimeEnvironment.setFontScale(1.5f);
+    try {
+      renderPreview(786, 1550, "route-elevation-large-text", false, true);
+    } finally {
+      RuntimeEnvironment.setFontScale(1);
+    }
   }
 
   @Test
@@ -528,6 +543,7 @@ public class ElevationGraphTest {
       TextView details = (TextView) field(activity, "profileDetails");
       TextView recap = (TextView) field(activity, "selectionRecap");
       assertEquals(1, recap.getLineCount());
+      assertEquals(1, details.getLineCount());
       assertSame(recap.getParent(), details.getParent());
       assertTrue(details.getLeft() >= recap.getRight());
       assertEquals(recap.getTop(), details.getTop());
