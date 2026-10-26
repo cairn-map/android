@@ -16,13 +16,16 @@ public class GpxTest {
   public void recordingRoundTripPreservesTimeElevationAndSegments() throws Exception {
     List<Point> points =
         List.of(
-            new Point(45.1, 6.2, 1500, 1700000000000L, 5, 0),
+            new Point(45.1, 6.2, 1500, 1700000000000L, 5, 0, 7),
             new Point(45.2, 6.3, Double.NaN, 1700000010000L, 6, 1));
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     Gpx.write(out, points, "Rock & ice <route>");
     List<Point> result = Gpx.read(new ByteArrayInputStream(out.toByteArray()));
     assertEquals(2, result.size());
     assertEquals(1500, result.get(0).elevation, 0);
+    assertEquals(5, result.get(0).accuracy, 0);
+    assertEquals(7, result.get(0).verticalAccuracy, 0);
+    assertTrue(Float.isNaN(result.get(1).verticalAccuracy));
     assertTrue(Double.isNaN(result.get(1).elevation));
     assertEquals(1700000000000L, result.get(0).time);
     assertNotEquals(result.get(0).segment, result.get(1).segment);

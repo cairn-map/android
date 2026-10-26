@@ -9,7 +9,7 @@ public final class Store extends SQLiteOpenHelper {
   public final SharedPreferences prefs;
 
   public Store(Context c) {
-    super(c, "treks.db", null, 3);
+    super(c, "treks.db", null, 4);
     prefs = c.getSharedPreferences("settings", Context.MODE_PRIVATE);
     setWriteAheadLoggingEnabled(true);
   }
@@ -18,7 +18,8 @@ public final class Store extends SQLiteOpenHelper {
   public void onCreate(SQLiteDatabase db) {
     db.execSQL(
         "CREATE TABLE points (id INTEGER PRIMARY KEY, collection TEXT NOT NULL, lat REAL, lon REAL,"
-            + " elevation REAL, time INTEGER, accuracy REAL, segment INTEGER)");
+            + " elevation REAL, time INTEGER, accuracy REAL, segment INTEGER, vertical_accuracy"
+            + " REAL)");
     db.execSQL("CREATE INDEX collection_points ON points(collection,id)");
     db.execSQL("CREATE TABLE treks (id TEXT PRIMARY KEY, title TEXT NOT NULL)");
     createRoutes(db);
@@ -32,8 +33,10 @@ public final class Store extends SQLiteOpenHelper {
 
   @Override
   public void onUpgrade(SQLiteDatabase db, int oldV, int newV) {
-    if (newV != 3 || oldV < 1 || oldV > 2)
+    if (newV != 4 || oldV < 1 || oldV > 3)
       throw new IllegalStateException("Unsupported database version");
+    db.execSQL("ALTER TABLE points ADD COLUMN vertical_accuracy REAL");
+    if (oldV == 3) return;
     if (oldV == 1) {
       createRoutes(db);
       db.execSQL(
@@ -68,8 +71,7 @@ public final class Store extends SQLiteOpenHelper {
     List<RouteEntry> result = new ArrayList<>();
     try (Cursor cursor =
         getReadableDatabase()
-            .rawQuery(
-                "SELECT id,title FROM routes ORDER BY created DESC,rowid DESC", null)) {
+            .rawQuery("SELECT id,title FROM routes ORDER BY created DESC,rowid DESC", null)) {
       while (cursor.moveToNext())
         result.add(new RouteEntry(cursor.getString(0), cursor.getString(1), true));
     }
@@ -93,12 +95,7 @@ public final class Store extends SQLiteOpenHelper {
     for (RouteEntry route : routes())
       entries.add(new LibraryEntry(route.id, route.title, false, route.visible));
     for (Map.Entry<String, String> trek : treks().entrySet())
-      entries.add(
-          new LibraryEntry(
-              trek.getKey(),
-              trek.getValue(),
-              true,
-              true));
+      entries.add(new LibraryEntry(trek.getKey(), trek.getValue(), true, true));
     return entries;
   }
 
@@ -264,6 +261,7 @@ public final class Store extends SQLiteOpenHelper {
     if (Double.isFinite(p.elevation)) v.put("elevation", p.elevation);
     v.put("time", p.time);
     v.put("accuracy", p.accuracy);
+    if (Float.isFinite(p.verticalAccuracy)) v.put("vertical_accuracy", p.verticalAccuracy);
     v.put("segment", p.segment);
     getWritableDatabase().insertOrThrow("points", null, v);
   }
@@ -287,7 +285,9 @@ public final class Store extends SQLiteOpenHelper {
         getReadableDatabase()
             .query(
                 "points",
-                new String[] {"lat", "lon", "elevation", "time", "accuracy", "segment"},
+                new String[] {
+                  "lat", "lon", "elevation", "time", "accuracy", "segment", "vertical_accuracy"
+                },
                 "collection=?",
                 new String[] {collection},
                 null,
@@ -301,7 +301,8 @@ public final class Store extends SQLiteOpenHelper {
                 c.isNull(2) ? Double.NaN : c.getDouble(2),
                 c.getLong(3),
                 c.getFloat(4),
-                c.getInt(5)));
+                c.getInt(5),
+                c.isNull(6) ? Float.NaN : c.getFloat(6)));
     }
     return result;
   }

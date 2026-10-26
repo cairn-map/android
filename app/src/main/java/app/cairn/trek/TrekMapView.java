@@ -853,7 +853,8 @@ public final class TrekMapView extends View {
                   originalNode.elevation,
                   originalNode.time,
                   originalNode.accuracy,
-                  originalNode.segment));
+                  originalNode.segment,
+                  originalNode.verticalAccuracy));
         }
         invalidate();
       }

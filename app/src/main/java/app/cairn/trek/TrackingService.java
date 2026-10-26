@@ -22,7 +22,7 @@ public final class TrackingService extends Service implements LocationListener {
   private int outsideFixes = 0;
   private boolean warned = false;
   private long requestedInterval = -1;
-  private long lastNotificationElapsed = Long.MIN_VALUE;
+  private long notifiedInterval = -1;
 
   @Override
   public void onCreate() {
@@ -60,8 +60,11 @@ public final class TrackingService extends Service implements LocationListener {
       trekId = store.newTrek();
       running = true;
     }
-    startForeground(
-        1, notification("Waiting for a GPS fix · " + store.intervalMillis() / 1000 + "s interval"));
+    long interval = store.intervalMillis();
+    if (notifiedInterval != interval) {
+      startForeground(1, notification("GPS interval: " + interval / 1000 + " seconds"));
+      notifiedInterval = interval;
+    }
     new Handler(worker.getLooper())
         .post(
             () -> {
@@ -74,12 +77,12 @@ public final class TrackingService extends Service implements LocationListener {
               outsideFixes = 0;
               warned = false;
               try {
-                long interval = store.intervalMillis();
-                if (requestedInterval == interval) return;
+                long requested = store.intervalMillis();
+                if (requestedInterval == requested) return;
                 manager.removeUpdates(this);
                 manager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, interval, 0, this, worker.getLooper());
-                requestedInterval = interval;
+                    LocationManager.GPS_PROVIDER, requested, 0, this, worker.getLooper());
+                requestedInterval = requested;
               } catch (SecurityException | IllegalArgumentException e) {
                 sendStatus(e.getMessage());
                 stopSelf();
@@ -102,6 +105,7 @@ public final class TrackingService extends Service implements LocationListener {
         .setSmallIcon(R.drawable.ic_cairn)
         .setContentTitle("Cairn · Recording your hike")
         .setContentText(text)
+        .setShowWhen(false)
         .setContentIntent(open)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -132,7 +136,8 @@ public final class TrackingService extends Service implements LocationListener {
             l.hasAltitude() ? l.getAltitude() : Double.NaN,
             l.getTime(),
             l.getAccuracy(),
-            0);
+            0,
+            l.hasVerticalAccuracy() ? l.getVerticalAccuracyMeters() : Float.NaN);
     try {
       store.add(trekId, p);
     } catch (android.database.SQLException e) {
@@ -140,22 +145,8 @@ public final class TrackingService extends Service implements LocationListener {
       stopSelf();
       return;
     }
-    // NotificationManager wakes System UI too. Coalesce on received fixes, with no timer.
-    long now = SystemClock.elapsedRealtime();
-    long notificationInterval = fixObservers.get() > 0 ? 60_000L : 300_000L;
-    if (lastNotificationElapsed == Long.MIN_VALUE || now - lastNotificationElapsed >= notificationInterval) {
-      lastNotificationElapsed = now;
-      getSystemService(NotificationManager.class)
-          .notify(
-              1,
-              notification(
-                  "Last fix "
-                      + new java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                          .format(new Date(p.time))
-                      + " · ±"
-                      + Math.round(p.accuracy)
-                      + " m"));
-    }
+    // The foreground notification describes recording state, never individual fixes.
+    // Keep it static between user interval changes to avoid waking System UI.
     if (store.prefs.getBoolean("offRoute", true) && route.size() > 1 && p.accuracy <= 50) {
       double distance = proximity.distance(p);
       if (distance > Math.max(50, p.accuracy * 2)) outsideFixes++;
@@ -187,14 +178,16 @@ public final class TrackingService extends Service implements LocationListener {
       }
     }
     // Hidden activities reload persisted fixes on resume; there is no receiver to wake now.
-    if (fixObservers.get() > 0) sendBroadcast(
-        new Intent(EVENT)
-            .setPackage(getPackageName())
-            .putExtra("lat", p.lat)
-            .putExtra("lon", p.lon)
-            .putExtra("time", p.time)
-            .putExtra("accuracy", p.accuracy)
-            .putExtra("elevation", p.elevation));
+    if (fixObservers.get() > 0)
+      sendBroadcast(
+          new Intent(EVENT)
+              .setPackage(getPackageName())
+              .putExtra("lat", p.lat)
+              .putExtra("lon", p.lon)
+              .putExtra("time", p.time)
+              .putExtra("accuracy", p.accuracy)
+              .putExtra("verticalAccuracy", p.verticalAccuracy)
+              .putExtra("elevation", p.elevation));
   }
 
   private void sendStatus(String message) {
