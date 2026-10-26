@@ -546,7 +546,7 @@ public final class MainActivity extends Activity {
     selectionInfo.addView(
         elevationGraph,
         new LinearLayout.LayoutParams(
-            -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 64 : 100)));
+            -1, dp(getResources().getConfiguration().screenHeightDp < 480 ? 48 : 100)));
     elevationGraph.setProgress(profileProgress);
     elevationGraph.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
