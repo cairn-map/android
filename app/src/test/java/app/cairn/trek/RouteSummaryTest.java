@@ -45,6 +45,24 @@ public class RouteSummaryTest {
   }
 
   @Test
+  public void greyStartDoesNotHideGainFromTheRemainingRoute() {
+    List<Point> points =
+        List.of(
+            new Point(45, 6),
+            point(45.01, 100, 0),
+            point(45.02, 140, 0),
+            point(45.03, 120, 0));
+    ElevationProfile profile = new ElevationProfile();
+    for (Point point : points) profile.add(point);
+    assertTrue(profile.hasExcludedElevation);
+    RouteSummary summary = RouteSummary.from(points);
+    assertTrue(summary.partialElevation);
+    assertEquals(40, summary.ascent, 0);
+    assertEquals(20, summary.descent, 0);
+    assertTrue(summary.profileText().contains("↑ 40 m   ↓ 20 m"));
+  }
+
+  @Test
   public void unknownIsDifferentFromFlatAndIsolatedElevations() {
     assertFalse(RouteSummary.from(List.of()).hasElevation);
     assertFalse(RouteSummary.from(List.of(point(45, 100, 0))).hasElevation);

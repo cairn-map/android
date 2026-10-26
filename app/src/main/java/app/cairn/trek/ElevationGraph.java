@@ -76,16 +76,15 @@ final class ElevationGraph extends SeekBar {
     double fraction = cursor ? getProgress() / (double) getMax() : gpsFraction;
     Point point = cursor ? selectedPoint() : Double.isFinite(gpsDistance) ? profile.at(fraction) : null;
     if (point == null) return "";
-    double grade = Double.isFinite(point.elevation) ? profile.gradeAt(fraction) : Double.NaN;
     return String.format(
         Locale.getDefault(),
-        "%s%.2f km · %s m · %s%%",
+        "%s%.2f km · %s m · %.0f%%",
         cursor ? "" : "GPS ",
         profile.distance * fraction / 1000,
         Double.isFinite(point.elevation)
             ? String.format(Locale.getDefault(), "%.0f", point.elevation)
             : "—",
-        Double.isFinite(grade) ? String.format(Locale.getDefault(), "%+.1f", grade) : "—");
+        fraction * 100);
   }
 
   String statusText() {
