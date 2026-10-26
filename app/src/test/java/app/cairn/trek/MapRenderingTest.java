@@ -123,25 +123,28 @@ public class MapRenderingTest {
   public void pausingCancelsTileWorkAndResumingLoadsTheSameViewport() throws Exception {
     TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
     CountDownLatch started = new CountDownLatch(1), release = new CountDownLatch(1);
-    java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
-    java.util.concurrent.atomic.AtomicInteger cancellations = new java.util.concurrent.atomic.AtomicInteger();
-    view.source(new EmptySource() {
-      public Bitmap tile(int z, int x, int y) {
-        calls.incrementAndGet();
-        started.countDown();
-        try {
-          assertTrue(release.await(5, TimeUnit.SECONDS));
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-        }
-        return Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
-      }
+    java.util.concurrent.atomic.AtomicInteger calls =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger cancellations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    view.source(
+        new EmptySource() {
+          public Bitmap tile(int z, int x, int y) {
+            calls.incrementAndGet();
+            started.countDown();
+            try {
+              assertTrue(release.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+            return Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
+          }
 
-      public void cancelRequests() {
-        cancellations.incrementAndGet();
-        release.countDown();
-      }
-    });
+          public void cancelRequests() {
+            cancellations.incrementAndGet();
+            release.countDown();
+          }
+        });
     try {
       draw(view);
       assertTrue(started.await(5, TimeUnit.SECONDS));
@@ -216,8 +219,9 @@ public class MapRenderingTest {
     TrekMapView view = new TrekMapView(RuntimeEnvironment.getApplication());
     try {
       view.layout(0, 0, 786, 1200);
-      java.lang.reflect.Method motion = TrekMapView.class.getDeclaredMethod(
-          "startZoomFling", double.class, float.class, float.class);
+      java.lang.reflect.Method motion =
+          TrekMapView.class.getDeclaredMethod(
+              "startZoomFling", double.class, float.class, float.class);
       motion.setAccessible(true);
       assertEquals(true, motion.invoke(view, 2.0, 393f, 600f));
       view.onWindowVisibilityChanged(View.GONE);
@@ -431,6 +435,35 @@ public class MapRenderingTest {
         assertTrue(expected.contains(requests.get(i)));
     } finally {
       release.countDown();
+      view.dispose();
+    }
+  }
+
+  @Test
+  public void ignContoursReturnAfterZoomingOutWithFinerTilesStillCached() throws Exception {
+    android.content.Context context = RuntimeEnvironment.getApplication();
+    context.deleteDatabase("plan-ign.mbtiles");
+    TrekMapView view = new TrekMapView(context);
+    try (IgnMap source = new IgnMap(context)) {
+      view.source(source);
+      int overviewZoom = view.zoomLevel();
+      for (int delta = 0; delta <= 1; delta++) {
+        int z = overviewZoom + delta;
+        int x = (int) Geo.x(view.center().lon, z), y = (int) Geo.y(view.center().lat, z);
+        Bitmap tile = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
+        tile.eraseColor(delta == 0 ? Color.RED : Color.BLUE);
+        cache(view).put(z + "/" + x + "/" + y, tile);
+      }
+      assertEquals("Selected IGN scale must win", Color.RED, draw(view).getPixel(393, 600));
+      view.zoom(1);
+      assertEquals("Close-up detail remains available", Color.BLUE, draw(view).getPixel(393, 600));
+      view.zoom(-1);
+      assertEquals(
+          "Zooming out must restore the contours' scale", Color.RED, draw(view).getPixel(393, 600));
+      view.zoom(-1);
+      assertEquals(
+          "Finer tiles still fill missing scales", Color.BLUE, draw(view).getPixel(393, 600));
+    } finally {
       view.dispose();
     }
   }

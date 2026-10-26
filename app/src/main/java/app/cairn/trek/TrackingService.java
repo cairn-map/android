@@ -137,7 +137,11 @@ public final class TrackingService extends Service implements LocationListener {
             l.getTime(),
             l.getAccuracy(),
             0,
-            l.hasVerticalAccuracy() ? l.getVerticalAccuracyMeters() : Float.NaN);
+            l.hasVerticalAccuracy() ? l.getVerticalAccuracyMeters() : Float.NaN,
+            Point.WGS84_ELLIPSOID,
+            Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()
+                ? l.getMslAltitudeMeters()
+                : Double.NaN);
     try {
       store.add(trekId, p);
     } catch (android.database.SQLException e) {
@@ -187,6 +191,8 @@ public final class TrackingService extends Service implements LocationListener {
               .putExtra("time", p.time)
               .putExtra("accuracy", p.accuracy)
               .putExtra("verticalAccuracy", p.verticalAccuracy)
+              .putExtra("elevationDatum", p.elevationDatum)
+              .putExtra("mslElevation", p.mslElevation)
               .putExtra("elevation", p.elevation));
   }
 

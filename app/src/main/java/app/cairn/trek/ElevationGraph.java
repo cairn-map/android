@@ -73,11 +73,14 @@ final class ElevationGraph extends SeekBar {
   }
 
   String statusText() {
+    if (profile.points.isEmpty()) return "";
     if (profile.hasExcludedElevation)
       return recordingProfile
-          ? "Shaded: uncertain elevation excluded"
-          : "Shaded: elevation unavailable";
-    return recordingProfile ? "Filtered GPS elevation estimate" : "";
+          ? "Above sea level · shaded: uncertain elevation excluded"
+          : "Above sea level · shaded: elevation unavailable";
+    return recordingProfile
+        ? "Filtered GPS estimate · above sea level"
+        : "Elevation above sea level";
   }
 
   void setGpsPosition(Point position) {

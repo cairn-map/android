@@ -26,7 +26,7 @@ public class RecordingEditingTest {
   private String trekId, title, routeId;
   private final List<Point> recording =
       List.of(
-          new Point(46, 7, 1200, 1000, 3, 0, 8),
+          new Point(46, 7, 1200, 1000, 3, 0, 8, Point.WGS84_ELLIPSOID, 1155),
           new Point(46.001, 7.001, 1210, 2000, 4, 0),
           new Point(46.002, 7.002, 1220, 3000, 5, 1),
           new Point(46.003, 7.003, 1230, 4000, 6, 1));
@@ -101,6 +101,9 @@ public class RecordingEditingTest {
     assertEquals(expected.lat, actual.lat, 0);
     assertEquals(expected.lon, actual.lon, 0);
     assertEquals(expected.elevation, actual.elevation, 0);
+    assertEquals(expected.elevationDatum, actual.elevationDatum);
+    if (Double.isNaN(expected.mslElevation)) assertTrue(Double.isNaN(actual.mslElevation));
+    else assertEquals(expected.mslElevation, actual.mslElevation, 0);
     if (Float.isNaN(expected.verticalAccuracy)) assertTrue(Float.isNaN(actual.verticalAccuracy));
     else assertEquals(expected.verticalAccuracy, actual.verticalAccuracy, 0);
     assertEquals(expected.time, actual.time);
@@ -128,7 +131,29 @@ public class RecordingEditingTest {
         output.writeFloat(legacy.accuracy);
         output.writeInt(legacy.segment);
       }
-      assertPoint(legacy, RecordingDraft.read(context, id).get(0));
+      Point restoredLegacy = RecordingDraft.read(context, id).get(0);
+      assertEquals(legacy.elevation, restoredLegacy.elevation, 0);
+      assertEquals(legacy.time, restoredLegacy.time);
+      assertEquals(Point.WGS84_ELLIPSOID, restoredLegacy.elevationDatum);
+      Point oldQuality = recording.get(0);
+      try (DataOutputStream output =
+          new DataOutputStream(
+              new FileOutputStream(new File(context.getFilesDir(), "recording-edit-" + id)))) {
+        output.writeInt(-1);
+        output.writeInt(1);
+        output.writeDouble(oldQuality.lat);
+        output.writeDouble(oldQuality.lon);
+        output.writeDouble(oldQuality.elevation);
+        output.writeLong(oldQuality.time);
+        output.writeFloat(oldQuality.accuracy);
+        output.writeInt(oldQuality.segment);
+        output.writeFloat(oldQuality.verticalAccuracy);
+      }
+      restoredLegacy = RecordingDraft.read(context, id).get(0);
+      assertEquals(oldQuality.elevation, restoredLegacy.elevation, 0);
+      assertEquals(oldQuality.verticalAccuracy, restoredLegacy.verticalAccuracy, 0);
+      assertEquals(Point.WGS84_ELLIPSOID, restoredLegacy.elevationDatum);
+      assertTrue(Double.isNaN(restoredLegacy.mslElevation));
     } finally {
       RecordingDraft.delete(context, id);
     }
@@ -155,7 +180,8 @@ public class RecordingEditingTest {
     }
     Point moved = map.waypoints.get(0);
     assertNotEquals(recording.get(0).lon, moved.lon, 0);
-    assertPoint(new Point(moved.lat, moved.lon, 1200, 1000, 3, 0, 8), moved);
+    assertPoint(
+        new Point(moved.lat, moved.lon, 1200, 1000, 3, 0, 8, Point.WGS84_ELLIPSOID, 1155), moved);
     map.onNodeDeleted.accept(1);
     // Insert within the second segment; new points carry no invented GPS measurements.
     map.onNodeAdded.accept(2, new Point(46.0025, 7.0025));

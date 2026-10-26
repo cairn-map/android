@@ -235,6 +235,39 @@ public class RouteLibraryTest {
   }
 
   @Test
+  public void versionFourUpgradeTagsRecordedGpsWithoutChangingRawValuesOrImportedSeaLevel() {
+    try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
+      db.execSQL(
+          "CREATE TABLE points(id INTEGER PRIMARY KEY,collection TEXT,lat REAL,lon REAL,elevation"
+              + " REAL,time INTEGER,accuracy REAL,segment INTEGER,vertical_accuracy REAL)");
+      db.execSQL("CREATE TABLE treks(id TEXT PRIMARY KEY,title TEXT)");
+      db.execSQL(
+          "CREATE TABLE routes(id TEXT PRIMARY KEY,title TEXT,visible INTEGER,"
+              + "created INTEGER,routing_preferences TEXT)");
+      db.execSQL("INSERT INTO treks VALUES('recorded-id','Renamed walk')");
+      db.execSQL("INSERT INTO routes VALUES('imported-id','Hike',1,0,NULL)");
+      db.execSQL(
+          "INSERT INTO points VALUES(1,'recorded-id',48.75,2,212,1000,5,0,7),"
+              + "(2,'imported-id',48.75,2,165,0,0,0,NULL),"
+              + "(3,'recorded-id',48.75,2,NULL,2000,5,0,NULL)");
+      db.setVersion(4);
+    }
+    for (int reopen = 0; reopen < 2; reopen++) {
+      try (Store store = new Store(context)) {
+        Point recorded = store.read("recorded-id").get(0);
+        assertEquals(212, recorded.elevation, 0);
+        assertEquals(Point.WGS84_ELLIPSOID, recorded.elevationDatum);
+        assertEquals(167.19, recorded.seaLevelElevation(), .001);
+        assertTrue(Double.isNaN(store.read("recorded-id").get(1).seaLevelElevation()));
+        Point imported = store.read("imported-id").get(0);
+        assertEquals(Point.SEA_LEVEL, imported.elevationDatum);
+        assertEquals(165, imported.seaLevelElevation(), 0);
+        assertEquals(5, store.getReadableDatabase().getVersion());
+      }
+    }
+  }
+
+  @Test
   public void versionThreeUpgradePreservesRawAltitudeAndUnknownVerticalAccuracy() {
     try (SQLiteDatabase db = context.openOrCreateDatabase("treks.db", 0, null)) {
       db.execSQL(

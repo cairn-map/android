@@ -504,11 +504,12 @@ public final class TrekMapView extends View {
     phoneHeading.setActive(visible);
     if (visible && headingPosition != position) {
       headingPosition = position;
+      double seaLevelElevation = position.seaLevelElevation();
       declination =
           new android.hardware.GeomagneticField(
                   (float) position.lat,
                   (float) position.lon,
-                  Double.isFinite(position.elevation) ? (float) position.elevation : 0,
+                  Double.isFinite(seaLevelElevation) ? (float) seaLevelElevation : 0,
                   System.currentTimeMillis())
               .getDeclination();
     }
@@ -854,7 +855,9 @@ public final class TrekMapView extends View {
                   originalNode.time,
                   originalNode.accuracy,
                   originalNode.segment,
-                  originalNode.verticalAccuracy));
+                  originalNode.verticalAccuracy,
+                  originalNode.elevationDatum,
+                  originalNode.mslElevation));
         }
         invalidate();
       }
@@ -1284,27 +1287,33 @@ public final class TrekMapView extends View {
     }
     int drawn = 0;
     double world = 1 << zoom;
-    // Both lists are sorted when their contents change. Merge them without allocating or
-    // sorting another list on every frame, keeping fresh tiles above old tiles at equal zoom.
-    int previous = 0, current = 0;
-    while (previous < previousTiles.size() || current < cachedTiles.size()) {
-      CachedTile tile =
-          current == cachedTiles.size()
-                  || previous < previousTiles.size()
-                      && previousTiles.get(previous).z <= cachedTiles.get(current).z
-              ? previousTiles.get(previous++)
-              : cachedTiles.get(current++);
-      double factor = Math.scalb(1, zoom - tile.z);
-      double dx = (tile.x + 0.5) * factor - cx;
-      dx -= Math.rint(dx / world) * world;
-      float left = (float) (getWidth() / 2f + (dx - factor / 2) * size);
-      float top = (float) (getHeight() / 2f + (tile.y * factor - cy) * size);
-      float width = (float) (factor * size);
-      if (left >= getWidth() || top >= getHeight() || left + width <= 0 || top + width <= 0)
-        continue;
-      tileRect.set(left, top, left + width, top + width);
-      canvas.drawBitmap(tile.bitmap, null, tileRect, bitmapPaint);
-      drawn++;
+    // IGN's selected scale has its own cartography (including contour lines).
+    // Draw it last; finer tiles remain useful backdrops wherever it is missing.
+    boolean scaleSpecific = source instanceof IgnMap;
+    for (int pass = 0; pass < (scaleSpecific ? 2 : 1); pass++) {
+      // Merge the cached lists without allocating or sorting on every frame.
+      // Fresh tiles stay above previous tiles at equal zoom.
+      int previous = 0, current = 0;
+      while (previous < previousTiles.size() || current < cachedTiles.size()) {
+        CachedTile tile =
+            current == cachedTiles.size()
+                    || previous < previousTiles.size()
+                        && previousTiles.get(previous).z <= cachedTiles.get(current).z
+                ? previousTiles.get(previous++)
+                : cachedTiles.get(current++);
+        if (scaleSpecific && (tile.z == zoom) != (pass == 1)) continue;
+        double factor = Math.scalb(1, zoom - tile.z);
+        double dx = (tile.x + 0.5) * factor - cx;
+        dx -= Math.rint(dx / world) * world;
+        float left = (float) (getWidth() / 2f + (dx - factor / 2) * size);
+        float top = (float) (getHeight() / 2f + (tile.y * factor - cy) * size);
+        float width = (float) (factor * size);
+        if (left >= getWidth() || top >= getHeight() || left + width <= 0 || top + width <= 0)
+          continue;
+        tileRect.set(left, top, left + width, top + width);
+        canvas.drawBitmap(tile.bitmap, null, tileRect, bitmapPaint);
+        drawn++;
+      }
     }
     return drawn;
   }

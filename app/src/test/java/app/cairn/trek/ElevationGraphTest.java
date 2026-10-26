@@ -356,7 +356,7 @@ public class ElevationGraphTest {
     graph.bind(recording, true);
     layout(graph, 786, 200);
     assertEquals(20, graph.axisMaximum() - graph.axisMinimum(), .000001);
-    assertEquals("Shaded: uncertain elevation excluded", graph.statusText());
+    assertEquals("Above sea level · shaded: uncertain elevation excluded", graph.statusText());
     graph.setCursorActive(true);
     graph.setProgress(0);
     assertTrue(Double.isNaN(graph.selectedPoint().elevation));
@@ -377,7 +377,7 @@ public class ElevationGraphTest {
         AppPalette.SELECTION, bitmap.getPixel(graph.getPaddingLeft() + Math.round(plot * .8f), y));
     graph.bind(List.of(new Point(45, 6, 100, 0, 0, 0), new Point(45.01, 6, 250, 0, 0, 0)));
     assertEquals(150, graph.axisMaximum() - graph.axisMinimum(), 0);
-    assertEquals("", graph.statusText());
+    assertEquals("Elevation above sea level", graph.statusText());
   }
 
   @Test
@@ -416,7 +416,7 @@ public class ElevationGraphTest {
       assertTrue(recap.getText().toString().contains("Elevation change not reliably resolved"));
       assertFalse(recap.getText().toString().contains("↑ 0 m"));
       assertEquals(View.VISIBLE, status.getVisibility());
-      assertTrue(status.getText().toString().contains("Shaded"));
+      assertTrue(status.getText().toString().contains("shaded"));
       assertTrue(graph.getContentDescription().toString().contains("excluded"));
       assertTrue(status.getTop() >= graph.getBottom());
       View panel = (View) field(activity, "selectionInfo");

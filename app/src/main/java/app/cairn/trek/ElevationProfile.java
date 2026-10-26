@@ -26,12 +26,14 @@ final class ElevationProfile {
         index > 0 && points.get(index - 1).segment == point.segment
             ? Geo.distance(points.get(index - 1), point)
             : 0;
-    if (recordingElevation != null)
+    if (recordingElevation != null || point.elevationDatum == Point.WGS84_ELLIPSOID)
       point =
           new Point(
               point.lat,
               point.lon,
-              recordingElevation.add(point, step),
+              recordingElevation == null
+                  ? point.seaLevelElevation()
+                  : recordingElevation.add(point, step),
               point.time,
               point.accuracy,
               point.segment,
