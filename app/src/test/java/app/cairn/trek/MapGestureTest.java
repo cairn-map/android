@@ -40,8 +40,24 @@ public class MapGestureTest {
   }
 
   private void touch(int action, float x, float y, int interval) {
+    touch(action, x, y, interval, 0);
+  }
+
+  private void touch(int action, float x, float y, int interval, int pointerId) {
     if (action == MotionEvent.ACTION_DOWN) down = SystemClock.uptimeMillis();
-    MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
+    MotionEvent.PointerProperties properties = new MotionEvent.PointerProperties();
+    properties.id = pointerId;
+    properties.toolType = MotionEvent.TOOL_TYPE_FINGER;
+    MotionEvent.PointerCoords coordinates = new MotionEvent.PointerCoords();
+    coordinates.x = x;
+    coordinates.y = y;
+    coordinates.pressure = coordinates.size = 1;
+    MotionEvent event =
+        MotionEvent.obtain(
+            down, SystemClock.uptimeMillis(), action, 1,
+            new MotionEvent.PointerProperties[] {properties},
+            new MotionEvent.PointerCoords[] {coordinates},
+            0, 0, 1, 1, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0);
     map.onTouchEvent(event);
     event.recycle();
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(interval));
@@ -58,6 +74,32 @@ public class MapGestureTest {
       Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16));
       map.computeScroll();
     }
+  }
+
+  @Test
+  public void tappingSearchPinRemovesItWithoutSelectingRoutesOrAddingAnEditNode() {
+    map.center(new Point(45, 6));
+    int[] callbacks = {0};
+    map.onPathSelected = id -> callbacks[0]++;
+    map.onNodeAdded = (index, point) -> callbacks[0]++;
+    map.selectedPathId = "selected";
+    float density = map.getResources().getDisplayMetrics().density;
+    for (boolean editing : new boolean[] {false, true}) {
+      map.editing = editing;
+      map.searchMarker = map.center();
+      touch(MotionEvent.ACTION_DOWN, 300, 500 - 26 * density);
+      touch(MotionEvent.ACTION_UP, 300, 500 - 26 * density);
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400));
+      assertNull(map.searchMarker);
+      assertEquals(0, callbacks[0]);
+    }
+    map.editing = false;
+    map.searchMarker = map.center();
+    touch(MotionEvent.ACTION_DOWN, 100, 700);
+    touch(MotionEvent.ACTION_UP, 100, 700);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400));
+    assertNotNull(map.searchMarker);
+    assertEquals(1, callbacks[0]);
   }
 
   @Test
@@ -702,7 +744,7 @@ public class MapGestureTest {
 
   @Test
   @Config(sdk = {28, 35})
-  public void staggeredReleaseKeepsPinchMomentumDespiteTrailingFingerMoves() {
+  public void staggeredReleaseKeepsPinchMomentumDespiteTrailingFingerJitter() {
     for (int lifted : new int[] {0, 1}) {
       map.restoreCamera(new double[] {45.9, 6.8, 10});
       pinch(20, 1);
@@ -713,13 +755,48 @@ public class MapGestureTest {
           0);
       double released = map.camera()[2];
       float remaining = lifted == 0 ? 600 : 0;
-      touch(MotionEvent.ACTION_MOVE, remaining + 40, 340, 160);
+      touch(MotionEvent.ACTION_MOVE, remaining + 1, 301, 160, 1 - lifted);
       coast(80);
       double coasting = map.camera()[2];
       assertTrue(coasting > released);
-      touch(MotionEvent.ACTION_UP, remaining + 40, 340, 0);
+      touch(MotionEvent.ACTION_UP, remaining + 1, 301, 0, 1 - lifted);
       coast(80);
       assertTrue(map.camera()[2] > coasting);
+    }
+  }
+
+  @Test
+  @Config(sdk = {28, 35})
+  public void eitherRemainingFingerTakesOverPanningWithoutZoomingOrTapCallbacks() {
+    int[] callbacks = {0};
+    map.onLongPress = point -> callbacks[0]++;
+    map.onPathSelected = id -> callbacks[0]++;
+    map.selectedPathId = "selected";
+    for (int lifted : new int[] {0, 1}) {
+      map.restoreCamera(new double[] {45.9, 6.8, 10});
+      pinch(20, 1);
+      twoFingers(
+          MotionEvent.ACTION_POINTER_UP | (lifted << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+          0, 600, 0);
+      double[] released = map.camera();
+      float remaining = lifted == 0 ? 600 : 0;
+      touch(MotionEvent.ACTION_MOVE, remaining + 80, 360, 20, 1 - lifted);
+      double[] moved = map.camera();
+      double world = 256 * map.getResources().getDisplayMetrics().density * Math.pow(2, released[2]);
+      assertEquals(released[1] - 80 / world * 360, moved[1], 1e-8);
+      assertEquals(Geo.lat(Geo.y(released[0], 0) - 60 / world, 0), moved[0], 1e-8);
+      assertEquals(released[2], moved[2], 1e-10);
+      coast(ViewConfiguration.getLongPressTimeout() * 2);
+      assertArrayEquals(moved, map.camera(), 1e-10);
+      touch(MotionEvent.ACTION_MOVE, remaining + 120, 400, 20, 1 - lifted);
+      assertTrue(map.camera()[1] < moved[1]);
+      touch(MotionEvent.ACTION_MOVE, remaining + 160, 440, 20, 1 - lifted);
+      double[] beforeRelease = map.camera();
+      touch(MotionEvent.ACTION_UP, remaining + 160, 440, 0, 1 - lifted);
+      coast(2000);
+      assertTrue(map.camera()[1] < beforeRelease[1]);
+      assertEquals(released[2], map.camera()[2], 1e-10);
+      assertEquals(0, callbacks[0]);
     }
   }
 
@@ -733,6 +810,7 @@ public class MapGestureTest {
     twoFingers(
         MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 260, 460);
     touch(MotionEvent.ACTION_MOVE, 280, 320);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
     touch(MotionEvent.ACTION_UP, 280, 320);
     double[] released = map.camera();
     coast(2000);
