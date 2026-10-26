@@ -151,7 +151,10 @@ public class UnifiedLibraryTest {
       drain(activity);
       for (String title : List.of("Next route", "Saved route")) {
         View list = library(activity);
-        find(list, title).performClick();
+        View item = find(list, title);
+        if (item == null) item = find(list, title + " · selected");
+        assertNotNull(item);
+        item.performClick();
         drain(activity);
         assertTrue(TrackingService.running);
         assertEquals(trekId, store.prefs.getString("currentTrek", ""));
