@@ -9,7 +9,8 @@ final class RouteSummary {
   boolean hasElevation, partialElevation;
   private Point previous;
   private final RecordingElevation recordingElevation;
-  private double previousElevation = Double.NaN, elevationAnchor = Double.NaN, anchorDeadband;
+  private double previousElevation = Double.NaN;
+  private boolean hasRawElevation;
 
   RouteSummary() {
     this(false);
@@ -30,27 +31,20 @@ final class RouteSummary {
   }
 
   void add(Point point) {
-    double elevation = recordingElevation == null ? point.elevation : recordingElevation.add(point);
-    if (!Double.isFinite(elevation)) partialElevation = true;
     boolean connected = previous != null && previous.segment == point.segment;
+    double step = connected ? Geo.distance(previous, point) : 0;
+    double elevation =
+        recordingElevation == null ? point.elevation : recordingElevation.add(point, step);
+    if (Double.isFinite(point.elevation)) hasRawElevation = true;
+    if (!Double.isFinite(elevation)) partialElevation = true;
     if (connected) {
-      distance += Geo.distance(previous, point);
+      distance += step;
       if (Double.isFinite(previousElevation) && Double.isFinite(elevation)) {
         hasElevation = true;
-        double change =
-            elevation - (recordingElevation == null ? previousElevation : elevationAnchor);
-        if (recordingElevation == null
-            || Math.abs(change) >= Math.max(anchorDeadband, RecordingElevation.deadband(point))) {
-          if (change > 0) ascent += change;
-          else descent -= change;
-          elevationAnchor = elevation;
-          anchorDeadband = RecordingElevation.deadband(point);
-        }
+        double change = elevation - previousElevation;
+        if (change > 0) ascent += change;
+        else descent -= change;
       }
-    }
-    if (!connected || !Double.isFinite(previousElevation) || !Double.isFinite(elevation)) {
-      elevationAnchor = elevation;
-      anchorDeadband = RecordingElevation.deadband(point);
     }
     previousElevation = elevation;
     previous = point;
@@ -58,14 +52,37 @@ final class RouteSummary {
 
   String text() {
     String length = String.format(Locale.getDefault(), "%.1f km", distance / 1000);
+    if (unresolved()) return length + " · Elevation change not reliably resolved";
     if (!hasElevation) return length + " · Elevation unavailable";
+    if (recordingElevation != null)
+      return length
+          + " · ↑ "
+          + compactEstimate(ascent)
+          + "   ↓ "
+          + compactEstimate(descent)
+          + " · GPS estimate"
+          + (partialElevation ? " · sections excluded" : "");
     return length
         + String.format(Locale.getDefault(), " · ↑ %.0f m   ↓ %.0f m", ascent, descent)
-        + (recordingElevation != null ? " · GPS estimate" : "")
         + (partialElevation ? " · partial" : "");
   }
 
   String description() {
+    if (unresolved())
+      return String.format(
+              Locale.getDefault(),
+              "Distance %.1f km. Elevation change not reliably resolved from GPS measurements.",
+              distance / 1000)
+          + (partialElevation ? " Uncertain elevation sections are excluded." : "");
+    if (recordingElevation != null && hasElevation)
+      return String.format(
+              Locale.getDefault(),
+              "Distance %.1f km. GPS ascent estimate %s. GPS descent estimate %s.",
+              distance / 1000,
+              estimateText(ascent),
+              estimateText(descent))
+          + " Changes within the altitude uncertainty band are suppressed."
+          + (partialElevation ? " Uncertain elevation sections are excluded." : "");
     if (!hasElevation)
       return String.format(
           Locale.getDefault(), "Distance %.1f km. Elevation unavailable.", distance / 1000);
@@ -75,9 +92,22 @@ final class RouteSummary {
             distance / 1000,
             ascent,
             descent)
-        + (recordingElevation != null
-            ? " GPS elevation estimate; small changes and unreliable stretches are excluded."
-            : "")
         + (partialElevation ? " Partial elevation data." : "");
+  }
+
+  private boolean unresolved() {
+    return recordingElevation != null
+        && hasRawElevation
+        && (!hasElevation || (ascent < .5 && descent < .5));
+  }
+
+  private String estimateText(double value) {
+    return value < .5
+        ? "not reliably resolved"
+        : String.format(Locale.getDefault(), "%.0f m", value);
+  }
+
+  private String compactEstimate(double value) {
+    return value < .5 ? "—" : estimateText(value);
   }
 }

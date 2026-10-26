@@ -177,7 +177,17 @@ public class ElevationGraphTest {
   public void recordingEditsAndUndoRefreshTheGraphAndTotals() throws Exception {
     try (Store store = new Store(RuntimeEnvironment.getApplication())) {
       String id = store.newTrek();
-      for (Point point : points) store.add(id, point);
+      for (Point point : points)
+        store.add(
+            id,
+            new Point(
+                point.lat,
+                point.lon,
+                point.elevation,
+                point.time,
+                point.accuracy,
+                point.segment,
+                3));
       store.select(new Store.LibraryEntry(id, "Recording", true, true));
     }
     try (ActivityController<MainActivity> controller =
@@ -198,18 +208,18 @@ public class ElevationGraphTest {
       assertEquals("", ((TextView) field(activity, "profileDetails")).getText().toString());
       assertArrayEquals(camera, map.camera(), 0);
       graph.setProgress(graph.getMax() / 2);
-      assertEquals(125, graph.selectedPoint().elevation, .001);
+      assertEquals(122.5, graph.selectedPoint().elevation, .001);
       assertTrue(
-          ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 50 m"));
+          ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 45 m"));
       java.lang.reflect.Method undo = MainActivity.class.getDeclaredMethod("undoNode");
       undo.setAccessible(true);
       undo.invoke(activity);
       assertNull(graph.selectedPoint());
       assertNull(field(map, "profilePoint"));
       graph.setProgress(graph.getMax() / 2);
-      assertEquals(200, graph.selectedPoint().elevation, .001);
+      assertEquals(195, graph.selectedPoint().elevation, .001);
       assertTrue(
-          ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 100 m"));
+          ((TextView) field(activity, "selectionRecap")).getText().toString().contains("↑ 95 m"));
       // The stored recording stays unchanged until the editor is saved.
       try (Store store = new Store(RuntimeEnvironment.getApplication())) {
         assertEquals(3, store.read(store.selectedLibraryId()).size());
@@ -338,6 +348,104 @@ public class ElevationGraphTest {
 
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void excludedSectionsAreShadedAndSmallChangesUseATwentyMeterScale() throws Exception {
+    ElevationGraph graph = new ElevationGraph(RuntimeEnvironment.getApplication());
+    List<Point> recording = new ArrayList<>();
+    for (int i = 0; i < 6; i++)
+      recording.add(new Point(45 + i * .0001, 6, 100 + i % 2, 1000000 + i * 5000, 3, 0));
+    graph.bind(recording, true);
+    layout(graph, 786, 200);
+    assertEquals(20, graph.axisMaximum() - graph.axisMinimum(), .000001);
+    assertEquals("Shaded: uncertain elevation excluded", graph.statusText());
+    graph.setCursorActive(true);
+    graph.setProgress(0);
+    assertTrue(Double.isNaN(graph.selectedPoint().elevation));
+    graph.setProgress(graph.getMax());
+    assertTrue(Double.isFinite(graph.selectedPoint().elevation));
+    graph.setCursorActive(false);
+    Bitmap bitmap = Bitmap.createBitmap(786, 200, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    canvas.drawColor(AppPalette.SELECTION);
+    graph.draw(canvas);
+    float plot = graph.getWidth() - graph.getPaddingLeft() - graph.getPaddingRight();
+    int y = graph.getPaddingTop() + 8;
+    assertNotEquals(
+        "Excluded elevation must be visibly shaded",
+        AppPalette.SELECTION,
+        bitmap.getPixel(graph.getPaddingLeft() + Math.round(plot * .1f), y));
+    assertEquals(
+        AppPalette.SELECTION, bitmap.getPixel(graph.getPaddingLeft() + Math.round(plot * .8f), y));
+    graph.bind(List.of(new Point(45, 6, 100, 0, 0, 0), new Point(45.01, 6, 250, 0, 0, 0)));
+    assertEquals(150, graph.axisMaximum() - graph.axisMinimum(), 0);
+    assertEquals("", graph.statusText());
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void unresolvedRecordingRendersClearlyInPortrait() throws Exception {
+    renderRecordingConfidence(786, 1550, "recording-elevation-confidence-portrait");
+  }
+
+  @Test
+  @Config(qualifiers = "w640dp-h360dp-land-xhdpi")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void unresolvedRecordingRendersClearlyInLandscape() throws Exception {
+    renderRecordingConfidence(1280, 640, "recording-elevation-confidence-landscape");
+  }
+
+  private void renderRecordingConfidence(int width, int height, String name) throws Exception {
+    List<Point> recording = new ArrayList<>();
+    for (int i = 0; i < 15; i++)
+      recording.add(
+          new Point(
+              45 + i * .0001, 6, i < 3 ? 130 - i * 8 : 100 + i % 2, 1000000 + i * 5000, 3, 0));
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      String id = store.newTrek();
+      for (Point point : recording) store.add(id, point);
+      store.select(new Store.LibraryEntry(id, "Short level walk", true, true));
+    }
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      View root = activity.getWindow().getDecorView();
+      layout(root, width, height);
+      ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      TextView recap = (TextView) field(activity, "selectionRecap");
+      TextView status = (TextView) field(activity, "profileStatus");
+      assertTrue(recap.getText().toString().contains("Elevation change not reliably resolved"));
+      assertFalse(recap.getText().toString().contains("↑ 0 m"));
+      assertEquals(View.VISIBLE, status.getVisibility());
+      assertTrue(status.getText().toString().contains("Shaded"));
+      assertTrue(graph.getContentDescription().toString().contains("excluded"));
+      assertTrue(status.getTop() >= graph.getBottom());
+      View panel = (View) field(activity, "selectionInfo");
+      View rail = (View) field(activity, "controlRail");
+      assertTrue(rail.getTop() >= panel.getBottom());
+      assertTrue(
+          rail.getHeight() >= Math.round(48 * graph.getResources().getDisplayMetrics().density));
+      Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+      root.draw(new Canvas(bitmap));
+      File output = new File("build/test-previews/" + name + ".png");
+      output.getParentFile().mkdirs();
+      try (OutputStream stream = new FileOutputStream(output)) {
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
+      }
+      android.location.LocationManager manager =
+          activity.getSystemService(android.location.LocationManager.class);
+      assertTrue(
+          Shadows.shadowOf(manager)
+              .getLocationRequests(android.location.LocationManager.GPS_PROVIDER)
+              .isEmpty());
+      assertTrue(
+          Shadows.shadowOf(manager)
+              .getLocationRequests(android.location.LocationManager.NETWORK_PROVIDER)
+              .isEmpty());
+    }
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
   public void profileAndMarkerRenderInPortrait() throws Exception {
     renderPreview(786, 1550, "route-elevation-portrait", false, false);
   }
@@ -407,8 +515,7 @@ public class ElevationGraphTest {
                 + Math.round(
                     (graph.getWidth() - graph.getPaddingLeft() - graph.getPaddingRight()) / 4f);
         assertEquals(
-            AppPalette.ACCENT,
-            bitmap.getPixel(gpsX, origin[1] + graph.getPaddingTop() + 10));
+            AppPalette.ACCENT, bitmap.getPixel(gpsX, origin[1] + graph.getPaddingTop() + 10));
       }
       assertTrue(graph.getHeight() > 0);
       View panel = (View) field(activity, "selectionInfo");

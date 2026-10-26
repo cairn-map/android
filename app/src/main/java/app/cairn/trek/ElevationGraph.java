@@ -14,6 +14,7 @@ import java.util.Locale;
 final class ElevationGraph extends SeekBar {
   private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Path line = new Path();
+  private final Path excludedAreas = new Path();
   private final Path gpsMarker = new Path();
   private List<Point> source = Collections.emptyList();
   private ElevationProfile profile = new ElevationProfile();
@@ -69,6 +70,14 @@ final class ElevationGraph extends SeekBar {
 
   double gpsDistance() {
     return gpsDistance;
+  }
+
+  String statusText() {
+    if (profile.hasExcludedElevation)
+      return recordingProfile
+          ? "Shaded: uncertain elevation excluded"
+          : "Shaded: elevation unavailable";
+    return recordingProfile ? "Filtered GPS elevation estimate" : "";
   }
 
   void setGpsPosition(Point position) {
@@ -132,11 +141,23 @@ final class ElevationGraph extends SeekBar {
     return getHeight() - getPaddingBottom();
   }
 
+  double axisMinimum() {
+    if (!profile.hasElevation()) return 0;
+    return profile.maximum - profile.minimum < 20
+        ? profile.minimum + (profile.maximum - profile.minimum) / 2 - 10
+        : profile.minimum;
+  }
+
+  double axisMaximum() {
+    return profile.maximum - profile.minimum < 20 ? axisMinimum() + 20 : profile.maximum;
+  }
+
   private float y(double elevation) {
-    double span = profile.maximum - profile.minimum;
-    return span > 0
-        ? (float) (bottom() - (elevation - profile.minimum) / span * (bottom() - getPaddingTop()))
-        : (bottom() + getPaddingTop()) / 2f;
+    return (float)
+        (bottom()
+            - (elevation - axisMinimum())
+                / (axisMaximum() - axisMinimum())
+                * (bottom() - getPaddingTop()));
   }
 
   @Override
@@ -149,12 +170,19 @@ final class ElevationGraph extends SeekBar {
   protected synchronized void onDraw(Canvas canvas) {
     if (dirty) {
       line.rewind();
+      excludedAreas.rewind();
       Point previous = null;
+      int excludedStart = -1;
       for (int i = 0; i < profile.points.size(); i++) {
         Point point = profile.points.get(i);
         if (!Double.isFinite(point.elevation)) {
+          if (excludedStart < 0) excludedStart = i;
           previous = null;
           continue;
+        }
+        if (excludedStart >= 0) {
+          addExcludedArea(excludedStart, i - 1);
+          excludedStart = -1;
         }
         float x = getPaddingLeft() + (float) profile.fraction(i) * plotWidth();
         if (previous == null || previous.segment != point.segment) {
@@ -164,8 +192,14 @@ final class ElevationGraph extends SeekBar {
         } else line.lineTo(x, y(point.elevation));
         previous = point;
       }
+      if (excludedStart >= 0) addExcludedArea(excludedStart, profile.points.size() - 1);
       dirty = false;
     }
+    ink.setStyle(Paint.Style.FILL);
+    ink.setColor(AppPalette.ON_SELECTION);
+    ink.setAlpha(38);
+    canvas.drawPath(excludedAreas, ink);
+    ink.setAlpha(255);
     ink.setStyle(Paint.Style.STROKE);
     ink.setStrokeWidth(dp(1));
     ink.setColor(AppPalette.OUTLINE);
@@ -183,16 +217,15 @@ final class ElevationGraph extends SeekBar {
         ink);
     if (profile.hasElevation()) {
       canvas.drawText(
-          String.format(Locale.getDefault(), "%.0f m", profile.maximum),
+          String.format(Locale.getDefault(), "%.0f m", axisMaximum()),
           getPaddingLeft() - dp(6),
-          y(profile.maximum) + dp(4),
+          getPaddingTop() + dp(4),
           ink);
-      if (profile.maximum > profile.minimum)
-        canvas.drawText(
-            String.format(Locale.getDefault(), "%.0f m", profile.minimum),
-            getPaddingLeft() - dp(6),
-            bottom(),
-            ink);
+      canvas.drawText(
+          String.format(Locale.getDefault(), "%.0f m", axisMinimum()),
+          getPaddingLeft() - dp(6),
+          bottom(),
+          ink);
       ink.setStyle(Paint.Style.STROKE);
       ink.setStrokeWidth(dp(2));
       ink.setStrokeCap(Paint.Cap.ROUND);
@@ -228,6 +261,15 @@ final class ElevationGraph extends SeekBar {
       ink.setColor(AppPalette.ON_SELECTION);
       canvas.drawLine(x, getPaddingTop(), x, bottom(), ink);
     }
+  }
+
+  private void addExcludedArea(int first, int last) {
+    double left = first == 0 ? 0 : profile.fraction(first - 1);
+    double right = last == profile.points.size() - 1 ? 1 : profile.fraction(last + 1);
+    float x = getPaddingLeft() + (float) left * plotWidth();
+    float end = getPaddingLeft() + (float) right * plotWidth();
+    excludedAreas.addRect(
+        x, getPaddingTop(), Math.max(x + dp(1), end), bottom(), Path.Direction.CW);
   }
 
   private void select(float x) {
