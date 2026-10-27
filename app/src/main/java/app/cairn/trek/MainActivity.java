@@ -545,25 +545,20 @@ public final class MainActivity extends Activity {
     selectionInfo = column();
     selectionInfo.setClickable(true);
     selectionInfo.setBackground(surface(SELECTION, SELECTION_BORDER, 16));
-    LinearLayout profileHeader = row();
-    profileHeader.setShowDividers(LinearLayout.SHOW_DIVIDER_NONE);
-    profileHeader.setGravity(Gravity.TOP);
-    selectionRecap = label("", 12, ON_SELECTION, true);
-    selectionRecap.setSingleLine(true);
-    selectionRecap.setPadding(dp(10), dp(6), dp(10), dp(6));
-    profileHeader.addView(selectionRecap, new LinearLayout.LayoutParams(-2, -2));
-    profileDetails = label("", 12, ON_SELECTION, false);
-    profileDetails.setSingleLine(true);
-    profileDetails.setPadding(dp(10), dp(6), dp(10), dp(6));
-    profileDetails.setGravity(Gravity.TOP | Gravity.END);
+    LinearLayout profileHeader = column();
+    if (getResources().getConfiguration().screenHeightDp < 480)
+      profileHeader.setOrientation(LinearLayout.HORIZONTAL);
+    profileHeader.setPadding(0, dp(3), 0, 0);
+    selectionRecap = new ProfileReadout(this, ON_SELECTION, true);
+    addProfileReadout(profileHeader, selectionRecap);
+    profileDetails = new ProfileReadout(this, ON_SELECTION, false);
     profileDetails.setTag("Elevation point details");
-    profileHeader.addView(profileDetails, new LinearLayout.LayoutParams(-2, -2));
-    android.widget.HorizontalScrollView profileReadout =
-        new android.widget.HorizontalScrollView(this);
-    profileReadout.setHorizontalScrollBarEnabled(false);
-    profileReadout.setFillViewport(true);
-    profileReadout.addView(profileHeader, new FrameLayout.LayoutParams(-2, -2));
-    selectionInfo.addView(profileReadout, new LinearLayout.LayoutParams(-1, -2));
+    profileDetailsRow = addProfileReadout(profileHeader, profileDetails);
+    profileGps = new ProfileReadout(this, ACCENT, false);
+    profileGps.setTag("GPS elevation details");
+    profileGpsRow = addProfileReadout(profileHeader, profileGps);
+    profileGpsRow.setVisibility(View.GONE);
+    selectionInfo.addView(profileHeader, new LinearLayout.LayoutParams(-1, -2));
     elevationGraph = new ElevationGraph(this);
     elevationGraph.setTag("Route elevation");
     selectionInfo.addView(
@@ -579,6 +574,11 @@ public final class MainActivity extends Activity {
             profileProgress = progress;
             profileCursorActive = true;
             elevationGraph.setCursorActive(true);
+            if (TrackingService.running) {
+              followResumeAt = SystemClock.elapsedRealtime() + FOLLOW_RESUME_DELAY;
+              main.removeCallbacks(resumeFollow);
+              if (!followTouching) main.postDelayed(resumeFollow, FOLLOW_RESUME_DELAY);
+            }
             updateProfilePoint(true);
           }
 
@@ -670,7 +670,10 @@ public final class MainActivity extends Activity {
   private LinearLayout selectionInfo;
   private ScrollView controlRail;
   private ElevationGraph elevationGraph;
+  private TextView profileGps;
+  private View profileGpsRow;
   private TextView profileDetails;
+  private View profileDetailsRow;
   private String profilePathId = "";
   private int profileProgress;
   private boolean profileCursorActive;
@@ -932,10 +935,17 @@ public final class MainActivity extends Activity {
     String pathId = planning ? newRouteId : selectedEntry.id;
     boolean changed = !pathId.equals(profilePathId);
     profilePathId = pathId;
+    double inspectedDistance = elevationGraph.selectedDistance();
+    boolean hadProfile = elevationGraph.geometryKey() == profileGeometryKey;
     elevationGraph.bind(points, planning ? editingRecording() : selectedEntry.recording);
     boolean routeProfile = planning ? !editingRecording() : !selectedEntry.recording;
     elevationGraph.setGpsPosition(routeProfile ? map.position : null);
-    if (changed || profileGeometryKey != elevationGraph.geometryKey()) clearProfileCursor();
+    if (changed || (!live && profileGeometryKey != elevationGraph.geometryKey()))
+      clearProfileCursor();
+    else if (live && profileCursorActive && hadProfile) {
+      elevationGraph.setSelectedDistance(inspectedDistance);
+      profileProgress = elevationGraph.getProgress();
+    }
     profileGeometryKey = elevationGraph.geometryKey();
     elevationGraph.setCursorActive(profileCursorActive);
     updateProfilePoint(false);
@@ -947,6 +957,7 @@ public final class MainActivity extends Activity {
   }
 
   private void updateProfileOverlay(int bottom) {
+    boolean changed = map.topOverlay != bottom;
     map.topOverlay = bottom;
     map.leftOverlay = 0;
     FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) controlRail.getLayoutParams();
@@ -955,6 +966,8 @@ public final class MainActivity extends Activity {
       params.topMargin = top;
       controlRail.setLayoutParams(params);
     }
+    if (changed && profileCursorActive)
+      map.inspectProfilePoint(elevationGraph.selectedPoint(), true);
   }
 
   private int profileWidth() {
@@ -963,10 +976,26 @@ public final class MainActivity extends Activity {
     return Math.max(1, width - root.getPaddingLeft() - root.getPaddingRight() - dp(24));
   }
 
+  private View addProfileReadout(LinearLayout header, TextView readout) {
+    HorizontalScrollView scroll = new HorizontalScrollView(this);
+    scroll.setHorizontalScrollBarEnabled(false);
+    scroll.setFillViewport(true);
+    scroll.addView(readout, new FrameLayout.LayoutParams(-2, -2));
+    header.addView(
+        scroll,
+        header.getOrientation() == LinearLayout.HORIZONTAL
+            ? new LinearLayout.LayoutParams(0, -2, 1)
+            : new LinearLayout.LayoutParams(-1, -2));
+    return scroll;
+  }
+
   private void updateProfilePoint(boolean reveal) {
     Point point = elevationGraph.selectedPoint();
     map.inspectProfilePoint(point, reveal);
     String gps = elevationGraph.pointText(false);
+    profileDetailsRow.setVisibility(point != null || !gps.isEmpty() ? View.VISIBLE : View.GONE);
+    setStatusText(profileGps, gps);
+    profileGpsRow.setVisibility(point != null && !gps.isEmpty() ? View.VISIBLE : View.GONE);
     if (point == null) {
       profileDetails.setTextColor(ACCENT);
       setStatusText(profileDetails, gps);
@@ -981,7 +1010,7 @@ public final class MainActivity extends Activity {
     }
     profileDetails.setTextColor(ON_SELECTION);
     String details = elevationGraph.pointText(true);
-    setStatusText(profileDetails, details);
+    setStatusText(profileDetails, "Inspect " + details);
     elevationGraph.setContentDescription(
         "Elevation along route. " + details + ". " + elevationGraph.statusText() + ". " + gps);
   }
@@ -2171,6 +2200,7 @@ public final class MainActivity extends Activity {
   }
 
   private void locate() {
+    clearProfileCursor();
     if (TrackingService.running) {
       cancelLocate();
       followResumeAt = 0;
@@ -2200,6 +2230,7 @@ public final class MainActivity extends Activity {
           public void found(Point point, boolean cached) {
             map.position = point;
             map.center(point);
+            updateSelectionRecap();
             showLocationAccuracy(point, cached);
           }
 
@@ -2247,6 +2278,7 @@ public final class MainActivity extends Activity {
     long remaining = followResumeAt - SystemClock.elapsedRealtime();
     if (remaining > 0) main.postDelayed(resumeFollow, remaining);
     else if (map.position != null) {
+      if (profileCursorActive) clearProfileCursor();
       Point center = map.center();
       if (center.lat != map.position.lat || center.lon != map.position.lon)
         map.center(map.position);

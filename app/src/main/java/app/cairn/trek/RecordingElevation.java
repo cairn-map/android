@@ -3,6 +3,7 @@ package app.cairn.trek;
 /** Conservative GPS-only display estimates. Never changes the stored measurements. */
 final class RecordingElevation {
   private Point previous;
+  private Point movementAnchor;
   private double previousSeaLevel = Double.NaN;
   private double estimate = Double.NaN, estimateBand;
   private double candidateMinimum, candidateMaximum;
@@ -32,11 +33,10 @@ final class RecordingElevation {
                 || point.verticalAccuracy < 0
                 || point.verticalAccuracy > 10))) return exclude();
     if (!reset) {
-      // Do not count altitude drift while almost stationary or join abrupt vertical jumps.
-      // A deliberately conservative walking-grade bound; excluded stretches remain partial.
-      if (step < 1
-          || (Double.isFinite(beforeElevation)
-              && Math.abs(elevation - beforeElevation) > Math.max(5, step * .6))) return exclude();
+      // Reject abrupt vertical jumps, but a short horizontal step is not bad altitude data:
+      // slow walking and stairs commonly produce sub-metre fixes at a one-second interval.
+      if (Double.isFinite(beforeElevation)
+          && Math.abs(elevation - beforeElevation) > Math.max(5, step * .6)) return exclude();
     }
     double band = deadband(point);
     if (!Double.isFinite(estimate)) {
@@ -58,7 +58,12 @@ final class RecordingElevation {
       }
       estimate = elevation;
       estimateBand = band;
+      movementAnchor = point;
     } else {
+      // Hold the accepted estimate while nearly stationary. Use displacement from an anchor,
+      // not individual step length or accumulated jitter, so slow progress eventually counts.
+      if (Geo.distance(movementAnchor, point) < 3) return estimate;
+      movementAnchor = point;
       // The graph and totals both consume this same hysteresis-filtered signal. Move only the
       // part of a change outside the uncertainty band; do not draw suppressed raw fluctuations.
       double threshold = Math.max(estimateBand, band);
@@ -73,6 +78,7 @@ final class RecordingElevation {
 
   private void clear() {
     estimate = Double.NaN;
+    movementAnchor = null;
     candidateCount = 0;
   }
 

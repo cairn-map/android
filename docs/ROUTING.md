@@ -26,6 +26,14 @@ A live bounded range probe on 21 October 2026 read only 200 bytes of `E5_N45.rd5
 
 Calculations use the upstream `hiking-mountain.brf` profile, stored as `hiking.brf`, with turn-cue generation disabled. The upstream profile includes its SAC difficulty preferences; no route suitability guarantee is implied by a successful calculation. Raster Plan IGN paths and OSM routing connectivity can differ.
 
+A visible walkway on the IGN basemap is not evidence that the installed OSM routing graph
+contains a connected, permitted footway at the same place. If routing detours around it, possible
+causes include graph age, missing/disconnected OSM ways, access tags, route-owned preferences,
+or waypoint snapping. Steps are allowed by default. An exported GPX records the chosen geometry,
+not the installed graph revision, OSM way tags, rejected alternatives or routing parameters;
+it cannot establish which of these caused a particular detour. Refreshing the graph can help
+with old data, but cannot repair a missing connection in the source map.
+
 Only explicit calculations run. Time is bounded to 60 seconds and working-memory configuration is capped according to the device memory class. Cancellation, activity pause, hike start, and activity destruction terminate work; parsed profile caches are released afterward. A failed calculation retains the previous route and never produces a fake straight-line trail. Successful geometry is saved as a new GPX-library entry.
 
 BRouter may discover an additional region while searching a detour. Its error identifies missing data; adjust the planning nodes toward the neighboring area to request that data, then retry the intended route. The selected GPX and other library files remain intact.

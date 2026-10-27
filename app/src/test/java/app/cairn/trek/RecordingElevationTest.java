@@ -81,9 +81,32 @@ public class RecordingElevationTest {
     RouteSummary summary = RouteSummary.from(points, true);
     assertEquals(0, summary.ascent, 0);
     assertEquals(0, summary.descent, 0);
-    assertTrue(summary.partialElevation);
+    assertFalse(summary.partialElevation);
     assertTrue(summary.text().contains("not reliably resolved"));
-    assertTrue(summary.description().contains("excluded"));
+    assertConsistent(points);
+  }
+
+  @Test
+  public void subMeterWalkingAndStairsStayContinuousAndResolveASustainedClimb() {
+    List<Point> points = new ArrayList<>();
+    for (int i = 0; i <= 40; i++) points.add(point(i * .5, 100 + i * .3, i, 3));
+    ElevationProfile profile = new ElevationProfile(true);
+    for (Point point : points) profile.add(point);
+    assertFalse(profile.hasExcludedElevation);
+    assertTrue(profile.connectors.isEmpty());
+    assertTrue(profile.points.get(40).elevation > 105);
+    assertTrue(RouteSummary.from(points, true).ascent > 5);
+    assertConsistent(points);
+  }
+
+  @Test
+  public void stationaryJitterHoldsTheEstimateWithoutCountingAltitudeDrift() {
+    List<Point> points = new ArrayList<>();
+    for (int i = 0; i < 40; i++) points.add(point(i % 2 * .5, 100 + i * .2, i, 3));
+    RouteSummary summary = RouteSummary.from(points, true);
+    assertEquals(0, summary.ascent, 0);
+    assertEquals(0, summary.descent, 0);
+    assertFalse(summary.partialElevation);
     assertConsistent(points);
   }
 

@@ -164,6 +164,12 @@ final class ElevationGraph extends SeekBar {
     return profile.distance * getProgress() / getMax();
   }
 
+  void setSelectedDistance(double distance) {
+    super.setOnSeekBarChangeListener(null);
+    setProgress(profile.distance > 0 ? (int) Math.round(distance / profile.distance * getMax()) : 0);
+    super.setOnSeekBarChangeListener(listener);
+  }
+
   private float plotWidth() {
     return Math.max(1, getWidth() - getPaddingLeft() - getPaddingRight());
   }

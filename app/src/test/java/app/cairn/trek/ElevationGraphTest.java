@@ -299,7 +299,7 @@ public class ElevationGraphTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void appendingALiveFixClearsTheCursor() throws Exception {
+  public void appendingALiveFixPreservesTheInspectedDistance() throws Exception {
     try (Store store = new Store(RuntimeEnvironment.getApplication())) {
       String id = store.newTrek();
       for (Point point : points) store.add(id, point);
@@ -309,10 +309,13 @@ public class ElevationGraphTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity activity = controller.get();
       drain(activity);
-      ((ElevationGraph) field(activity, "elevationGraph")).setProgress(5000);
+      ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      graph.setProgress(5000);
+      Point inspected = graph.selectedPoint();
       ((List<Point>) field(activity, "track")).add(new Point(45.03, 6, 300, 0, 0, 0));
       invoke(activity, "refreshStatus");
-      assertCleared(activity);
+      assertNotNull(graph.selectedPoint());
+      assertEquals(inspected.lat, graph.selectedPoint().lat, .000002);
     }
   }
 
@@ -383,6 +386,43 @@ public class ElevationGraphTest {
     graph.bind(List.of());
     assertNull(graph.selectedPoint());
     assertFalse(graph.isEnabled());
+  }
+
+  @Test
+  public void liveFixKeepsTheInspectedDistanceUntilFollowingResumes() throws Exception {
+    try (Store store = new Store(RuntimeEnvironment.getApplication())) {
+      String id = store.newTrek();
+      store.add(id, new Point(45, 6, 100, 1_000_000, 3, 0, 3));
+      store.add(id, new Point(45.01, 6, 110, 1_005_000, 3, 0, 3));
+      store.select(new Store.LibraryEntry(id, "Live hike", true, true));
+    }
+    TrackingService.running = true;
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup().windowFocusChanged(true)) {
+      MainActivity activity = controller.get();
+      drain(activity);
+      ElevationGraph graph = (ElevationGraph) field(activity, "elevationGraph");
+      graph.setProgress(5000);
+      Point inspected = graph.selectedPoint();
+      ((android.content.BroadcastReceiver) field(activity, "fixes"))
+          .onReceive(
+              activity,
+              new android.content.Intent(TrackingService.EVENT)
+                  .putExtra("lat", 45.02)
+                  .putExtra("lon", 6.0)
+                  .putExtra("time", 1_010_000L)
+                  .putExtra("accuracy", 3f)
+                  .putExtra("elevation", 120.0)
+                  .putExtra("verticalAccuracy", 3f));
+      assertNotNull(graph.selectedPoint());
+      assertEquals(inspected.lat, graph.selectedPoint().lat, .000002);
+      assertEquals(2500, graph.getProgress());
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30));
+      assertNull(graph.selectedPoint());
+      assertNull(field(field(activity, "map"), "profilePoint"));
+    } finally {
+      TrackingService.running = false;
+    }
   }
 
   @Test
@@ -626,6 +666,7 @@ public class ElevationGraphTest {
           graph,
           MotionEvent.ACTION_DOWN,
           (graph.getPaddingLeft() + graph.getWidth() - graph.getPaddingRight()) / 2f);
+      layout(root, width, height);
       Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
       root.draw(new Canvas(bitmap));
       if (gps) {
@@ -651,10 +692,27 @@ public class ElevationGraphTest {
       TextView recap = (TextView) field(activity, "selectionRecap");
       assertEquals(1, recap.getLineCount());
       assertEquals(1, details.getLineCount());
-      assertSame(recap.getParent(), details.getParent());
-      assertTrue(details.getLeft() >= recap.getRight());
-      assertEquals(recap.getTop(), details.getTop());
-      assertTrue(((View) details.getParent()).getBottom() <= graph.getTop());
+      View recapRow = (View) recap.getParent(), detailsRow = (View) details.getParent();
+      assertSame(recapRow.getParent(), detailsRow.getParent());
+      if (width > height) {
+        assertEquals(recapRow.getTop(), detailsRow.getTop());
+        assertTrue(detailsRow.getLeft() >= recapRow.getRight());
+      } else {
+        assertTrue(detailsRow.getTop() >= recapRow.getBottom());
+        assertEquals(panel.getWidth(), recapRow.getWidth());
+        assertEquals(panel.getWidth(), detailsRow.getWidth());
+      }
+      assertTrue(((View) detailsRow.getParent()).getBottom() <= graph.getTop());
+      if (!name.contains("large-text")) {
+        assertEquals(recapRow.getWidth(), recap.getWidth());
+        assertEquals(detailsRow.getWidth(), details.getWidth());
+      }
+      View gpsRow = (View) field(activity, "profileGpsRow");
+      assertEquals(gps ? View.VISIBLE : View.GONE, gpsRow.getVisibility());
+      if (gps) {
+        assertTrue(gpsRow.getTop() >= detailsRow.getBottom());
+        assertTrue(((TextView) field(activity, "profileGps")).getText().toString().startsWith("GPS "));
+      }
       View rail = (View) field(activity, "controlRail");
       assertTrue(rail.getTop() >= panel.getBottom());
       assertTrue(rail.getHeight() > 0);
@@ -672,12 +730,12 @@ public class ElevationGraphTest {
                   map.getHeight() / 2.0 + (Geo.y(selected.lat, 0) - Geo.y(camera[0], 0)) * world);
       int[] location = new int[2];
       map.getLocationInWindow(location);
-      assertEquals(AppPalette.ACCENT, bitmap.getPixel(x + location[0], y + location[1]));
       File file = new File("build/test-previews/" + name + ".png");
       file.getParentFile().mkdirs();
       try (OutputStream output = new FileOutputStream(file)) {
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
       }
+      assertEquals(AppPalette.ACCENT, bitmap.getPixel(x + location[0], y + location[1]));
     }
   }
 }

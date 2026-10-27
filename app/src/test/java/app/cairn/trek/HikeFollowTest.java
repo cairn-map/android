@@ -173,6 +173,24 @@ public class HikeFollowTest {
   }
 
   @Test
+  public void manualProfileCursorClearsWhenFollowResumesOrLocateIsPressed() throws Exception {
+    ElevationGraph graph = (ElevationGraph) field("elevationGraph");
+    graph.bind(java.util.List.of(new Point(45, 6), new Point(45.01, 6)));
+    fix(45, 6);
+    graph.setProgress(5000);
+    assertNotNull(graph.selectedPoint());
+    waitSeconds(29);
+    assertNotNull(graph.selectedPoint());
+    waitSeconds(1);
+    assertNull(graph.selectedPoint());
+    assertFalse((boolean) field("profileCursorActive"));
+    graph.setProgress(7500);
+    assertNotNull(graph.selectedPoint());
+    clickGps();
+    assertNull(graph.selectedPoint());
+  }
+
+  @Test
   public void gpsButtonBeforeTheFirstFixResumesWithTheNextScheduledFix() throws Exception {
     touch(MotionEvent.ACTION_DOWN);
     touch(MotionEvent.ACTION_UP);

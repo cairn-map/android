@@ -1,3 +1,20 @@
+# Slow climbs, readable profiles and consistent GPS return — 27 October 2026
+
+`bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2`
+passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **447 tests**, no
+failures/errors/skips and no lint findings. Python automation passed 33 tests and Node
+automation passed 41 tests. These changes affect application code, tests and documentation;
+the shared automation selector does not require automation suites. Required PR CI supplies
+the fresh baseline/previous/current virtual performance comparison.
+
+Regression coverage includes sub-metre climbing, stationary altitude drift, rejected altitude,
+live inspection preserving distance as a track grows, 30-second follow return, immediate locate,
+recreation, independent GPS/inspection details, large text, and portrait/landscape control space.
+Native Canvas previews were visually inspected. A private replay of the supplied 104-fix GPX
+through the application filter leaves one poor-vertical-accuracy sample excluded and no internal
+dashed connectors; the user's GPX files are not committed. Routing diagnosis is bounded to the
+exported geometry and bundled defaults because the installed geographic graph is unavailable.
+
 # Routing concurrency test synchronization — 24 October 2026
 
 CI exposed a scheduling race in the edit-during-calculation test: a fast worker could finish while the test advanced its UI clock, before the concurrent edit was applied. A bounded latch now holds the routing worker until the edit, undo or preferences action has been applied, then releases it before the existing result assertions run.
