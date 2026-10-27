@@ -114,7 +114,7 @@ public class HikeFollowTest {
   }
 
   @Test
-  public void waitsUntilThirtySecondsAfterReleaseThenFollowsTheLatestFix() throws Exception {
+  public void waitsUntilFiveSecondsAfterReleaseThenFollowsTheLatestFix() throws Exception {
     fix(45, 6);
     touch(MotionEvent.ACTION_DOWN);
     map.restoreCamera(new double[] {48, 2, 13});
@@ -122,7 +122,7 @@ public class HikeFollowTest {
     fix(45.01, 6.01);
     assertCenter(48, 2);
     touch(MotionEvent.ACTION_UP);
-    waitSeconds(29);
+    waitSeconds(4);
     fix(45.02, 6.02);
     assertCenter(48, 2);
     waitSeconds(1);
@@ -136,11 +136,11 @@ public class HikeFollowTest {
     fix(45, 6);
     touch(MotionEvent.ACTION_DOWN);
     touch(MotionEvent.ACTION_UP);
-    waitSeconds(20);
+    waitSeconds(3);
     touch(MotionEvent.ACTION_DOWN);
     touch(MotionEvent.ACTION_CANCEL);
     fix(46, 7);
-    waitSeconds(29);
+    waitSeconds(4);
     assertCenter(45, 6);
     waitSeconds(1);
     assertCenter(46, 7);
@@ -155,7 +155,7 @@ public class HikeFollowTest {
     touch(MotionEvent.ACTION_UP);
     fix(45, 6);
     assertCenter(48, 2);
-    waitSeconds(30);
+    waitSeconds(5);
     assertCenter(45, 6);
   }
 
@@ -179,7 +179,7 @@ public class HikeFollowTest {
     fix(45, 6);
     graph.setProgress(5000);
     assertNotNull(graph.selectedPoint());
-    waitSeconds(29);
+    waitSeconds(4);
     assertNotNull(graph.selectedPoint());
     waitSeconds(1);
     assertNull(graph.selectedPoint());
@@ -246,7 +246,7 @@ public class HikeFollowTest {
     fix(45, 6);
     touch(MotionEvent.ACTION_DOWN);
     touch(MotionEvent.ACTION_UP);
-    waitSeconds(20);
+    waitSeconds(3);
     controller.recreate().windowFocusChanged(true);
     activity = controller.get();
     settle();
@@ -254,7 +254,7 @@ public class HikeFollowTest {
     map.source(null);
     fix(46, 7);
     assertCenter(45, 6);
-    waitSeconds(9);
+    waitSeconds(1);
     assertCenter(45, 6);
     waitSeconds(1);
     assertCenter(46, 7);

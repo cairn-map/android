@@ -1,4 +1,4 @@
-# Slow climbs, readable profiles and consistent GPS return — 27 October 2026
+# Slow climbs, single-line profiles and five-second GPS return — 27 October 2026
 
 `bash gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --max-workers=2`
 passed with JDK 17, SDK 35 extension 15 and Build Tools 35.0.0: **447 tests**, no
@@ -8,8 +8,9 @@ the shared automation selector does not require automation suites. Required PR C
 the fresh baseline/previous/current virtual performance comparison.
 
 Regression coverage includes sub-metre climbing, stationary altitude drift, rejected altitude,
-live inspection preserving distance as a track grows, 30-second follow return, immediate locate,
+live inspection preserving distance as a track grows, five-second follow return, immediate locate,
 recreation, independent GPS/inspection details, large text, and portrait/landscape control space.
+The profile header remains one line in every mode, including seeking with GPS visible.
 Native Canvas previews were visually inspected. A private replay of the supplied 104-fix GPX
 through the application filter leaves one poor-vertical-accuracy sample excluded and no internal
 dashed connectors; the user's GPX files are not committed. Routing diagnosis is bounded to the

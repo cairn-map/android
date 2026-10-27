@@ -76,6 +76,12 @@ final class ElevationGraph extends SeekBar {
     return gpsDistance;
   }
 
+  String gpsProgressText() {
+    return Double.isFinite(gpsDistance)
+        ? String.format(Locale.getDefault(), "GPS %.0f%%", gpsFraction * 100)
+        : "";
+  }
+
   String pointText(boolean cursor) {
     double fraction = cursor ? getProgress() / (double) getMax() : gpsFraction;
     Point point = cursor ? selectedPoint() : Double.isFinite(gpsDistance) ? profile.at(fraction) : null;

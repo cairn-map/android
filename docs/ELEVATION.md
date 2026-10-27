@@ -28,13 +28,14 @@ steepness or the presence of steps.
 
 ## Profile readouts and following
 
-Totals and point details each use a full-width row, with distance, altitude and progress
-spread apart. Timestamped tracks also show elapsed time. While inspecting a planned route,
-a separate blue GPS row retains the live route position if a recent accurate fix lies within
-50 m of that route. Large text can scroll horizontally without truncating a metric.
-On short landscape screens these readouts share one row to preserve map/control space.
+Totals, point details and GPS always share a single text line above the graph in portrait
+and landscape. Spare width is distributed between metric groups. Timestamped tracks also
+show elapsed time. While inspecting a planned route, a compact blue GPS percentage retains
+the live route position if a recent accurate fix lies within 50 m of that route; its full
+distance and altitude remain available to accessibility. Large text scrolls horizontally
+without wrapping or adding header height.
 
-During recording, all touches pause map following until 30 seconds after release; another
+During recording, all touches pause map following until 5 seconds after release; another
 interaction restarts that delay. Keyboard/accessibility profile seeking also restarts it.
 The inspected point remains at its selected distance when the live track grows. When following
 resumes, the manual profile cursor clears and the camera follows existing recording fixes.
