@@ -12,6 +12,36 @@ grid values. This aligns the vertical reference with the terrain-height conventi
 terrain snapping or a correction of GPS noise. Local national height references and terrain models
 can still differ, and unreliable altitude changes remain subject to the recording filter.
 
+## Slow walking and stairs
+
+A sub-metre horizontal step does not invalidate an otherwise usable altitude fix. At a
+one-second GPS interval, slow climbs and stairs frequently produce these steps. The filter
+holds its last accepted estimate until displacement from its movement anchor reaches 3 m,
+then applies the existing altitude uncertainty band. It uses net displacement rather than
+accumulating stationary jitter. This keeps slow progress continuous without counting altitude
+drift while standing still. Poor vertical accuracy (over 10 m), missing altitude and abrupt
+vertical jumps still exclude samples. Raw stored and exported measurements are unchanged.
+
+The display remains a filtered GPS estimate: a few stair risers can be smaller than its
+uncertainty band, and dashed connectors describe excluded measurements rather than terrain
+steepness or the presence of steps.
+
+## Profile readouts and following
+
+Totals and point details each use a full-width row, with distance, altitude and progress
+spread apart. Timestamped tracks also show elapsed time. While inspecting a planned route,
+a separate blue GPS row retains the live route position if a recent accurate fix lies within
+50 m of that route. Large text can scroll horizontally without truncating a metric.
+On short landscape screens these readouts share one row to preserve map/control space.
+
+During recording, all touches pause map following until 30 seconds after release; another
+interaction restarts that delay. Keyboard/accessibility profile seeking also restarts it.
+The inspected point remains at its selected distance when the live track grows. When following
+resumes, the manual profile cursor clears and the camera follows existing recording fixes.
+Find my location clears inspection and resumes immediately. Editing suspends automatic following.
+Outside recording, manual inspection and map panning persist until an explicit action such as
+Find my location or selecting another route; no continuous GPS subscription is started.
+
 ## Short display gaps
 
 The profile draws a subdued dashed connector across an internal missing/excluded stretch only

@@ -1283,16 +1283,6 @@ public final class TrekMapView extends View {
       paint.setStyle(Paint.Style.FILL);
       c.drawCircle(x, y - dp(26), dp(5), paint);
     }
-    if (profilePoint != null) {
-      float x = px(profilePoint.lon), y = py(profilePoint.lat);
-      paint.setStyle(Paint.Style.FILL);
-      paint.setColor(AppPalette.SELECTION);
-      c.drawCircle(x, y, dp(12), paint);
-      paint.setColor(Color.WHITE);
-      c.drawCircle(x, y, dp(9), paint);
-      paint.setColor(AppPalette.ACCENT);
-      c.drawCircle(x, y, dp(6), paint);
-    }
     paint.setTextSize(dp(11));
     paint.setTextAlign(Paint.Align.LEFT);
     paint.setColor(AppPalette.MUTED);
@@ -1323,6 +1313,17 @@ public final class TrekMapView extends View {
           getWidth() / 2f,
           getHeight() * 0.40f + dp(24),
           paint);
+    }
+    // Keep the inspected point readable even over the unavailable-map message.
+    if (profilePoint != null) {
+      float x = px(profilePoint.lon), y = py(profilePoint.lat);
+      paint.setStyle(Paint.Style.FILL);
+      paint.setColor(AppPalette.SELECTION);
+      c.drawCircle(x, y, dp(12), paint);
+      paint.setColor(Color.WHITE);
+      c.drawCircle(x, y, dp(9), paint);
+      paint.setColor(AppPalette.ACCENT);
+      c.drawCircle(x, y, dp(6), paint);
     }
     paint.setTextAlign(Paint.Align.LEFT);
     paint.setTextSize(dp(10));
