@@ -243,11 +243,22 @@ public class AppUpdateTest {
     assertThrows(FileNotFoundException.class, () -> provider.openFile(UpdateFileProvider.uri(context), "rw"));
     assertThrows(FileNotFoundException.class, () -> provider.openFile(
         android.net.Uri.parse("content://app.cairn.trek.updates/../database.db"), "r"));
+  }
+
+  @Test @Config(sdk = {26, 28, 35})
+  @SuppressWarnings("deprecation")
+  public void selfUpdateUsesAndroidInstallerWithCairnAsSourceAndScopedReadAccess() {
+    Context context = RuntimeEnvironment.getApplication();
     Intent intent = AppUpdates.installIntent(context);
-    assertEquals(Intent.ACTION_VIEW, intent.getAction());
-    assertEquals("content", intent.getData().getScheme());
+    assertEquals(Intent.ACTION_INSTALL_PACKAGE, intent.getAction());
+    assertEquals(context.getPackageName(), intent.getStringExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME));
+    assertTrue(intent.getBooleanExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, false));
+    assertEquals(UpdateFileProvider.uri(context), intent.getData());
+    assertEquals("application/vnd.android.package-archive", intent.getType());
     assertEquals(Intent.FLAG_GRANT_READ_URI_PERMISSION, intent.getFlags());
     assertNotNull(intent.getClipData());
+    assertEquals(1, intent.getClipData().getItemCount());
+    assertEquals(intent.getData(), intent.getClipData().getItemAt(0).getUri());
   }
 
   private Object field(Object object, String name) throws Exception {
@@ -367,7 +378,7 @@ public class AppUpdateTest {
       assertTrue(UpdateFiles.ready(activity));
       Intent install = Shadows.shadowOf(activity).getNextStartedActivity();
       assertNotNull(install);
-      assertEquals(Intent.ACTION_VIEW, install.getAction());
+      assertEquals(Intent.ACTION_INSTALL_PACKAGE, install.getAction());
       assertEquals("application/vnd.android.package-archive", install.getType());
       assertSame(previous, org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
       assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
@@ -399,7 +410,7 @@ public class AppUpdateTest {
       updates.resume();
       drain(updates);
       assertEquals(
-          Intent.ACTION_VIEW, Shadows.shadowOf(activity).getNextStartedActivity().getAction());
+          Intent.ACTION_INSTALL_PACKAGE, Shadows.shadowOf(activity).getNextStartedActivity().getAction());
       assertEquals(2, requests.size());
       assertEquals(2, verified.get()); // Retained APK is reverified after leaving the app.
     }

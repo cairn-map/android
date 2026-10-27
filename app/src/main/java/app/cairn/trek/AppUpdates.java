@@ -215,11 +215,14 @@ final class AppUpdates {
     }
   }
 
+  @SuppressWarnings("deprecation") // Explicit platform install flow; source hint is legacy only.
   static Intent installIntent(Context context) {
     Uri uri = UpdateFileProvider.uri(context);
     Intent intent =
-        new Intent(Intent.ACTION_VIEW)
+        new Intent(Intent.ACTION_INSTALL_PACKAGE)
             .setDataAndType(uri, "application/vnd.android.package-archive")
+            .putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, context.getPackageName())
+            .putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
     intent.setClipData(ClipData.newRawUri("Cairn update", uri));
     return intent;
