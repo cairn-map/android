@@ -343,6 +343,7 @@ public class ElevationGraphTest {
     assertEquals(Geo.length(points) / 4, graph.gpsDistance(), .01);
     assertTrue(graph.pointText(false).contains("150 m"));
     assertTrue(graph.pointText(false).endsWith("25%"));
+    assertEquals("GPS 25%", graph.gpsProgressText());
     assertNull(graph.selectedPoint());
     graph.setCursorActive(true);
     graph.setProgress(5000);
@@ -362,6 +363,7 @@ public class ElevationGraphTest {
       graph.setGpsPosition(invalid);
       assertTrue(Double.isNaN(graph.gpsDistance()));
       assertEquals("", graph.pointText(false));
+      assertEquals("", graph.gpsProgressText());
       assertNotNull(graph.selectedPoint());
     }
     graph.bind(List.of(new Point(45, 6, 0, 0, 0, 0), new Point(45, 7, 0, 0, 0, 1)));
@@ -417,7 +419,7 @@ public class ElevationGraphTest {
       assertNotNull(graph.selectedPoint());
       assertEquals(inspected.lat, graph.selectedPoint().lat, .000002);
       assertEquals(2500, graph.getProgress());
-      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30));
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(5));
       assertNull(graph.selectedPoint());
       assertNull(field(field(activity, "map"), "profilePoint"));
     } finally {
@@ -692,27 +694,24 @@ public class ElevationGraphTest {
       TextView recap = (TextView) field(activity, "selectionRecap");
       assertEquals(1, recap.getLineCount());
       assertEquals(1, details.getLineCount());
-      View recapRow = (View) recap.getParent(), detailsRow = (View) details.getParent();
-      assertSame(recapRow.getParent(), detailsRow.getParent());
-      if (width > height) {
-        assertEquals(recapRow.getTop(), detailsRow.getTop());
-        assertTrue(detailsRow.getLeft() >= recapRow.getRight());
-      } else {
-        assertTrue(detailsRow.getTop() >= recapRow.getBottom());
-        assertEquals(panel.getWidth(), recapRow.getWidth());
-        assertEquals(panel.getWidth(), detailsRow.getWidth());
-      }
-      assertTrue(((View) detailsRow.getParent()).getBottom() <= graph.getTop());
-      if (!name.contains("large-text")) {
-        assertEquals(recapRow.getWidth(), recap.getWidth());
-        assertEquals(detailsRow.getWidth(), details.getWidth());
-      }
-      View gpsRow = (View) field(activity, "profileGpsRow");
-      assertEquals(gps ? View.VISIBLE : View.GONE, gpsRow.getVisibility());
+      assertSame(recap.getParent(), details.getParent());
+      assertEquals(recap.getTop(), details.getTop());
+      assertEquals(recap.getBaseline(), details.getBaseline());
+      assertTrue(details.getLeft() >= recap.getRight());
+      View header = (View) details.getParent();
+      assertTrue(((View) header.getParent()).getBottom() <= graph.getTop());
+      if (!name.contains("large-text")) assertEquals(panel.getWidth(), header.getWidth());
+      TextView gpsReadout = (TextView) field(activity, "profileGps");
+      assertEquals(gps ? View.VISIBLE : View.GONE, gpsReadout.getVisibility());
       if (gps) {
-        assertTrue(gpsRow.getTop() >= detailsRow.getBottom());
-        assertTrue(((TextView) field(activity, "profileGps")).getText().toString().startsWith("GPS "));
+        assertSame(header, gpsReadout.getParent());
+        assertEquals(recap.getTop(), gpsReadout.getTop());
+        assertEquals(1, gpsReadout.getLineCount());
+        assertEquals("GPS 25%", gpsReadout.getText().toString());
+        assertTrue(gpsReadout.getContentDescription().toString().contains("150 m"));
       }
+      int headerHeight = Math.max(recap.getHeight(), details.getHeight());
+      assertTrue(header.getHeight() <= headerHeight + margin / 4 + 1);
       View rail = (View) field(activity, "controlRail");
       assertTrue(rail.getTop() >= panel.getBottom());
       assertTrue(rail.getHeight() > 0);
